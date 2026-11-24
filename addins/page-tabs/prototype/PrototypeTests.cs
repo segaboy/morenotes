@@ -38,6 +38,26 @@ internal static class PrototypeTests
                 Exception failure = null;
                 using (var layout = new NativeLayout(frame.Handle, document.Handle, ribbon.Handle, navigation.Handle))
                 {
+                    Check(NativeLayout.RootOf(navigation.Handle) == frame.Handle && NativeLayout.RootOf(frame.Handle) == frame.Handle,
+                        "A descendant handle and its top-level frame must resolve to the same editor.");
+                    Check(NativeLayout.RootOf(IntPtr.Zero) == IntPtr.Zero, "A missing handle resolved to a frame.");
+                    using (var other = new Form())
+                    {
+                        var both = new List<IntPtr> { frame.Handle, other.Handle };
+                        Check(NotebookPages.SelectFrame(both, NativeLayout.RootOf(document.Handle), IntPtr.Zero) == frame.Handle,
+                            "Current child handle did not select its editor.");
+                        Check(NotebookPages.SelectFrame(both, frame.Handle, other.Handle) == other.Handle,
+                            "Explicit frame did not override the current editor.");
+                        both.Remove(frame.Handle);
+                        Check(NotebookPages.SelectFrame(both, frame.Handle, IntPtr.Zero) == other.Handle,
+                            "Unmatched active window hid the sole eligible editor.");
+                        CheckSelectionFails(both, other.Handle, frame.Handle);
+                        both.Add(frame.Handle);
+                        CheckSelectionFails(both, IntPtr.Zero, IntPtr.Zero);
+                        both.Add(frame.Handle);
+                        CheckSelectionFails(both, frame.Handle, frame.Handle);
+                    }
+                    Console.WriteLine("PASS window selection: child handles, alternate editor, explicit choice and ambiguous matches.");
                     Rectangle expected = Rectangle.Empty;
                     using (var strip = new PageStrip(frame.Handle, source, delegate {}, delegate(Exception e) { failure = e; }))
                     {
@@ -72,6 +92,13 @@ internal static class PrototypeTests
             }
             finally { frame.Close(); }
         }
+    }
+
+    private static void CheckSelectionFails(List<IntPtr> matches, IntPtr current, IntPtr requested)
+    {
+        try { NotebookPages.SelectFrame(matches, current, requested); }
+        catch (InvalidOperationException) { return; }
+        throw new InvalidOperationException("An unmatched or ambiguous editor was accepted.");
     }
 
     private static void WaitForPage(NotebookPages source, string id)
@@ -129,7 +156,7 @@ internal static class PrototypeTests
             foreach (int i in new[] { 0, 2, 1, 2, 0 })
             {
                 strip.ClickTab(pages[i]); WaitForPage(source, pages[i]); strip.RefreshActive();
-                Check(strip.IsSelected(pages[i]) && source.Window.WindowHandle == (ulong)layout.Frame.ToInt64(), "Wrong page or OneNote window.");
+                Check(strip.IsSelected(pages[i]) && source.Frame == layout.Frame, "Wrong page or OneNote window.");
                 Check(layout.StillReserved(slot), "OneNote reclaimed the strip after a tab click.");
             }
             source.Navigate(previous); WaitForPage(source, previous); strip.RefreshActive();

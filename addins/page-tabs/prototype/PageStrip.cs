@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Xml.Linq;
 using One = Microsoft.Office.Interop.OneNote;
@@ -16,11 +18,55 @@ internal sealed class NotebookPages : IPages
 {
     internal readonly One.Window Window;
     internal readonly One.Application App;
-    internal NotebookPages()
+    internal NotebookPages(One.Application app, One.Window window)
     {
-        App = new One.Application();
-        Window = App.Windows.CurrentWindow;
-        if (Window == null) throw new InvalidOperationException("Open a OneNote document window.");
+        App = app;
+        Window = window;
+    }
+
+    private static IntPtr HandleOf(One.Window window)
+    {
+        return window == null ? IntPtr.Zero : new IntPtr(unchecked((long)window.WindowHandle));
+    }
+    internal IntPtr Frame { get { return NativeLayout.RootOf(HandleOf(Window)); } }
+
+    internal static NotebookPages Bind(List<NativeLayout> layouts, IntPtr requested)
+    {
+        var app = new One.Application();
+        var windows = app.Windows;
+        IntPtr current = IntPtr.Zero;
+        try { current = HandleOf(windows.CurrentWindow); }
+        catch (COMException error) { Console.WriteLine("Current COM window unavailable (0x{0:X8}).", error.HResult); }
+        var matches = new List<KeyValuePair<IntPtr, One.Window>>();
+        Console.WriteLine("Current COM handle {0}, root {1}", current, NativeLayout.RootOf(current));
+        uint count = windows.Count;
+        for (uint i = 0; i < count; i++)
+        {
+            One.Window window = windows[i];
+            IntPtr handle = HandleOf(window);
+            IntPtr root = NativeLayout.RootOf(handle);
+            Console.WriteLine("COM handle {0}, root {1}", handle, root);
+            if (layouts.Exists(layout => layout.Frame == root))
+                matches.Add(new KeyValuePair<IntPtr, One.Window>(root, window));
+        }
+        IntPtr frame = SelectFrame(matches.Select(pair => pair.Key).ToList(), NativeLayout.RootOf(current), requested);
+        return new NotebookPages(app, matches.Single(pair => pair.Key == frame).Value);
+    }
+
+    internal static IntPtr SelectFrame(List<IntPtr> matchedFrames, IntPtr currentRoot, IntPtr requested)
+    {
+        if (matchedFrames.Count == 0)
+            throw new InvalidOperationException("No COM window belongs to a measured editor. Compare the COM roots and measured frames above.");
+        IntPtr selected = requested;
+        if (selected == IntPtr.Zero)
+        {
+            if (matchedFrames.Contains(currentRoot)) selected = currentRoot;
+            else if (matchedFrames.Count == 1) selected = matchedFrames[0];
+            else throw new InvalidOperationException("Several COM windows matched and the current window did not identify one. Select a measured frame with -WindowHandle.");
+        }
+        if (matchedFrames.Count(frame => frame == selected) != 1)
+            throw new InvalidOperationException("Frame " + selected + " has no unique COM window. Compare the COM roots and measured frames above.");
+        return selected;
     }
     public string Current { get { return Window.CurrentPageId; } }
     public void Navigate(string id) { Window.NavigateTo(id, null); }

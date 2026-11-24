@@ -21,24 +21,29 @@ internal sealed class NativeLayout : IDisposable
         navigation = navigationRow;
     }
 
-    internal static List<NativeLayout> Discover(IntPtr preferred)
+    internal static List<NativeLayout> Discover()
     {
         var result = new List<NativeLayout>();
+        var observed = new List<string>();
         foreach (IntPtr frame in Children(IntPtr.Zero, "Framework::CFrame"))
         {
-            if (IsIconic(frame) || (preferred != IntPtr.Zero && frame != preferred)) continue;
+            if (IsIconic(frame)) { observed.Add("Frame " + frame + " minimized"); continue; }
             MatchDpi(frame);
+            observed.Add("Frame " + frame + " at " + GetDpiForWindow(frame) + " DPI");
             foreach (IntPtr doc in Children(frame, "OneNote::MainWindow"))
             {
                 Rectangle body = Bounds(doc, frame);
+                observed.Add("document " + body);
                 foreach (IntPtr dock in Children(frame, "MsoCommandBarDock"))
                 {
                     Rectangle top = Bounds(dock, frame);
-                    if (top.Bottom != body.Top || top.Left > body.Left || top.Right < body.Right) continue;
+                    observed.Add("ribbon dock " + top);
                     foreach (IntPtr nav in Children(doc, "OneNote::NavigationUI"))
                     {
                         Rectangle row = Bounds(nav, frame);
-                        if (row.Top != body.Top || row.Width != body.Width ||
+                        observed.Add("navigation " + row);
+                        if (top.Bottom != body.Top || top.Left > body.Left || top.Right < body.Right ||
+                            row.Top != body.Top || row.Left != body.Left || row.Width != body.Width ||
                             row.Height < 12 || row.Height > GetDpiForWindow(frame) ||
                             row.Height >= body.Height) continue;
                         result.Add(new NativeLayout(frame, doc, dock, nav));
@@ -46,8 +51,16 @@ internal sealed class NativeLayout : IDisposable
                 }
             }
         }
-        if (result.Count == 0) throw new InvalidOperationException("Could not identify the ribbon, document and horizontal navigation row. Open a normal OneNote window, expand the ribbon, and enable horizontal tabs.");
+        if (result.Count == 0) throw new InvalidOperationException(observed.Count == 0
+            ? "Native discovery found no visible Framework::CFrame windows on this desktop."
+            : "Native discovery found no adjacent ribbon, document and full-width navigation row. Observed: " + String.Join("; ", observed));
         return result;
+    }
+
+    internal static IntPtr RootOf(IntPtr handle)
+    {
+        const uint root = 2; // GA_ROOT follows parents, never owners of other top-level windows.
+        return GetAncestor(handle, root);
     }
 
     internal static void MatchDpi(IntPtr frame)
@@ -151,6 +164,7 @@ internal sealed class NativeLayout : IDisposable
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] internal static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] internal static extern IntPtr GetParent(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr ChildWindowFromPointEx(IntPtr parent, Point point, uint flags);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
