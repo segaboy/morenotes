@@ -101,7 +101,7 @@ internal static class PrototypeTests
                             document.Bounds = expected;
                             slot = layout.Reserve();
                             strip.Attach(slot, layout);
-                            layout.CheckHitTargets(strip.Handle, slot);
+                            layout.CheckHitTargets(strip.Host.Handle, slot);
                             Check(slot == layout.Reserve(), "A repeated tick consumed another row.");
                             Check(slot.Top == height && slot.Bottom == layout.NavigationBounds.Top && slot.Width == expected.Width &&
                                 layout.DocumentBounds.Bottom == expected.Bottom, "The test strip overlaps native controls.");
@@ -111,17 +111,18 @@ internal static class PrototypeTests
                             document.Controls.Add(cover);
                             cover.BringToFront();
                             bool detected = false;
-                            try { layout.CheckHitTargets(strip.Handle, slot); }
+                            try { layout.CheckHitTargets(strip.Host.Handle, slot); }
                             catch (InvalidOperationException error) { detected = error.Message.Contains("navigation"); }
                             Check(detected, "The hit test accepted a control covering the left of the navigation row.");
                         }
-                        layout.CheckHitTargets(strip.Handle, slot);
+                        layout.CheckHitTargets(strip.Host.Handle, slot);
                         Console.WriteLine("PASS detected a partially covered navigation row and its recovery.");
                         string[] ids = { "a/1", "a/2", "b/1" };
                         foreach (var id in ids) { source.Navigate(id); strip.ClickKeepCurrent(); }
                         strip.ClickKeepCurrent();
                         Check(strip.TabCount == 3, "Duplicate add created another tab.");
                         AppearanceTests.Controlled(strip, layout, slot);
+                        expected = CheckDocking(frame, document, layout, strip);
                         Check(source.NotesCreated == 0, "Keeping an existing page created a Quick Note.");
                         strip.ClickAdd();
                         Check(strip.HasTabFocus(source.Current), "The first Quick Note tab did not receive keyboard focus.");
@@ -212,6 +213,63 @@ internal static class PrototypeTests
             }
             finally { frame.Close(); }
         }
+    }
+
+    private static Rectangle CheckDocking(Form frame, Panel document, NativeLayout layout, PageStrip strip)
+    {
+        string selected = strip.ActiveTabKey;
+        var arrow = strip.Host.MoveButton;
+        arrow.PerformClick();
+        Check(!strip.AtBottom && layout.StillReserved(strip.Host.Bounds), "A partial-width document allowed a bottom overlay.");
+        var full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
+        document.Bounds = full;
+        strip.Attach(layout.Reserve(), layout);
+        using (var footer = new Panel { Dock = DockStyle.Bottom, Height = 16 })
+        using (var sibling = new Panel { Bounds = new Rectangle(50, full.Bottom - 16, 70, 16) })
+        {
+            document.Controls.Add(footer);
+            frame.Controls.Add(sibling);
+            sibling.BringToFront();
+            arrow.PerformClick();
+            Check(!strip.AtBottom && layout.StillReserved(strip.Host.Bounds), "Moving would have covered a frame control.");
+            sibling.Hide();
+            arrow.PerformClick();
+            var bottom = strip.Host.Bounds;
+            Check(strip.AtBottom && arrow.PointsUp && strip.DefaultDropDownDirection == ToolStripDropDownDirection.AboveRight &&
+                layout.StillReserved(bottom) && bottom == layout.Reserve() && bottom.Bottom == frame.ClientSize.Height &&
+                bottom.Width == frame.ClientSize.Width && NativeLayout.Bounds(footer.Handle, frame.Handle).Bottom == bottom.Top,
+                "Bottom docking did not reserve a stable full-width slot below the native footer.");
+            layout.CheckHitTargets(strip.Host.Handle, bottom);
+            AppearanceTests.Controlled(strip, layout, bottom);
+            strip.Host.Width = 245;
+            Check(strip.OverflowButton.Visible && arrow.Right == strip.Host.ClientSize.Width && strip.Right == arrow.Left,
+                "Tab overflow displaced the far-right move button.");
+            frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
+            full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
+            document.Bounds = full;
+            // Bring the ribbon to the same width a real host assigns on resize.
+            NativeLayout.Move(layout.Ribbon, new Rectangle(0, 0, full.Width, full.Top));
+            bottom = layout.Reserve();
+            strip.Attach(bottom, layout);
+            Check(layout.StillReserved(bottom) && bottom.Bottom == full.Bottom && bottom.Width == full.Width,
+                "Resize lost the bottom dock.");
+            strip.PauseForDialog();
+            layout.ReleaseForDialog();
+            Check(layout.DocumentBounds == full && !strip.Host.Visible, "Pausing left a bottom gap.");
+            strip.Attach(layout.Reserve(), layout);
+            Check(strip.AtBottom && layout.StillReserved(bottom), "Resuming did not restore bottom placement.");
+            arrow.PerformClick();
+            Check(!strip.AtBottom && !arrow.PointsUp && layout.StillReserved(strip.Host.Bounds) &&
+                strip.Host.Top == full.Top && layout.DocumentBounds.Bottom == full.Bottom && strip.ActiveTabKey == selected,
+                "The up arrow did not restore top placement and the selected tab.");
+            arrow.PerformClick();
+            strip.PauseForDialog();
+            layout.Dispose();
+            Check(layout.DocumentBounds == full, "Closing MoreTabs at the bottom left a gap.");
+            strip.Attach(layout.Reserve(false, false), layout);
+        }
+        Console.WriteLine("PASS down/up arrows, full-width bottom docking, native footer, overflow, resize, modal resume and original selection.");
+        return full;
     }
 
     private static void CheckSelectionFails(List<IntPtr> matches, IntPtr current, IntPtr requested)
@@ -305,7 +363,7 @@ internal static class PrototypeTests
                 Check(strip.Items.OfType<PageTabButton>().Single(t => t.Checked).SectionColor == source.SectionColor(pages[i]),
                     "The tab has a different color from its disposable section.");
                 Check(layout.StillReserved(slot), "OneNote reclaimed the strip after a tab click.");
-                layout.CheckHitTargets(strip.Handle, slot);
+                layout.CheckHitTargets(strip.Host.Handle, slot);
             }
             if (handsOn) ObserveHandsOn(source, strip, layout, pages);
             else
@@ -343,9 +401,9 @@ internal static class PrototypeTests
                 Check(XElement.Parse(xml).DescendantsAndSelf().Any(e => e.Name.LocalName == "Section" && (string)e.Attribute("ID") == configured),
                     "The configured Quick Notes location did not resolve to a section.");
                 Console.WriteLine("PASS resolved the user's configured Quick Notes section without creating a personal page.");
-                strip.Hide();
+                strip.Host.Hide();
                 try { VerifySavedTabs(source, pages, layout, slot, Path.Combine(directory, "working-set.xml")); }
-                finally { strip.Show(); }
+                finally { strip.Attach(slot, layout); }
             }
             source.Navigate(previous); WaitForPage(source, previous); strip.RefreshActive();
             foreach (var id in pages) Check(!strip.IsSelected(id), "A stale test tab remained active.");
@@ -395,7 +453,7 @@ internal static class PrototypeTests
             WaitForPage(source, pages[2]); restored.RefreshActive();
             Check(restored.IsSelected(pages[2]) && restored.TabCount == 3 && source.Frame == layout.Frame,
                 "Opening a saved bookmark did not restore its tab in the same editor.");
-            layout.CheckHitTargets(restored.Handle, slot);
+            layout.CheckHitTargets(restored.Host.Handle, slot);
         }
         Console.WriteLine("PASS disk restore in OneNote: two notebook headings in alphabetical order, reopened the bookmarked page under the second notebook in the same editor.");
     }
@@ -413,7 +471,7 @@ internal static class PrototypeTests
             uint dpi = layout.Dpi;
             if (slot != lastSlot || body != lastBody || dpi != lastDpi)
             {
-                layout.CheckHitTargets(strip.Handle, slot);
+                layout.CheckHitTargets(strip.Host.Handle, slot);
                 Console.WriteLine("Layout sampled: row {0}, document {1}, DPI {2}; all three rows reachable.", slot, body, dpi);
                 lastSlot = slot; lastBody = body; lastDpi = dpi;
             }

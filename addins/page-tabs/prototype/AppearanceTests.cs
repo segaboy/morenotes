@@ -51,7 +51,7 @@ internal static class AppearanceTests
                     Check(HostChrome.ReadSectionBand(row, dpi, surface).IsEmpty, "A blank navigation row produced a section color.");
                     Check(!HostChrome.FindIcon(row, dpi, out measured, out left), "An empty row produced a false icon anchor.");
                 }
-                strip.Size = new Size(HostChrome.Px(950, dpi), HostChrome.Px(32, dpi));
+                strip.Host.Size = new Size(HostChrome.Px(950, dpi), HostChrome.Px(32, dpi));
                 strip.ApplyAppearance(expected);
                 foreach (var selected in new[] { schedule, original })
                 {
@@ -62,8 +62,8 @@ internal static class AppearanceTests
                         int stripe = selected == schedule ? (expected.DarkSections ? 0x006168 : 0x8EE4EA) :
                             (expected.DarkSections ? 0xC44A01 : 0xFFC39F);
                         int xSample = selected.Bounds.Left + HostChrome.Px(6, dpi);
-                        Check((bitmap.GetPixel(xSample, selected.Bounds.Top + 1).ToArgb() & 0xffffff) == stripe &&
-                            bitmap.GetPixel(xSample, selected.Bounds.Top + HostChrome.Px(4, dpi)).ToArgb() == selected.SectionColor.ToArgb(),
+                        Check((bitmap.GetPixel(xSample, FlatEdgeY(selected, strip.AtBottom, 1)).ToArgb() & 0xffffff) == stripe &&
+                            bitmap.GetPixel(xSample, FlatEdgeY(selected, strip.AtBottom, HostChrome.Px(4, dpi))).ToArgb() == selected.SectionColor.ToArgb(),
                             "The active tab must pair the native stripe with its original muted fill.");
                         var title = Rectangle.Inflate(selected.Bounds, -HostChrome.Px(10, dpi), -HostChrome.Px(7, dpi));
                         bool foundText = false;
@@ -168,6 +168,10 @@ internal static class AppearanceTests
         }
     }
 
+    private static int FlatEdgeY(ToolStripItem tab, bool bottom, int distance)
+    {
+        return bottom ? tab.Bounds.Bottom - 1 - distance : tab.Bounds.Top + distance;
+    }
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)
     {
         strip.PerformLayout();
@@ -184,7 +188,9 @@ internal static class AppearanceTests
                 "A tab appeared in the wrong group.");
         var active = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
         var palette = (TabRenderer)strip.Renderer;
-        Check(first.Bounds.Top == 0 && active.Bounds.Top == 0, "Tabs are not flush with the toolbar.");
+        bool bottom = strip.AtBottom;
+        Check(bottom ? first.Bounds.Bottom == strip.Height && active.Bounds.Bottom == strip.Height :
+            first.Bounds.Top == 0 && active.Bounds.Top == 0, "Tabs are not flush with the docked edge.");
         Check(star.Bounds.Top == first.Bounds.Top && star.Height == first.Height,
             "Bookmark and page tabs have different vertical bounds: " + star.Bounds + " and " + first.Bounds);
         var bitmap = new Bitmap(strip.Width, strip.Height);
@@ -199,9 +205,9 @@ internal static class AppearanceTests
                 "The bookmark star must have a solid yellow center.");
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + 2 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(starCenter, star.Bounds.Bottom - 3 * edge).ToArgb() == starBackground.ToArgb() &&
-                bitmap.GetPixel(star.Bounds.Left, star.Bounds.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
-                bitmap.GetPixel(star.Bounds.Right - 1, star.Bounds.Bottom - 1).ToArgb() == palette.Surface.ToArgb(),
-                "The bookmark star must have the tab fill and rounded lower corners.");
+                bitmap.GetPixel(star.Bounds.Left, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(star.Bounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb(),
+                "The bookmark star must have the tab fill and rounded corners facing the editor.");
             // Read through the two side points, ignoring very faint antialiasing pixels.
             int armY = star.Bounds.Top + star.Height / 2 - HostChrome.Px(2, chrome.Dpi);
             int starLeft = -1;
@@ -238,18 +244,18 @@ internal static class AppearanceTests
                 Color marker = palette.MarkerFor(tab);
                 for (int x = tab.Bounds.Left; x < tab.Bounds.Right; x++)
                     for (int y = 0; y < HostChrome.Px(3, chrome.Dpi); y++)
-                        Check(bitmap.GetPixel(x, tab.Bounds.Top + y).ToArgb() == marker.ToArgb(),
+                        Check(bitmap.GetPixel(x, FlatEdgeY(tab, bottom, y)).ToArgb() == marker.ToArgb(),
                             "Missing full-width section color on " + (tab.Checked ? "active" : "inactive") + " tab.");
                 Color fill = tab.Checked ? palette.MutedSection(tab.SectionColor) : tab.Selected ? palette.Hover : palette.Tab;
                 Check(fill.ToArgb() != marker.ToArgb() && bitmap.GetPixel(tab.Bounds.Left + 2 * edge,
-                    tab.Bounds.Top + HostChrome.Px(3, chrome.Dpi)).ToArgb() == fill.ToArgb(), "Incorrect section stripe thickness.");
-                Check(bitmap.GetPixel(tab.Bounds.Left + 2 * edge, tab.Bounds.Top + HostChrome.Px(3, chrome.Dpi) + edge).ToArgb() == fill.ToArgb() &&
-                    bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, tab.Bounds.Bottom - 3 * edge).ToArgb() == fill.ToArgb(),
+                    FlatEdgeY(tab, bottom, HostChrome.Px(3, chrome.Dpi))).ToArgb() == fill.ToArgb(), "Incorrect section stripe thickness.");
+                Check(bitmap.GetPixel(tab.Bounds.Left + 2 * edge, FlatEdgeY(tab, bottom, HostChrome.Px(3, chrome.Dpi) + edge)).ToArgb() == fill.ToArgb() &&
+                    bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, FlatEdgeY(tab, !bottom, 2 * edge)).ToArgb() == fill.ToArgb(),
                     "Tab body fill does not match its selection state.");
             }
-            Check(bitmap.GetPixel(b.Left + edge - 1, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
-                bitmap.GetPixel(b.Right - edge, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb(),
-                "The active tab's lower corners are not rounded.");
+            Check(bitmap.GetPixel(b.Left + edge - 1, FlatEdgeY(active, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(b.Right - edge, FlatEdgeY(active, !bottom, 0)).ToArgb() == palette.Surface.ToArgb(),
+                "The active tab's corners facing the editor are not rounded.");
             return bitmap;
         }
         catch { bitmap.Dispose(); throw; }

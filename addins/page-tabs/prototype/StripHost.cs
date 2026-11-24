@@ -1,0 +1,55 @@
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+
+// The arrow has its own column to the right of the ToolStrip's built-in overflow menu.
+internal sealed class StripHost : Panel
+{
+    private readonly IntPtr frame;
+    internal readonly DockArrow MoveButton = new DockArrow {
+        Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, UseMnemonic = false
+    };
+    internal StripHost(IntPtr frame, ToolStrip strip)
+    {
+        this.frame = frame;
+        Visible = false;
+        MoveButton.FlatAppearance.BorderSize = 0;
+        strip.Dock = DockStyle.Fill;
+        Controls.Add(strip);
+        Controls.Add(MoveButton);
+    }
+    protected override CreateParams CreateParams
+    {
+        get { var cp = base.CreateParams; cp.Parent = frame; cp.Style |= 0x40000000; return cp; }
+    }
+    internal void Style(TabRenderer palette)
+    {
+        BackColor = MoveButton.BackColor = palette.Surface;
+        MoveButton.ForeColor = palette.Ink;
+        MoveButton.FlatAppearance.MouseOverBackColor = palette.Hover;
+        MoveButton.FlatAppearance.MouseDownBackColor = palette.Active;
+        MoveButton.Width = HostChrome.Px(32, palette.Dpi);
+    }
+}
+
+internal sealed class DockArrow : Button
+{
+    internal bool PointsUp;
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        float scale = Width / 32f;
+        float x = Width / 2f, y = Height / 2f, step = (PointsUp ? -1 : 1) * scale;
+        bool highlighted = SystemInformation.HighContrast && ClientRectangle.Contains(PointToClient(Cursor.Position));
+        using (var pen = new Pen(highlighted ? SystemColors.HighlightText : ForeColor, 1.6f * scale))
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            pen.StartCap = pen.EndCap = LineCap.Round;
+            pen.LineJoin = LineJoin.Round;
+            e.Graphics.DrawLine(pen, x, y - 5 * step, x, y + 5 * step);
+            e.Graphics.DrawLines(pen, new[] { new PointF(x - 4 * scale, y + step), new PointF(x, y + 5 * step),
+                new PointF(x + 4 * scale, y + step) });
+        }
+    }
+}

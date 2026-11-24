@@ -18,7 +18,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 | --- | --- |
 | `Build` | Retains a standalone x64 executable and a double-click launcher, `artifacts/prototype/Run-MoreTabs.cmd`. |
 | `Measure` | Reports window handles, DPI, control bounds and native hit-test results for each measured window. Samples the left, center and right of the ribbon dock and section row without sending clicks or reading page content. |
-| `Placement` | Temporarily reserves 32 logical pixels, attaches a disabled child strip, watches whether OneNote keeps the space for 1.2 seconds without intervention, then restores the layout. Supply `-WindowHandle <number>` from Measure to select among several windows. |
+| `Placement` | Exercises the down and up arrows in the selected OneNote frame. Checks that both 32-logical-pixel rows survive 1.2 seconds without intervention, checks hit targets and restores the original document bounds. Supply `-WindowHandle <number>` from Measure to select among several windows. |
 | `Com` | Opens the desktop COM interface and checks if the current window has a readable page ID. |
 | `Bind` | Matches the measured native editor to a OneNote COM window. Prints handles and bounds without moving controls or navigating. |
 | `Verify` | Creates two disposable notebooks, keeps three pages, and clicks **+** twice with the Quick Notes destination set to a section in the second test notebook. Checks both new page IDs, their parent section, the editor window and keyboard focus on each new tab. Attempts to restore the original page and close the test notebooks. The disposable notebook files stay in the temporary directory. |
@@ -30,11 +30,15 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 ### Saved tabs and bookmarks
 
-Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and their lower corners use an eight-logical-pixel radius. The bookmark star's visible left edge lines up with the left edge of the current notebook icon in the row below. The strip samples that row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence. The active page has a distinct fill, and keyboard focus adds an outline.
+MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far right to move the whole strip to the bottom edge of the OneNote window. Click the up arrow to put it back. Both positions use the same tabs, active page and bookmarks. At the bottom, the tabs have rounded upper corners and a section-color stripe along the lower edge. The bookmarks menu opens upward. The move arrow stays visible when tabs overflow.
+
+In either position, the star lines up horizontally with the native notebook icon. The strip samples the navigation row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence.
 
 ![MoreTabs in dark mode with the bookmark star on the left, Schedule pinned, and two regular tabs](appearance.png)
 
-The solid yellow star at the far left opens bookmarks. Its compact tab has the same fill, height and rounded lower corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
+![The same tabs docked at the bottom, with upright titles, bottom stripes and an up arrow](appearance-bottom.png)
+
+The solid yellow star at the far left opens bookmarks. Its compact tab has the same height and rounded corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
 The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 
@@ -132,6 +136,8 @@ Start by identifying whether OneNote can reserve vertical space at the target lo
 | Microsoft's archived desktop sample demonstrates a OneNote COM add-in and setup. The Office.js OneNote overview targets the web. The VSTO application matrix lists the supported hosts. | The COM sample is a starting point. An extension point for this exact row is still unverified. Neither Office.js nor a standard VSTO custom task pane establishes that placement. [COM sample](https://github.com/OneNoteDev/VanillaAddIn) · [Office.js overview](https://learn.microsoft.com/en-us/office/dev/add-ins/onenote/onenote-add-ins-programming-overview) · [VSTO host matrix](https://learn.microsoft.com/en-us/visualstudio/vsto/features-available-by-office-application-and-project-type?view=visualstudio) |
 
 The prototype recognizes a native ribbon dock adjacent to a document window and identifies its horizontal navigation child by class and geometry. It requests space by moving and shortening the document window, then checks the new bounds before adding a child control. These window classes are observations from the tested build. Microsoft does not document them as a MoreTabs extension point. An unrecognized layout stops the experiment. The prototype registers no add-in and does not read or write notebook content in `Measure` or `Placement`.
+
+Bottom placement requires a document that reaches both sides and the bottom of the frame's client area. MoreTabs shortens that document from below, including its native footer. A separate frame control occupying the proposed row prevents the move. On November 24, 2026 the live 96-DPI window measured 1345 × 1170 client pixels, with the document filling the width and reaching the bottom. Live repositioning from the development session was blocked by Win32 error 5. The placement round trip, footer hit area, resize, modal resume, overflow and mirrored rendering have been checked in a controlled Windows window.
 
 ## Follow-up requirements
 

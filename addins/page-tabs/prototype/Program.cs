@@ -99,11 +99,19 @@ internal static class Program
         }
         if (frame != IntPtr.Zero) layouts = layouts.FindAll(candidate => candidate.Frame == frame);
         if (layouts.Count != 1) throw new InvalidOperationException("Expected one candidate row. Select a frame with exactly one measured row using -WindowHandle.");
+        NativeLayout.MatchDpi(layouts[0].Frame);
+        Console.WriteLine("Selected measured frame {0}.", layouts[0].Frame);
+        if (mode == "bind") return 0;
+        bool firstAttachment;
+        using (var owner = new System.Threading.Mutex(false, @"Local\MoreTabs.Layout." + layouts[0].Frame.ToInt64(), out firstAttachment))
         using (var layout = layouts[0])
         {
-            NativeLayout.MatchDpi(layout.Frame);
-            Console.WriteLine("Selected measured frame {0}.", layout.Frame);
-            if (mode == "bind") return 0;
+            if (!firstAttachment)
+            {
+                if (mode != "run") throw new InvalidOperationException("MoreTabs is already attached to this OneNote window.");
+                Console.WriteLine("MoreTabs is already attached to this OneNote window.");
+                return 0;
+            }
             var initial = layout.DocumentBounds;
             Rectangle slot = layout.Reserve(mode == "run");
             if (slot.IsEmpty) return WaitForEditor;
@@ -115,23 +123,40 @@ internal static class Program
             using (var strip = new PageStrip(layout.Frame, source, close, stop, store))
             {
                 strip.Attach(slot, layout);
-                layout.CheckHitTargets(strip.Handle, slot);
+                layout.CheckHitTargets(strip.Host.Handle, slot);
                 Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);
                 if (mode == "placement" || mode == "verify" || mode == "handson")
                 {
-                    strip.Enabled = false;
+                    strip.Host.Enabled = false;
                     // Observe without repositioning. Reapplying the reservation here would
                     // hide a OneNote layout pass which took the space back from the strip.
                     for (int i = 0; i < 12; i++)
                     {
                         Application.DoEvents();
                         System.Threading.Thread.Sleep(100);
-                        if (!layout.StillReserved(slot) || NativeLayout.Bounds(strip.Handle, layout.Frame) != slot)
+                        if (!layout.StillReserved(slot) || NativeLayout.Bounds(strip.Host.Handle, layout.Frame) != slot)
                             throw new InvalidOperationException("The host reclaimed or moved the strip during the idle placement test.");
                     }
-                    strip.Enabled = true;
-                    layout.CheckHitTargets(strip.Handle, slot);
+                    strip.Host.Enabled = true;
+                    layout.CheckHitTargets(strip.Host.Handle, slot);
                     Console.WriteLine("PASS reserved row survived the idle placement test with all three rows reachable.");
+                    if (mode == "placement")
+                    {
+                        strip.Host.MoveButton.PerformClick();
+                        if (!strip.AtBottom) throw new InvalidOperationException("The move to the bottom was declined.");
+                        Rectangle bottom = strip.Host.Bounds;
+                        for (int i = 0; i < 12; i++)
+                        {
+                            Application.DoEvents();
+                            System.Threading.Thread.Sleep(100);
+                            if (!layout.StillReserved(bottom)) throw new InvalidOperationException("The host reclaimed the bottom row.");
+                        }
+                        layout.CheckHitTargets(strip.Host.Handle, bottom);
+                        strip.Host.MoveButton.PerformClick();
+                        if (strip.AtBottom || strip.Host.Bounds != slot || !layout.StillReserved(slot))
+                            throw new InvalidOperationException("The up arrow did not restore the top row.");
+                        Console.WriteLine("PASS full-width bottom row {0} and return to the original top slot.", bottom);
+                    }
                 }
                 if (mode == "verify" || mode == "handson")
                 {
@@ -181,6 +206,16 @@ internal static class Program
                     }
                     if (NativeLayout.IsIconic(layout.Frame)) return;
                     Rectangle slot = layout.Reserve(true);
+                    if (slot.IsEmpty && layout.AtBottom)
+                    {
+                        // A newly opened frame pane can take the bottom edge. Modal views reject both positions.
+                        slot = layout.Reserve(true, false);
+                        if (!slot.IsEmpty)
+                        {
+                            strip.Attach(slot, layout);
+                            strip.ExplainTopPlacement();
+                        }
+                    }
                     if (slot.IsEmpty)
                     {
                         if (strip.Visible)

@@ -172,6 +172,12 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var state = e.Graphics.Save();
         try
         {
+            var strip = e.Item.Owner as PageStrip;
+            if (strip != null && strip.AtBottom)
+            {
+                e.Graphics.TranslateTransform(0, h);
+                e.Graphics.ScaleTransform(1, -1);
+            }
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (var shape = new GraphicsPath())
             using (var fill = new SolidBrush(Background(e.Item)))
@@ -234,12 +240,16 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         PaintCommand(e);
         var split = (ToolStripSplitButton)e.Item;
-        DrawArrow(new ToolStripArrowRenderEventArgs(e.Graphics, split, split.DropDownButtonBounds, TextColor(split), ArrowDirection.Down));
+        DrawArrow(new ToolStripArrowRenderEventArgs(e.Graphics, split, split.DropDownButtonBounds, TextColor(split), MenuArrow(e.ToolStrip)));
     }
     protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
     {
         PaintCommand(e);
-        DrawArrow(new ToolStripArrowRenderEventArgs(e.Graphics, e.Item, new Rectangle(Point.Empty, e.Item.Size), TextColor(e.Item), ArrowDirection.Down));
+        DrawArrow(new ToolStripArrowRenderEventArgs(e.Graphics, e.Item, new Rectangle(Point.Empty, e.Item.Size), TextColor(e.Item), MenuArrow(e.ToolStrip)));
+    }
+    private static ArrowDirection MenuArrow(ToolStrip strip)
+    {
+        return strip.DefaultDropDownDirection == ToolStripDropDownDirection.AboveRight ? ArrowDirection.Up : ArrowDirection.Down;
     }
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {

@@ -183,6 +183,9 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolTip notice = new ToolTip();
     private TabRenderer appearance;
     private readonly HostChrome defaultChrome = new HostChrome();
+    internal readonly StripHost Host;
+    private NativeLayout attachedLayout;
+    internal bool AtBottom { get; private set; }
     private bool highContrast;
     private Font tabFont, selectedTabFont;
     private readonly SessionStore store;
@@ -221,18 +224,23 @@ internal sealed class PageStrip : ToolStrip
         var stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
+        Host = new StripHost(frame, this);
+        Host.MoveButton.Click += delegate { Perform(MoveStrip); };
+        SetDirection(false);
         defaultChrome.Update(IntPtr.Zero, 96);
         ApplyAppearance(defaultChrome);
         ApplyState(this.store.Read());
     }
-    protected override CreateParams CreateParams
-    {
-        get { var cp = base.CreateParams; cp.Parent = frame; cp.Style |= 0x40000000; return cp; }
-    }
     private void Perform(Action action) { try { action(); } catch (Exception e) { onError(e); } }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { tabMenu.Dispose(); notice.Dispose(); }
+        if (disposing)
+        {
+            tabMenu.Dispose();
+            notice.Dispose();
+            Host.Controls.Remove(this);
+            Host.Dispose();
+        }
         base.Dispose(disposing);
         if (disposing)
         {
@@ -265,7 +273,7 @@ internal sealed class PageStrip : ToolStrip
     internal void PauseForDialog()
     {
         ReleaseFocusShortcut();
-        Hide();
+        Host.Hide();
     }
     protected override void OnHandleDestroyed(EventArgs e)
     {
@@ -352,11 +360,58 @@ internal sealed class PageStrip : ToolStrip
 
     internal void Attach(Rectangle slot, NativeLayout layout = null)
     {
-        Bounds = slot;
-        if (layout != null) ApplyAppearance(layout.Appearance(!Visible));
-        if (NativeLayout.GetParent(Handle) != frame || NativeLayout.Bounds(Handle, frame) != slot)
+        attachedLayout = layout;
+        Host.Bounds = slot;
+        if (layout != null)
+        {
+            layout.StripWindow = Host.Handle;
+            if (AtBottom != layout.AtBottom) SetDirection(layout.AtBottom);
+            ApplyAppearance(layout.Appearance(!Host.Visible));
+        }
+        if (NativeLayout.GetParent(Host.Handle) != frame || NativeLayout.Bounds(Host.Handle, frame) != slot)
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
-        Show();
+        Host.Show();
+    }
+    private void MoveStrip()
+    {
+        if (attachedLayout == null) return;
+        bool previous = AtBottom;
+        try
+        {
+            Rectangle slot = attachedLayout.Reserve(false, !previous);
+            Attach(slot, attachedLayout);
+            attachedLayout.CheckHitTargets(Host.Handle, slot);
+        }
+        catch (Exception error)
+        {
+            if (!(error is InvalidOperationException || error is System.ComponentModel.Win32Exception)) throw;
+            // A preflight rejection leaves the existing row intact. Roll back if the host changed during the move.
+            if (attachedLayout.AtBottom != previous) Attach(attachedLayout.Reserve(false, previous), attachedLayout);
+            Console.WriteLine("Could not move the tab strip: " + error.Message);
+            notice.Show(error.Message, Host.MoveButton, 0, 0, 4000);
+        }
+    }
+    private void SetDirection(bool bottom)
+    {
+        AtBottom = bottom;
+        DefaultDropDownDirection = bottom ? ToolStripDropDownDirection.AboveRight : ToolStripDropDownDirection.BelowRight;
+        Host.MoveButton.PointsUp = bottom;
+        Host.MoveButton.Invalidate();
+        Host.MoveButton.AccessibleName = bottom ? "Move tabs to top" : "Move tabs to bottom";
+        notice.SetToolTip(Host.MoveButton, Host.MoveButton.AccessibleName);
+        if (appearance != null)
+        {
+            var margin = TabMargin(appearance.Dpi);
+            bookmarks.Margin = new Padding(0, margin.Top, margin.Right, margin.Bottom);
+            foreach (var tab in buttons.Values) tab.Margin = margin;
+            Invalidate();
+        }
+    }
+    internal void ExplainTopPlacement()
+    {
+        const string message = "Tabs moved to the top because OneNote is using the bottom edge.";
+        Console.WriteLine(message);
+        notice.Show(message, Host.MoveButton, 0, Host.Height, 4000);
     }
     internal void ApplyAppearance(HostChrome chrome)
     {
@@ -370,6 +425,7 @@ internal sealed class PageStrip : ToolStrip
             tabMenu.Renderer = bookmarks.DropDown.Renderer = add.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
+            Host.Style(appearance);
         }
         // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
         int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), chrome.Inset);
@@ -403,10 +459,11 @@ internal sealed class PageStrip : ToolStrip
             if (oldSelected != null) oldSelected.Dispose();
         }
     }
-    private static Padding TabMargin(uint dpi)
+    private Padding TabMargin(uint dpi)
     {
         int side = HostChrome.Px(1, dpi);
-        return new Padding(side, 0, side, HostChrome.Px(3, dpi));
+        int gap = HostChrome.Px(3, dpi);
+        return new Padding(side, AtBottom ? gap : 0, side, AtBottom ? 0 : gap);
     }
     private void SizeTab(PageTabButton tab)
     {

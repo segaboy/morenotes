@@ -144,7 +144,7 @@ internal static class SavedSessionTests
                 using (var strip = new PageStrip(frame.Handle, source, Application.ExitThread, e => { throw e; }, new SessionStore(path)))
                 using (var closeHost = new Timer { Interval = 600 })
                 {
-                    strip.Attach(layout.Reserve());
+                    strip.Attach(layout.Reserve(), layout);
                     strip.RestoreOrSeed();
                     Check(strip.TabCount == 1 && strip.IsSelected("a1") == (attachment == 0), "New editor lost the prior working set.");
                     int phase = 0;
@@ -169,7 +169,7 @@ internal static class SavedSessionTests
                                 phase++;
                                 return;
                             }
-                            resumed = strip.Visible && layout.StillReserved(strip.Bounds) && strip.IsSelected("a1");
+                            resumed = strip.Visible && layout.StillReserved(strip.Host.Bounds) && strip.IsSelected("a1");
                         }
                         closeHost.Stop();
                         frame.Close();

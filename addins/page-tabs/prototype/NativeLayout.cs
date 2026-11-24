@@ -18,6 +18,8 @@ internal sealed class NativeLayout : IDisposable
         return chrome;
     }
     private Rectangle original, applied;
+    internal bool AtBottom { get; private set; }
+    internal IntPtr StripWindow;
 
     internal NativeLayout(IntPtr frame, IntPtr document, IntPtr ribbon, IntPtr navigationRow)
     {
@@ -78,11 +80,25 @@ internal sealed class NativeLayout : IDisposable
     internal Rectangle DocumentBounds { get { return Bounds(Document, Frame); } }
     internal Rectangle NavigationBounds { get { return Bounds(navigation, Frame); } }
     internal Rectangle RibbonBounds { get { return Bounds(Ribbon, Frame); } }
+    private Rectangle ClientBounds
+    {
+        get
+        {
+            RECT r;
+            if (!GetClientRect(Frame, out r)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+        }
+    }
     internal bool StillReserved(Rectangle slot)
     {
-        return Alive && slot.Left == DocumentBounds.Left && slot.Width == DocumentBounds.Width &&
-            slot.Top == RibbonBounds.Bottom && slot.Bottom == NavigationBounds.Top &&
-            slot.Bottom == DocumentBounds.Top && DocumentBounds == applied;
+        if (!Alive || slot.IsEmpty || DocumentBounds != applied || applied.Top != NavigationBounds.Top) return false;
+        if (AtBottom)
+        {
+            var client = ClientBounds;
+            return slot.Left == client.Left && slot.Right == client.Right && slot.Bottom == client.Bottom &&
+                slot.Top == applied.Bottom && applied.Top == RibbonBounds.Bottom;
+        }
+        return slot.Left == applied.Left && slot.Width == applied.Width && slot.Top == RibbonBounds.Bottom && slot.Bottom == applied.Top;
     }
     internal uint Dpi { get { return GetDpiForWindow(Frame); } }
     internal void CheckHitTargets(IntPtr strip, Rectangle slot)
@@ -96,6 +112,8 @@ internal sealed class NativeLayout : IDisposable
             CheckChildAt(Frame, new Point(x, ribbonY), Ribbon, "ribbon");
             if (strip != IntPtr.Zero)
                 CheckChildAt(Frame, new Point(x, slot.Top + slot.Height / 2), strip, "tab strip");
+            if (AtBottom && strip != IntPtr.Zero)
+                CheckChildAt(Frame, new Point(x, slot.Top - 1), Document, "document above bottom strip");
             Point p = new Point(x, nav.Top + nav.Height / 2);
             CheckChildAt(Frame, p, Document, "document at navigation row");
             MapWindowPoints(Frame, Document, ref p, 1);
@@ -113,9 +131,7 @@ internal sealed class NativeLayout : IDisposable
     internal bool Alive { get { return IsWindow(Frame) && GetParent(Document) == Frame &&
         GetParent(Ribbon) == Frame && GetParent(navigation) == Document; } }
 
-    // The host owns the outer edges. Recompute from the ribbon and current bottom each
-    // time so repeated ticks cannot shrink the document again.
-    internal Rectangle Reserve(bool waitForEditor = false)
+    internal Rectangle Reserve(bool waitForEditor = false, bool? atBottom = null)
     {
         if (!Alive || !IsWindowEnabled(Frame) || !IsWindowVisible(Ribbon) || !IsWindowVisible(navigation))
             return Unavailable(waitForEditor, "OneNote replaced, disabled or hid a required layout window.");
@@ -131,17 +147,40 @@ internal sealed class NativeLayout : IDisposable
         MapWindowPoints(Frame, Document, ref middle, 1);
         if (ChildWindowFromPointEx(Document, middle, 7) != navigation)
             return Unavailable(waitForEditor, "OneNote is covering the navigation row in the document.");
-        int height = (int)Math.Round(32 * Dpi / 96.0);
-        if (height <= 0 || body.Width < 120 || body.Bottom - ribbon.Bottom < height * 3)
+        bool bottom = atBottom ?? AtBottom;
+        var client = ClientBounds;
+        // When the host has already laid out the full document, use its new edge. When our
+        // previous bottom reservation is still in effect, put those pixels back before sizing again.
+        int fullBottom = AtBottom && !applied.IsEmpty && body.Bottom == applied.Bottom ?
+            FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, client.Bottom)) : body.Bottom;
+        var full = Rectangle.FromLTRB(body.Left, ribbon.Bottom, body.Right, fullBottom);
+        int height = HostChrome.Px(32, Dpi);
+        if (height <= 0 || body.Width < 120 || full.Height < height * 3)
             return Unavailable(waitForEditor, "Insufficient usable document space.");
-        Rectangle full = Rectangle.FromLTRB(body.Left, ribbon.Bottom, body.Right, body.Bottom);
-        Rectangle next = Rectangle.FromLTRB(full.Left, full.Top + height, full.Right, full.Bottom);
+        var slot = new Rectangle(full.Left, bottom ? full.Bottom - height : full.Top, full.Width, height);
+        if (bottom && (full.Left != client.Left || full.Right != client.Right || full.Bottom != client.Bottom ||
+            FreeBottom(slot) != slot.Bottom))
+            return Unavailable(waitForEditor, "Another OneNote layout or control occupies the full-width bottom row.");
+        var next = Rectangle.FromLTRB(full.Left, bottom ? full.Top : slot.Bottom, full.Right, bottom ? slot.Top : full.Bottom);
         if (next != body) Move(Document, next);
         original = full;
         applied = next;
+        AtBottom = bottom;
         if (DocumentBounds != next || NavigationBounds.Top != next.Top || RibbonBounds != ribbon)
             return Unavailable(waitForEditor, "OneNote did not preserve the reserved row.");
-        return new Rectangle(full.Left, full.Top, full.Width, height);
+        return slot;
+    }
+    private int FreeBottom(Rectangle band)
+    {
+        int limit = band.Bottom;
+        if (band.Height <= 0) return limit;
+        foreach (IntPtr child in Children(Frame, null))
+        {
+            if (child == Document || child == StripWindow) continue;
+            var other = Bounds(child, Frame);
+            if (other.IntersectsWith(band)) limit = Math.Min(limit, Math.Max(band.Top, other.Top));
+        }
+        return limit;
     }
     private static Rectangle Unavailable(bool waitForEditor, string reason)
     {
@@ -151,8 +190,14 @@ internal sealed class NativeLayout : IDisposable
     internal void ReleaseForDialog()
     {
         if (applied.IsEmpty || !Alive || DocumentBounds != applied) return;
-        Move(Document, original);
+        var restore = original;
+        if (AtBottom) restore.Height = RestoreBottom(applied) - restore.Top;
+        Move(Document, restore);
         applied = Rectangle.Empty;
+    }
+    private int RestoreBottom(Rectangle body)
+    {
+        return FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, Math.Min(original.Bottom, ClientBounds.Bottom)));
     }
 
     public void Dispose()
@@ -161,7 +206,9 @@ internal sealed class NativeLayout : IDisposable
         {
             Rectangle body = DocumentBounds;
             // Only release a strip we still own. Preserve any intervening host resize.
-            if (body.Top == applied.Top)
+            if (AtBottom && body.Bottom == applied.Bottom)
+                Move(Document, Rectangle.FromLTRB(body.Left, body.Top, body.Right, RestoreBottom(body)));
+            else if (!AtBottom && body.Top == applied.Top)
             {
                 int top = GetParent(Ribbon) == Frame ? RibbonBounds.Bottom : original.Top;
                 if (top < body.Bottom) Move(Document, Rectangle.FromLTRB(body.Left, top, body.Right, body.Bottom));
@@ -195,6 +242,7 @@ internal sealed class NativeLayout : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string name, string title);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool GetWindowRect(IntPtr window, out RECT bounds);
+    [DllImport("user32.dll", SetLastError=true)] private static extern bool GetClientRect(IntPtr window, out RECT bounds);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool ScreenToClient(IntPtr window, ref Point point);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
