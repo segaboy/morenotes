@@ -34,7 +34,7 @@ Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and th
 
 ![MoreTabs in dark mode with the bookmark star on the left, Schedule pinned, and two regular tabs](appearance.png)
 
-The star at the far left opens bookmarks. A short vertical divider separates it from the page tabs. Pinned tabs appear first. A second divider marks the end of that group whenever at least one tab is pinned.
+The star at the far left opens bookmarks. Its compact tab has the same fill, height and rounded lower corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
 The active tab carries a colored bar along its top edge. It stays visible while you type in OneNote. Naming or renaming the displayed page updates its tab as soon as MoreTabs reads the new title from OneNote. If two pages in different notebooks share a title, the labels also show the notebook.
 

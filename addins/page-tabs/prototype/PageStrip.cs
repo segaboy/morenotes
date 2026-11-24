@@ -333,13 +333,16 @@ internal sealed class PageStrip : ToolStrip
             ForeColor = appearance.Ink;
         }
         // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
-        int iconPadding = Math.Min(HostChrome.Px(5, chrome.Dpi), chrome.Inset);
+        int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), chrome.Inset);
         var inset = new Padding(chrome.Inset - iconPadding, 0, HostChrome.Px(2, chrome.Dpi), 0);
         if (Padding != inset) Padding = inset;
         if (bookmarks.Padding.Left != iconPadding) bookmarks.Padding = new Padding(iconPadding, 0, 0, 0);
+        int bookmarkWidth = Math.Max(HostChrome.Px(24, chrome.Dpi), HostChrome.Px(17, chrome.Dpi) + 2 * iconPadding);
+        if (bookmarks.TabWidth != bookmarkWidth) { bookmarks.TabWidth = bookmarkWidth; PerformLayout(); }
         if (metrics)
         {
-            bookmarks.Width = HostChrome.Px(26, chrome.Dpi);
+            var tabMargin = TabMargin(chrome.Dpi);
+            bookmarks.Margin = new Padding(0, tabMargin.Top, tabMargin.Right, tabMargin.Bottom);
             Font oldRegular = tabFont, oldSelected = selectedTabFont;
             var menuFont = SystemFonts.MenuFont;
             tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -352,7 +355,8 @@ internal sealed class PageStrip : ToolStrip
             {
                 divider.AutoSize = false;
                 divider.Margin = Padding.Empty;
-                divider.Size = new Size(HostChrome.Px(5, chrome.Dpi), HostChrome.Px(30, chrome.Dpi));
+                // One painted pixel with the same number of empty pixels on either side.
+                divider.Size = new Size(2 * HostChrome.Px(4, chrome.Dpi) + 1, HostChrome.Px(30, chrome.Dpi));
                 divider.Overflow = ToolStripItemOverflow.Never;
             }
             foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);
@@ -360,13 +364,18 @@ internal sealed class PageStrip : ToolStrip
             if (oldSelected != null) oldSelected.Dispose();
         }
     }
+    private static Padding TabMargin(uint dpi)
+    {
+        int side = HostChrome.Px(1, dpi);
+        return new Padding(side, 0, side, HostChrome.Px(3, dpi));
+    }
     private void SizeTab(PageTabButton tab)
     {
         uint dpi = appearance.Dpi;
         tab.Dpi = dpi;
         // Measure both states at the heavier weight so selecting a tab never shifts its neighbors.
         tab.Font = selectedTabFont;
-        tab.Margin = new Padding(0, 0, HostChrome.Px(2, dpi), HostChrome.Px(3, dpi));
+        tab.Margin = TabMargin(dpi);
         tab.Padding = new Padding(HostChrome.Px(10, dpi), 0, HostChrome.Px(10, dpi), 0);
     }
     private static string ShortCaption(SavedPage page)

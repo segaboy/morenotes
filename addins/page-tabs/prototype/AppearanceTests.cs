@@ -55,7 +55,7 @@ internal static class AppearanceTests
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
-        Console.WriteLine("PASS rendered dark, light and high-contrast tabs at 96, 120, 144 and 192 DPI: bookmark star aligned with the notebook icon, dividers, pinned group, active tab and lower corners.");
+        Console.WriteLine("PASS dark, light and high-contrast rendering at 96, 120, 144 and 192 DPI: rounded bookmark tab, notebook icon alignment, equal divider gaps and the active page marker.");
     }
 
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)
@@ -75,17 +75,25 @@ internal static class AppearanceTests
         var active = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
         var palette = (TabRenderer)strip.Renderer;
         Check(first.Bounds.Top == 0 && active.Bounds.Top == 0, "Tabs are not flush with the toolbar.");
+        Check(star.Bounds.Top == first.Bounds.Top && star.Height == first.Height,
+            "Bookmark and page tabs have different vertical bounds: " + star.Bounds + " and " + first.Bounds);
         var bitmap = new Bitmap(strip.Width, strip.Height);
         try
         {
             strip.DrawToBitmap(bitmap, strip.ClientRectangle);
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
-            Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Surface;
+            Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
+            int starCenter = star.Bounds.Left + star.Width / 2;
+            Check(bitmap.GetPixel(starCenter, star.Bounds.Top + 2 * edge).ToArgb() == starBackground.ToArgb() &&
+                bitmap.GetPixel(starCenter, star.Bounds.Bottom - 3 * edge).ToArgb() == starBackground.ToArgb() &&
+                bitmap.GetPixel(star.Bounds.Left, star.Bounds.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(star.Bounds.Right - 1, star.Bounds.Bottom - 1).ToArgb() == palette.Surface.ToArgb(),
+                "The bookmark star must have the tab fill and rounded lower corners.");
             // Read through the two side points, ignoring very faint antialiasing pixels.
             int armY = star.Bounds.Top + star.Height / 2 - HostChrome.Px(2, chrome.Dpi);
             int starLeft = -1;
-            for (int x = star.Bounds.Left; x < star.Bounds.Right && starLeft < 0; x++)
+            for (int x = star.Bounds.Left + 1; x < star.Bounds.Right && starLeft < 0; x++)
                 for (int y = armY - edge; y <= armY + edge; y++)
                 {
                     Color c = bitmap.GetPixel(x, y);
@@ -98,7 +106,18 @@ internal static class AppearanceTests
             foreach (var divider in dividers)
             {
                 int x = divider.Bounds.Left + divider.Width / 2;
-                Check(bitmap.GetPixel(x, divider.Bounds.Top + divider.Height / 2).ToArgb() != palette.Surface.ToArgb() &&
+                var left = strip.Items[strip.Items.IndexOf(divider) - 1];
+                var right = strip.Items[strip.Items.IndexOf(divider) + 1];
+                int y = divider.Bounds.Top + divider.Height / 2;
+                if (left.Placement == ToolStripItemPlacement.Main && right.Placement == ToolStripItemPlacement.Main)
+                {
+                    int leftGap = x - left.Bounds.Right, rightGap = right.Bounds.Left - x - 1;
+                    Check(leftGap > 0 && leftGap == rightGap, "Divider gaps in pixels: left " + leftGap + ", right " + rightGap);
+                    for (int gap = 1; gap <= leftGap; gap++)
+                        Check(bitmap.GetPixel(x - gap, y).ToArgb() == palette.Surface.ToArgb() &&
+                            bitmap.GetPixel(x + gap, y).ToArgb() == palette.Surface.ToArgb(), "A divider gap contains painted pixels.");
+                }
+                Check(bitmap.GetPixel(x, y).ToArgb() != palette.Surface.ToArgb() &&
                     bitmap.GetPixel(x, divider.Bounds.Top + edge).ToArgb() == palette.Surface.ToArgb(),
                     "Missing or full-height group divider at " + divider.Bounds);
             }

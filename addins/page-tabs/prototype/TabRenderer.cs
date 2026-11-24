@@ -5,11 +5,18 @@ using System.Windows.Forms;
 
 internal sealed class BookmarkButton : ToolStripDropDownButton
 {
+    internal int TabWidth;
+
+    public override Size GetPreferredSize(Size constrainingSize)
+    {
+        var size = base.GetPreferredSize(constrainingSize);
+        size.Width = TabWidth;
+        return size;
+    }
     internal BookmarkButton()
     {
         AccessibleName = ToolTipText = "Bookmarks";
         AutoToolTip = false;
-        AutoSize = false;
         ShowDropDownArrow = false;
         DisplayStyle = ToolStripItemDisplayStyle.None;
         Overflow = ToolStripItemOverflow.Never;
@@ -63,13 +70,18 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var button = item as ToolStripButton;
         return item.Selected || item.Pressed || (button != null && button.Checked);
     }
+    private Color Background(ToolStripItem item)
+    {
+        var button = item as ToolStripButton;
+        if (item.Pressed || (button != null && button.Checked)) return Active;
+        if (item.Selected) return Hover;
+        return item is PageTabButton || item is BookmarkButton ? Tab : Surface;
+    }
     private Color TextColor(ToolStripItem item)
     {
         if (!item.Enabled) return contrast ? SystemColors.GrayText : Blend(Ink, Surface, 40);
         if (contrast && Highlighted(item)) return SystemColors.HighlightText;
-        var button = item as ToolStripButton;
-        Color background = item.Pressed || (button != null && button.Checked) ? Active :
-            item.Selected ? Hover : item is PageTabButton ? Tab : Surface;
+        Color background = Background(item);
         Color text = Highlighted(item) ? Ink : MutedInk;
         double bg = Luminance(background), fg = Luminance(text);
         if ((Math.Max(bg, fg) + 0.05) / (Math.Min(bg, fg) + 0.05) >= 4.5) return text;
@@ -121,7 +133,11 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         var tab = e.Item as PageTabButton;
         if (tab == null || e.ToolStrip is ToolStripDropDown) { PaintCommand(e); return; }
-        int w = tab.Width, h = tab.Height;
+        PaintTab(e, tab.Checked);
+    }
+    private void PaintTab(ToolStripItemRenderEventArgs e, bool showActiveMarker)
+    {
+        int w = e.Item.Width, h = e.Item.Height;
         int diameter = Math.Min(HostChrome.Px(16, Dpi), Math.Min(w, h));
         if (diameter < 2) return;
         var state = e.Graphics.Save();
@@ -129,7 +145,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (var shape = new GraphicsPath())
-            using (var fill = new SolidBrush(tab.Checked ? Active : tab.Selected ? Hover : Tab))
+            using (var fill = new SolidBrush(Background(e.Item)))
             {
                 shape.AddLine(0, 0, w, 0);
                 shape.AddArc(w - diameter, h - diameter, diameter, diameter, 0, 90);
@@ -138,7 +154,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                 e.Graphics.FillPath(fill, shape);
                 if (contrast)
                     using (var border = new Pen(Ink) { Alignment = PenAlignment.Inset }) e.Graphics.DrawPath(border, shape);
-                if (tab.Checked)
+                if (showActiveMarker)
                 {
                     int inset = HostChrome.Px(8, Dpi);
                     using (var marker = new SolidBrush(ActiveMarker))
@@ -157,8 +173,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) { PaintCommand(e); }
     protected override void OnRenderDropDownButtonBackground(ToolStripItemRenderEventArgs e)
     {
-        PaintCommand(e);
-        if (!(e.Item is BookmarkButton)) return;
+        if (!(e.Item is BookmarkButton)) { PaintCommand(e); return; }
+        PaintTab(e, false);
         float cy = e.Item.Height / 2f;
         float radius = Math.Min(HostChrome.Px(8, Dpi), cy - 1);
         if (radius < 1) return;
