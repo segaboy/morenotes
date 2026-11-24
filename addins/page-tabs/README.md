@@ -64,7 +64,9 @@ The saved-session verification also passed in the live editor on the same x64 bu
 
 The controlled suite separately verified restoration across fresh processes, an empty saved session, bookmark removal, fallback from an obsolete page ID, and concurrent writes from independent stores. It also closed a controlled editor while the interactive loop was running and restored the saved row in a second editor.
 
-The Windows control test clicked **+** twice from a tracked page, checked for two distinct page IDs and verified keyboard focus on each new tab. It also exercised delayed navigation, an unavailable destination, and retrying a created tab after navigation failed. In the live verifier, the creation test uses a disposable Quick Notes section and separately resolves the user's configured section.
+On November 24, 2026, prototype `b7c1fd7` passed the Quick Notes test in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. Two **+** clicks created two distinct pages in the second test notebook’s Quick Notes destination. Each page opened in its own tab in the original editor, and each new tab received keyboard focus. The verifier also resolved the user's configured Quick Notes section. It wrote the test pages only in the disposable notebook and exited with code 0.
+
+The Windows control test also exercised delayed navigation, an unavailable destination, and retrying a created tab after navigation failed.
 
 The next live checks cover physical mouse and keyboard input, native page-list and Back navigation, resizing, ribbon collapse, and movement between displays with different scale settings. Before-and-after screenshots of test content are still pending.
 
