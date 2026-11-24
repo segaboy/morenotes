@@ -130,6 +130,7 @@ internal static class Program
                         if (observe != null) throw new InvalidOperationException("OneNote closed or replaced the measured layout during the test.");
                         Application.ExitThread(); return;
                     }
+                    strip.UpdateFocusShortcut();
                     if (NativeLayout.IsIconic(layout.Frame)) return;
                     Rectangle slot = layout.Reserve();
                     strip.Attach(slot);
@@ -138,6 +139,7 @@ internal static class Program
                 }
                 catch (Exception e) { failure = e; Application.ExitThread(); }
             };
+            strip.UpdateFocusShortcut();
             timer.Start();
             Console.CancelKeyPress += cancelHandler;
             try { Application.Run(); }

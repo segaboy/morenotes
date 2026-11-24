@@ -95,6 +95,9 @@ internal sealed class PageStrip : ToolStrip
     private readonly Dictionary<string, ToolStripButton> buttons = new Dictionary<string, ToolStripButton>();
     private readonly ToolStripButton add;
     private readonly Action<Exception> onError;
+    private const int FocusShortcut = 1;
+    private bool shortcutRegistered, shortcutAttempted;
+    private IntPtr returnFocus;
     internal PageStrip(IntPtr frame, IPages pages, Action close, Action<Exception> onError)
     {
         this.frame = frame;
@@ -104,7 +107,9 @@ internal sealed class PageStrip : ToolStrip
         GripStyle = ToolStripGripStyle.Hidden;
         Dock = DockStyle.None;
         TabStop = true;
+        SetStyle(ControlStyles.Selectable, true);
         AccessibleName = "MoreTabs page tabs";
+        AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, or Escape to return.";
         add = new ToolStripButton("+") { AccessibleName = "Add current page", ToolTipText = "Keep the displayed page in a tab" };
         add.Click += delegate { Perform(AddCurrent); };
         Items.Add(add);
@@ -117,6 +122,104 @@ internal sealed class PageStrip : ToolStrip
         get { var cp = base.CreateParams; cp.Parent = frame; cp.Style |= 0x40000000; return cp; }
     }
     private void Perform(Action action) { try { action(); } catch (Exception e) { onError(e); } }
+
+    internal void UpdateFocusShortcut()
+    {
+        if (GetForegroundWindow() != frame)
+        {
+            ReleaseFocusShortcut();
+            return;
+        }
+        if (shortcutAttempted) return;
+        shortcutAttempted = true;
+        const uint ctrlAltNoRepeat = 0x4003;
+        shortcutRegistered = RegisterHotKey(Handle, FocusShortcut, ctrlAltNoRepeat, (uint)Keys.F6);
+        Console.WriteLine(shortcutRegistered ? "Ctrl+Alt+F6 ready for this editor." :
+            "Ctrl+Alt+F6 unavailable; Windows error " + Marshal.GetLastWin32Error());
+    }
+
+    private void ReleaseFocusShortcut()
+    {
+        if (shortcutRegistered) UnregisterHotKey(Handle, FocusShortcut);
+        shortcutRegistered = false;
+        shortcutAttempted = false;
+    }
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        ReleaseFocusShortcut();
+        base.OnHandleDestroyed(e);
+    }
+    protected override void WndProc(ref Message message)
+    {
+        const int wmHotkey = 0x0312;
+        if (message.Msg == wmHotkey && message.WParam.ToInt32() == FocusShortcut)
+        {
+            if (GetForegroundWindow() == frame) Perform(delegate { FocusPageTabs(ForegroundFocus()); });
+            return;
+        }
+        base.WndProc(ref message);
+    }
+    internal void FocusPageTabs(IntPtr previous)
+    {
+        if (!ContainsFocus && previous != IntPtr.Zero && NativeLayout.RootOf(previous) == frame)
+            returnFocus = previous;
+        if (!Focus()) { Console.WriteLine("Could not focus the tab strip."); return; }
+        var active = buttons.Values.FirstOrDefault(button => button.Checked);
+        (active ?? add).Select();
+        Console.WriteLine("Keyboard focus entered the tab strip.");
+    }
+    private void ReturnToEditor()
+    {
+        IntPtr target = returnFocus;
+        returnFocus = IntPtr.Zero;
+        // NavigateTo may already have given focus to the new page.
+        if (!ContainsFocus && NativeLayout.RootOf(ForegroundFocus()) == frame) return;
+        if (target == IntPtr.Zero || NativeLayout.RootOf(target) != frame) target = frame;
+        SetFocus(target);
+        Console.WriteLine(ContainsFocus ? "Keyboard focus is still on the strip." : "Keyboard focus left the strip.");
+    }
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (!ContainsFocus) return base.ProcessCmdKey(ref msg, keyData);
+        var choices = Items.OfType<ToolStripButton>().Where(item => item.Available && item.Enabled).ToList();
+        int index = choices.FindIndex(item => item.Selected);
+        if (choices.Count > 0 && (keyData == Keys.Left || keyData == Keys.Right))
+        {
+            int delta = keyData == Keys.Left ? -1 : 1;
+            choices[(Math.Max(index, 0) + delta + choices.Count) % choices.Count].Select();
+            return true;
+        }
+        if ((keyData == Keys.Enter || keyData == Keys.Space) && index >= 0)
+        {
+            choices[index].PerformClick();
+            ReturnToEditor();
+            return true;
+        }
+        if (keyData == Keys.Escape || keyData == Keys.F6 || keyData == Keys.Tab || keyData == (Keys.Shift | Keys.Tab))
+        {
+            ReturnToEditor();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public uint Size, Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public int Left, Top, Right, Bottom;
+    }
+    private static IntPtr ForegroundFocus()
+    {
+        var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+        return GetGUIThreadInfo(0, ref info) ? info.Focus : IntPtr.Zero;
+    }
+    [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
+    [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr window);
+    [DllImport("user32.dll", SetLastError=true)] private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
+    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr window, int id);
 
     internal void Attach(Rectangle slot)
     {

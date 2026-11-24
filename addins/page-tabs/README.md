@@ -33,7 +33,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for the three tabs and the console's READY message.
 
 1. From Dashboard in MoreTabs A, click **Schedule** in OneNote's page list, then **Back**. Pause on each page and check that its tab highlights.
-2. Click **Dashboard / MoreTabs B** on the strip. Click the page body and type `MoreTabs focus OK`. Try reaching the strip from the page and returning using only the keyboard. Record any unreachable controls, stolen keystrokes or unexpected focus changes.
+2. From **Dashboard / MoreTabs A**, put the caret in the page body and press **Ctrl+Alt+F6** to focus the active page tab. Press **Right** twice and **Enter** to open Dashboard in MoreTabs B. Without clicking, type `MoreTabs focus OK`. Try **Ctrl+Alt+F6** followed by **Escape** to return without navigating. The interactive prototype requests the shortcut while its editor is in the foreground and reports any registration conflict. Left and Right select a strip item, Enter activates it, and Escape exits the strip.
 3. Resize the window, maximize and restore it, then collapse and expand the ribbon. Pause briefly after each change and check the strip and both adjacent rows. If available, move the window to a display with a different scale setting.
 4. Choose **Close prototype**. The output reports displayed test pages, highlighting, sampled layout changes, DPI and whether the B page body contains the marker. The operator supplies the observations about input method and focus. A normal exit alone does not establish that each step was exercised.
 
@@ -48,6 +48,10 @@ On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop One
 | Return and close | Returning to the original untracked page through COM cleared the active tab highlight. The verifier closed the test notebooks, released the row and exited with code 0. A separate measurement confirmed the original document bounds and section row at Y=216. |
 
 The next live checks cover physical mouse and keyboard input, native page-list and Back navigation, resizing, ribbon collapse, and movement between displays with different scale settings. Before-and-after screenshots of test content are still pending.
+
+In the first hands-on run, the native page-list and Back sequence displayed Schedule A and Dashboard A with their matching tabs highlighted. Dashboard B also highlighted. During ribbon changes the strip moved from Y=216 through Y=162 and Y=113 to Y=78. Each sample retained a 32-pixel row and passed all three hit tests at 96 DPI. The operator reported typing and mouse interaction worked and identified one failure: neither F6 nor Tab reached the strip from the page. The log ended at Ctrl+C before the marker and cleanup checks. Window-width and mixed-DPI changes were not recorded. A subsequent measurement still found a 32-pixel gap. Resize the host to let OneNote lay it out again after an interrupted run.
+
+The revised prototype provides Ctrl+Alt+F6 as a direct keyboard entry point. A controlled window test starts in an editor field, focuses the strip, selects an adjacent tab with Right and Enter, then verifies Escape returns without navigating. Live keyboard results require the desktop retest.
 
 ### Earlier measurements and controlled tests
 

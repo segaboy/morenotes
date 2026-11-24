@@ -91,6 +91,22 @@ internal static class PrototypeTests
                         strip.ClickAdd();
                         Check(strip.TabCount == 3, "Duplicate add created another tab.");
                         foreach (var id in ids) { strip.ClickTab(id); Check(source.Current == id && strip.IsSelected(id), "Tab click did not navigate."); }
+                        using (var editor = new TextBox { Location = new Point(6, navigation.Bottom + 6) })
+                        {
+                            document.Controls.Add(editor);
+                            editor.Focus();
+                            source.Navigate(ids[0]); strip.RefreshActive();
+                            strip.FocusPageTabs(editor.Handle);
+                            Check(strip.Focused, "Keyboard entry did not focus the strip.");
+                            PressStripKey(strip, Keys.Right);
+                            PressStripKey(strip, Keys.Enter);
+                            Check(source.Current == ids[1] && editor.Focused, "Enter did not select the next page and restore editor focus.");
+                            strip.FocusPageTabs(editor.Handle);
+                            PressStripKey(strip, Keys.Left);
+                            PressStripKey(strip, Keys.Escape);
+                            Check(source.Current == ids[1] && editor.Focused, "Escape did not return without navigating.");
+                            Console.WriteLine("PASS controlled keyboard entry, arrow selection, Enter and Escape return to editor.");
+                        }
                         source.Navigate("a/1"); strip.RefreshActive();
                         Check(strip.IsSelected("a/1") && !strip.IsSelected("b/1"), "External navigation left a stale highlight.");
                         source.Navigate("other"); strip.RefreshActive();
@@ -111,6 +127,13 @@ internal static class PrototypeTests
         try { NotebookPages.SelectFrame(matches, current, requested); }
         catch (InvalidOperationException) { return; }
         throw new InvalidOperationException("An unmatched or ambiguous editor was accepted.");
+    }
+
+    private static void PressStripKey(PageStrip strip, Keys key)
+    {
+        const int wmKeyDown = 0x0100;
+        var message = Message.Create(strip.Handle, wmKeyDown, (IntPtr)key, IntPtr.Zero);
+        Check(strip.PreProcessMessage(ref message), "The strip did not handle " + key);
     }
 
     private static void WaitForPage(NotebookPages source, string id)
