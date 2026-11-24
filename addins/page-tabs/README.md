@@ -1,6 +1,6 @@
-# Page tabs for OneNote
+# MoreTabs
 
-**Status:** design and host inspection. The product name for this add-in is open. `page-tabs` is its repository identifier.
+MoreTabs is the page-tabs add-in in the MoreNotes collection. It is in the design and host inspection stage. Its release identifier is `page-tabs`.
 
 A normal workday can involve several pages in different notebooks. Give those pages a persistent row of browser-style tabs in the same OneNote window. OneNote remains the editor. The tab collection survives changes of active notebook. Include a new-tab `+` button and bookmarks so a user can keep a page after closing its tab.
 
