@@ -252,6 +252,7 @@ internal static class PrototypeTests
                         strip.OpenPageInNewTab(target);
                         Check(strip.TabCount == count + 2, "Failed navigation created an empty tab.");
                         Console.WriteLine("PASS page-list command resolves a selected ID, preserves the pinned source, and opens distinct focused tabs.");
+                        CheckCloseIcons(strip, source);
                         if (failure != null) throw failure;
                     }
                     layout.Dispose();
@@ -261,6 +262,55 @@ internal static class PrototypeTests
             }
             finally { frame.Close(); }
         }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+
+    private static void ClickCloseTarget(PageTabButton tab, bool releaseOnIcon)
+    {
+        var parent = tab.GetCurrentParent();
+        int x = tab.Bounds.Left + tab.CloseBounds.Left + tab.CloseBounds.Width / 2;
+        int y = tab.Bounds.Top + tab.Height / 2;
+        Check(parent.GetItemAt(x, y) == tab, "Close target does not hit the intended tab.");
+        SendMessage(parent.Handle, 0x0201, (IntPtr)1, (IntPtr)((y << 16) | x));
+        if (!releaseOnIcon) x = tab.Bounds.Left + 3;
+        SendMessage(parent.Handle, 0x0202, IntPtr.Zero, (IntPtr)((y << 16) | x));
+    }
+
+    private static void CheckCloseIcons(PageStrip strip, TestPages source)
+    {
+        int count = strip.TabCount;
+        string selected = strip.ActiveTabKey, page = source.Current;
+        var duplicate = strip.Items.OfType<PageTabButton>().First(t => !t.Checked && ((SavedTab)t.Tag).Page.Id == page);
+        AppearanceTests.TogglePin(strip, duplicate, true);
+        ClickCloseTarget(duplicate, false);
+        Check(strip.TabCount == count && strip.ActiveTabKey == selected, "Dragging off the close icon activated or closed its tab.");
+        ClickCloseTarget(duplicate, true);
+        Check(!strip.Items.Contains(duplicate) && strip.TabCount == count - 1 && strip.ActiveTabKey == selected && source.Current == page,
+            "Closing a pinned duplicate must preserve the selected tab and editor page.");
+
+        strip.Host.Width = 245;
+        strip.OverflowButton.ShowDropDown();
+        var hidden = strip.Items.OfType<PageTabButton>().First(t => t.Placement == ToolStripItemPlacement.Overflow && !t.Checked);
+        ClickCloseTarget(hidden, true);
+        Check(!strip.Items.Contains(hidden) && strip.TabCount == count - 2 && strip.ActiveTabKey == selected && source.Current == page,
+            "Closing an overflow tab switched pages or failed to remove it.");
+        strip.Host.Width = 850;
+        var active = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+        ClickCloseTarget(active, true);
+        Check(!strip.Items.Contains(active) && strip.TabCount == count - 3 && source.Current == page, "Closing the active tab changed the editor page.");
+        while (strip.TabCount > 0)
+        {
+            var remaining = strip.Items.OfType<PageTabButton>().First();
+            strip.FocusPageTabs(IntPtr.Zero);
+            remaining.Select();
+            int before = strip.TabCount;
+            PressStripKey(strip, Keys.Delete);
+            Check(!strip.Items.Contains(remaining) && strip.TabCount == before - 1, "Delete did not close exactly the focused tab.");
+        }
+        Check(source.Current == page && strip.TabCount == 0, "Closing the last tab must leave the editor page open.");
+        Console.WriteLine("PASS close icons on active, inactive, pinned, duplicate and overflow tabs, cancel by dragging off, and keyboard close.");
     }
 
     private static Rectangle CheckDocking(Form frame, Panel document, NativeLayout layout, PageStrip strip)

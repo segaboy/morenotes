@@ -35,6 +35,25 @@ internal sealed class PageTabButton : ToolStripButton
     internal Color SectionColor { get; set; }
     internal DateTime NextColorCheck { get; set; }
     internal uint Dpi = 96;
+    internal int CloseWidth { get { return HostChrome.Px(22, Dpi); } }
+    internal Rectangle CloseBounds { get { return Rectangle.FromLTRB(Math.Max(0, Width - CloseWidth), 0, Width, Height); } }
+    internal bool CloseHovered { get; private set; }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        SetCloseHover(CloseBounds.Contains(e.Location));
+    }
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        SetCloseHover(false);
+        base.OnMouseLeave(e);
+    }
+    private void SetCloseHover(bool hover)
+    {
+        if (CloseHovered == hover) return;
+        CloseHovered = hover;
+        Invalidate();
+    }
     public override Size GetPreferredSize(Size constrainingSize)
     {
         var size = StripSize(constrainingSize);
@@ -197,6 +216,32 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var tab = e.Item as PageTabButton;
         if (tab == null) { PaintCommand(e); return; }
         PaintTab(e, tab);
+        PaintClose(e.Graphics, tab);
+    }
+    private void PaintClose(Graphics g, PageTabButton tab)
+    {
+        var box = tab.CloseBounds;
+        float cx = box.Left + (box.Width - 1) / 2f, cy = (box.Height - 1) / 2f;
+        Color ink = TextColor(tab);
+        var saved = g.Save();
+        try
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            if (tab.CloseHovered)
+            {
+                int radius = HostChrome.Px(8, Dpi);
+                using (var fill = new SolidBrush(contrast ? SystemColors.Highlight : Blend(Background(tab), ink, 18)))
+                    g.FillEllipse(fill, cx - radius, cy - radius, 2 * radius, 2 * radius);
+                if (contrast) ink = SystemColors.HighlightText;
+            }
+            float arm = 3.25f * Dpi / 96f;
+            using (var pen = new Pen(ink, 1.4f * Dpi / 96f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                g.DrawLine(pen, cx - arm, cy - arm, cx + arm, cy + arm);
+                g.DrawLine(pen, cx - arm, cy + arm, cx + arm, cy - arm);
+            }
+        }
+        finally { g.Restore(saved); }
     }
     internal Color MarkerFor(PageTabButton tab)
     {

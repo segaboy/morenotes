@@ -339,6 +339,12 @@ internal static class AppearanceTests
                         Check(bitmap.GetPixel(x, FlatEdgeY(tab, bottom, y)).ToArgb() == marker.ToArgb(),
                             "Missing full-width section color on " + (tab.Checked ? "active" : "inactive") + " tab.");
                 Color fill = tab.Checked ? palette.MutedSection(tab.SectionColor) : tab.Selected ? palette.Hover : palette.Tab;
+                var close = tab.CloseBounds;
+                int cx = tab.Bounds.Left + close.Left + (close.Width - 1) / 2, cy = tab.Bounds.Top + (close.Height - 1) / 2;
+                int arm = HostChrome.Px(2, chrome.Dpi);
+                Check(tab.Padding.Right >= close.Width && bitmap.GetPixel(cx-arm, cy-arm).ToArgb() != fill.ToArgb() &&
+                    bitmap.GetPixel(cx+arm, cy-arm).ToArgb() != fill.ToArgb() && bitmap.GetPixel(cx, cy).ToArgb() != fill.ToArgb(),
+                    "A page tab is missing a visible close glyph or space between the title and the glyph.");
                 Check(fill.ToArgb() != marker.ToArgb() && bitmap.GetPixel(tab.Bounds.Left + 2 * edge,
                     FlatEdgeY(tab, bottom, HostChrome.Px(3, chrome.Dpi))).ToArgb() == fill.ToArgb(), "Incorrect section stripe thickness.");
                 Check(bitmap.GetPixel(tab.Bounds.Left + 2 * edge, FlatEdgeY(tab, bottom, HostChrome.Px(3, chrome.Dpi) + edge)).ToArgb() == fill.ToArgb() &&

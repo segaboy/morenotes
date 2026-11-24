@@ -196,6 +196,7 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolStripSeparator pinDivider = new ToolStripSeparator { Available = false };
     private readonly ContextMenuStrip tabMenu = new ContextMenuStrip();
     private readonly ToolTip notice = new ToolTip();
+    private readonly TabCloseInput stripClose, overflowClose;
     private TabRenderer appearance;
     private readonly HostChrome defaultChrome = new HostChrome();
     internal readonly StripHost Host;
@@ -229,7 +230,7 @@ internal sealed class PageStrip : ToolStrip
         TabStop = true;
         SetStyle(ControlStyles.Selectable, true);
         AccessibleName = "MoreTabs page tabs";
-        AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, or Escape to return.";
+        AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, Delete to close a tab, or Escape to return.";
         add = new ToolStripSplitButton("+") { AccessibleName = "New Quick Note", ToolTipText = "Create a new Quick Note", Overflow = ToolStripItemOverflow.Never };
         add.ButtonClick += delegate { Perform(CreateQuickNote); };
         add.DropDownItems.Add("Keep current page in a tab", null, delegate { Perform(AddCurrent); });
@@ -246,6 +247,9 @@ internal sealed class PageStrip : ToolStrip
         stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
+        Action<SavedTab> closePageTab = tab => Perform(delegate { CloseTab(tab); });
+        stripClose = new TabCloseInput(this, closePageTab);
+        overflowClose = new TabCloseInput(OverflowButton.DropDown, closePageTab);
         Host = new StripHost(frame, this);
         Host.OpenPage += delegate(string id) { Perform(delegate { OpenPageInNewTab(id); }); };
         Host.MoveButton.Click += delegate { Perform(MoveStrip); };
@@ -259,6 +263,8 @@ internal sealed class PageStrip : ToolStrip
     {
         if (disposing)
         {
+            stripClose.Dispose();
+            overflowClose.Dispose();
             tabMenu.Dispose();
             notice.Dispose();
             Host.Controls.Remove(this);
@@ -344,6 +350,12 @@ internal sealed class PageStrip : ToolStrip
         if (!ContainsFocus) return base.ProcessCmdKey(ref msg, keyData);
         var choices = Items.Cast<ToolStripItem>().Where(item => (item is ToolStripButton || item is ToolStripDropDownItem) && item.Available && item.Enabled).ToList();
         int index = choices.FindIndex(item => item.Selected);
+        if (keyData == Keys.Delete && index >= 0 && choices[index] is PageTabButton)
+        {
+            var tab = (SavedTab)choices[index].Tag;
+            Perform(delegate { CloseTab(tab); FocusPageTabs(IntPtr.Zero); });
+            return true;
+        }
         if (choices.Count > 0 && (keyData == Keys.Left || keyData == Keys.Right))
         {
             int delta = keyData == Keys.Left ? -1 : 1;
@@ -521,7 +533,7 @@ internal sealed class PageStrip : ToolStrip
         // Measure both states at the heavier weight so selecting a tab never shifts its neighbors.
         tab.Font = selectedTabFont;
         tab.Margin = TabMargin(dpi);
-        tab.Padding = new Padding(HostChrome.Px(10, dpi), 0, HostChrome.Px(10, dpi), 0);
+        tab.Padding = new Padding(HostChrome.Px(10, dpi), 0, tab.CloseWidth, 0);
     }
     private void StyleCaption(NotebookTabLabel label)
     {
@@ -725,7 +737,7 @@ internal sealed class PageStrip : ToolStrip
             }
             button.Text = page.BookmarkTitle;
             button.AccessibleName = page.Caption;
-            button.ToolTipText = page.Caption + (slot.Pinned ? "\nPinned tab" : "") + "\nRight-click for tab options.";
+            button.ToolTipText = page.Caption + (slot.Pinned ? "\nPinned tab" : "") + "\nClick × to close this tab. Right-click for tab options.";
             button.Tag = slot;
         }
         int position = Items.IndexOf(bookmarkDivider) + 1;
