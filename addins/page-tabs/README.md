@@ -34,9 +34,11 @@ Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and th
 
 ![MoreTabs in dark mode with the bookmark star on the left, Schedule pinned, and two regular tabs](appearance.png)
 
-The star at the far left opens bookmarks. Its compact tab has the same fill, height and rounded lower corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
+The solid yellow star at the far left opens bookmarks. Its compact tab has the same fill, height and rounded lower corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
-The active tab carries a colored bar along its top edge. It stays visible while you type in OneNote. Naming or renaming the displayed page updates its tab as soon as MoreTabs reads the new title from OneNote. If two pages in different notebooks share a title, the labels also show the notebook.
+The active tab carries a line across its entire top edge. It uses the RGB color OneNote reports for the displayed page's parent section, including when you follow a page link into another notebook. MoreTabs checks for section recoloring while the page stays open. Automatic or unavailable section colors use the theme accent. Windows high contrast uses the system highlight text color. Naming or renaming the displayed page updates its tab title. If two pages in different notebooks share a title, the labels also show the notebook.
+
+MoreTabs pauses while File or Options hides the editor row or opens a modal dialog. When you return to the editor, it measures the theme again and resumes automatically. A controlled Windows test exercises hiding the navigation row, disabling the editor and restoring the active tab in the same window. The Office theme-switch round trip still needs confirmation in desktop OneNote.
 
 Following OneNote's page list, a link, or Back updates the page in the active tab and preserves its position. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
 

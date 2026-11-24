@@ -85,6 +85,8 @@ internal static class AppearanceTests
             int edge = HostChrome.Px(1, chrome.Dpi);
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
             int starCenter = star.Bounds.Left + star.Width / 2;
+            Check(bitmap.GetPixel(starCenter, star.Bounds.Top + star.Height / 2).ToArgb() == Color.Gold.ToArgb(),
+                "The bookmark star must have a solid yellow center.");
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + 2 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(starCenter, star.Bounds.Bottom - 3 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(star.Bounds.Left, star.Bounds.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
@@ -124,11 +126,17 @@ internal static class AppearanceTests
             foreach (var tab in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main))
             {
                 int pixel = bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, tab.Bounds.Top + edge).ToArgb();
-                var expected = tab.Checked ? palette.ActiveMarker : tab.Selected ? palette.Hover : palette.Tab;
-                Check(pixel == expected.ToArgb() && palette.ActiveMarker.ToArgb() != palette.Active.ToArgb(),
+                var marker = chrome.HighContrast || tab.SectionColor.IsEmpty ? palette.ActiveMarker : tab.SectionColor;
+                var expected = tab.Checked ? marker : tab.Selected ? palette.Hover : palette.Tab;
+                Check(pixel == expected.ToArgb(),
                     "The persistent accent must appear on exactly the active tab.");
+                if (tab.Checked)
+                    for (int x = tab.Bounds.Left; x < tab.Bounds.Right; x++)
+                        Check(bitmap.GetPixel(x, tab.Bounds.Top + edge).ToArgb() == marker.ToArgb(),
+                            "Active marker pixel at offset " + (x - tab.Bounds.Left) + " of " + tab.Width +
+                            " differs from " + marker + " at " + chrome.Dpi + " DPI.");
             }
-            Check(bitmap.GetPixel(b.Left + 2 * edge, b.Top + 2 * edge).ToArgb() == palette.Active.ToArgb(),
+            Check(bitmap.GetPixel(b.Left + 2 * edge, b.Top + HostChrome.Px(3, chrome.Dpi) + edge).ToArgb() == palette.Active.ToArgb(),
                 "The active tab has a gap or rounding at its upper-left corner.");
             Check(bitmap.GetPixel(b.Left + edge - 1, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
                 bitmap.GetPixel(b.Right - edge, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb(),

@@ -14,9 +14,11 @@ internal static class Program
         try
         {
             bool reconnect = false;
+            IntPtr previousFrame = IntPtr.Zero;
+            string previousTab = null;
             for (;;)
             {
-                int result = RunOnce(args, reconnect);
+                int result = RunOnce(args, reconnect, ref previousFrame, ref previousTab);
                 if (result != WaitForEditor) return result;
                 if (!reconnect) Console.WriteLine("Waiting for a compatible OneNote editor. Ctrl+C stops MoreTabs.");
                 reconnect = true;
@@ -36,7 +38,7 @@ internal static class Program
         }
     }
 
-    private static int RunOnce(string[] args, bool reconnect)
+    private static int RunOnce(string[] args, bool reconnect, ref IntPtr previousFrame, ref string previousTab)
     {
         string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "measure";
         if (mode == "selftest") { PrototypeTests.ControlledWindow(); SavedSessionTests.Run(); return 0; }
@@ -51,7 +53,8 @@ internal static class Program
         if (mode != "measure" && mode != "placement" && mode != "run" && mode != "verify" && mode != "handson" && mode != "bind")
             throw new ArgumentException("Use Measure, Placement, Com, Bind, Run, Verify, HandsOn or SelfTest.");
         IntPtr frame = !reconnect && args.Length == 2 ? new IntPtr(long.Parse(args[1])) : IntPtr.Zero;
-        var layouts = NativeLayout.Discover(mode != "run" || frame != IntPtr.Zero);
+        if (reconnect && NativeLayout.IsWindow(previousFrame)) frame = previousFrame;
+        var layouts = NativeLayout.Discover(mode != "run" || (!reconnect && frame != IntPtr.Zero));
         if (layouts.Count == 0) return WaitForEditor;
         foreach (var candidate in layouts)
         {
@@ -73,15 +76,22 @@ internal static class Program
         }
         if (mode == "measure") return 0;
         if (frame != IntPtr.Zero && !layouts.Exists(candidate => candidate.Frame == frame))
+        {
+            if (reconnect) return WaitForEditor;
             throw new InvalidOperationException("Requested frame " + frame + " was not among the measured frames above.");
+        }
         NotebookPages source = null;
         string fixtureDirectory = mode == "verify" || mode == "handson" ?
             Path.Combine(Path.GetTempPath(), "MoreTabs-" + Guid.NewGuid().ToString("N")) : null;
         if (mode != "placement")
         {
             try { source = NotebookPages.Bind(layouts, frame, fixtureDirectory == null ? null : Path.Combine(fixtureDirectory, "MoreTabs B", "Test.one")); }
-            catch (System.Runtime.InteropServices.COMException) { if (reconnect) return WaitForEditor; throw; }
-            catch (InvalidOperationException) { if (reconnect && layouts.Count == 1) return WaitForEditor; throw; }
+            catch (System.Runtime.InteropServices.COMException error)
+            {
+                if (reconnect || (mode == "run" && EditorBusy(error))) return WaitForEditor;
+                throw;
+            }
+            catch (InvalidOperationException) { if (reconnect && (frame != IntPtr.Zero || layouts.Count == 1)) return WaitForEditor; throw; }
             frame = source.Frame;
             if (frame == IntPtr.Zero) throw new InvalidOperationException("The bound COM window closed.");
         }
@@ -93,7 +103,8 @@ internal static class Program
             Console.WriteLine("Selected measured frame {0}.", layout.Frame);
             if (mode == "bind") return 0;
             var initial = layout.DocumentBounds;
-            Rectangle slot = layout.Reserve();
+            Rectangle slot = layout.Reserve(mode == "run");
+            if (slot.IsEmpty) return WaitForEditor;
             Exception failure = null;
             Action<Exception> stop = delegate(Exception e) { failure = e; Application.ExitThread(); };
             bool closeRequested = false;
@@ -126,9 +137,11 @@ internal static class Program
                 }
                 else if (mode == "run")
                 {
-                    strip.RestoreOrSeed();
+                    strip.RestoreOrSeed(previousFrame == frame ? previousTab : null);
+                    previousFrame = frame;
                     Console.WriteLine("Tabs restored. + creates a new Quick Note. Its arrow keeps the current page in a tab.");
                     bool detached = RunInteractive(layout, strip, null);
+                    previousTab = strip.ActiveTabKey;
                     if (!closeRequested && failure == null && detached) return WaitForEditor;
                 }
                 if (failure != null) throw failure;
@@ -164,15 +177,27 @@ internal static class Program
                         detached = true;
                         Application.ExitThread(); return;
                     }
-                    strip.UpdateFocusShortcut();
                     if (NativeLayout.IsIconic(layout.Frame)) return;
-                    Rectangle slot = layout.Reserve();
+                    Rectangle slot = layout.Reserve(true);
+                    if (slot.IsEmpty)
+                    {
+                        if (strip.Visible)
+                        {
+                            strip.PauseForDialog();
+                            layout.ReleaseForDialog();
+                            Console.WriteLine("Editor unavailable. Waiting for the page view to return.");
+                        }
+                        return;
+                    }
                     strip.Attach(slot, layout);
+                    strip.UpdateFocusShortcut();
                     strip.RefreshActive();
                     if (observe != null) observe(slot);
                 }
                 catch (Exception e)
                 {
+                    // OneNote can briefly reject automation while entering or leaving a modal dialog.
+                    if (EditorBusy(e)) return;
                     bool serverClosed = e.HResult == unchecked((int)0x80010108) || e.HResult == unchecked((int)0x800706BA) ||
                         e.HResult == unchecked((int)0x800401FD);
                     if (observe == null && (!layout.Alive || serverClosed)) detached = true;
@@ -188,5 +213,9 @@ internal static class Program
         }
         if (failure != null) throw failure;
         return cancel == 0 && (detached || !layout.Alive);
+    }
+    private static bool EditorBusy(Exception error)
+    {
+        return error.HResult == unchecked((int)0x80010001) || error.HResult == unchecked((int)0x8001010A);
     }
 }

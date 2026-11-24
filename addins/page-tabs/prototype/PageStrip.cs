@@ -11,6 +11,7 @@ internal interface IPages
 {
     string Current { get; }
     string Caption(string id);
+    Color SectionColor(string pageId);
     string CreateQuickNote();
     void Navigate(string id);
     string LinkFor(string id);
@@ -119,14 +120,33 @@ internal sealed class NotebookPages : IPages
         try { App.GetHyperlinkToObject(id, "", out link); return link; }
         catch (COMException) { return ""; }
     }
-    internal string NameOf(string id)
+    private XElement HierarchyObject(string id)
     {
         string xml;
         App.GetHierarchy(id, One.HierarchyScope.hsSelf, out xml, One.XMLSchema.xs2013);
         var root = XDocument.Parse(xml).Root;
-        foreach (var node in root.DescendantsAndSelf())
-            if ((string)node.Attribute("ID") == id) return (string)node.Attribute("name") ?? "";
-        return "";
+        return root.DescendantsAndSelf().FirstOrDefault(node => (string)node.Attribute("ID") == id);
+    }
+    internal string NameOf(string id)
+    {
+        var node = HierarchyObject(id);
+        return node == null ? "" : (string)node.Attribute("name") ?? "";
+    }
+    public Color SectionColor(string pageId)
+    {
+        string section;
+        App.GetHierarchyParent(pageId, out section);
+        return String.IsNullOrEmpty(section) ? Color.Empty : ReadSectionColor(HierarchyObject(section));
+    }
+    internal static Color ReadSectionColor(XElement section)
+    {
+        if (section == null || section.Name.LocalName != "Section") return Color.Empty;
+        string value = (string)section.Attribute("color");
+        int rgb;
+        if (value == null || value.Length != 7 || value[0] != '#' || !Int32.TryParse(value.Substring(1),
+            System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out rgb))
+            return Color.Empty;
+        return Color.FromArgb(255, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
     }
     public string Caption(string id)
     {
@@ -161,6 +181,7 @@ internal sealed class PageStrip : ToolStrip
     private bool focusPending;
     private DateTime nextRead;
     private DateTime nextCaptionCheck;
+    private DateTime nextColorCheck;
     private DateTime navigationDeadline;
     private readonly Action<Exception> onError;
     private const int FocusShortcut = 1;
@@ -228,6 +249,11 @@ internal sealed class PageStrip : ToolStrip
         if (shortcutRegistered) UnregisterHotKey(Handle, FocusShortcut);
         shortcutRegistered = false;
         shortcutAttempted = false;
+    }
+    internal void PauseForDialog()
+    {
+        ReleaseFocusShortcut();
+        Hide();
     }
     protected override void OnHandleDestroyed(EventArgs e)
     {
@@ -315,7 +341,7 @@ internal sealed class PageStrip : ToolStrip
     internal void Attach(Rectangle slot, NativeLayout layout = null)
     {
         Bounds = slot;
-        if (layout != null) ApplyAppearance(layout.Appearance());
+        if (layout != null) ApplyAppearance(layout.Appearance(!Visible));
         if (NativeLayout.GetParent(Handle) != frame || NativeLayout.Bounds(Handle, frame) != slot)
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
         Show();
@@ -433,8 +459,10 @@ internal sealed class PageStrip : ToolStrip
         else { activeKey = null; notice.Show("Quick Note opened. MoreTabs could not save its tab.", this, 4, Height, 6000); }
         RefreshActive();
     }
-    internal void RestoreOrSeed()
+    internal string ActiveTabKey { get { return activeKey; } }
+    internal void RestoreOrSeed(string preferredKey = null)
     {
+        activeKey = preferredKey;
         if (state.Revision == null)
         {
             SavedPage page = CaptureCurrent();
@@ -628,10 +656,21 @@ internal sealed class PageStrip : ToolStrip
         }
         if (activeTab == null || !activeTab.Page.Matches(visible))
             activeTab = state.Tabs.Find(t => t.Page.Matches(visible));
-        activeKey = activeTab == null ? null : activeTab.Key;
+        string selectedKey = activeTab == null ? null : activeTab.Key;
+        bool refreshColor = moved || selectedKey != activeKey || DateTime.UtcNow >= nextColorCheck;
+        activeKey = selectedKey;
         displayedPage = visible;
         if (moved) nextCaptionCheck = DateTime.MinValue;
         if (activeTab != null) RefreshCaption(activeTab, id);
+        if (activeKey != null && refreshColor)
+        {
+            nextColorCheck = DateTime.UtcNow.AddSeconds(3);
+            var button = (PageTabButton)buttons[activeKey];
+            Color section;
+            try { section = pages.SectionColor(id); }
+            catch (COMException) { section = Color.Empty; }
+            if (section != button.SectionColor) { button.SectionColor = section; button.Invalidate(); }
+        }
         foreach (var entry in buttons)
         {
             bool active = entry.Key == activeKey;

@@ -26,6 +26,7 @@ internal sealed class BookmarkButton : ToolStripDropDownButton
 
 internal sealed class PageTabButton : ToolStripButton
 {
+    internal Color SectionColor { get; set; }
     internal uint Dpi = 96;
     public override Size GetPreferredSize(Size constrainingSize)
     {
@@ -135,6 +136,10 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         if (tab == null || e.ToolStrip is ToolStripDropDown) { PaintCommand(e); return; }
         PaintTab(e, tab.Checked);
     }
+    internal Color MarkerFor(PageTabButton tab)
+    {
+        return contrast || tab.SectionColor.IsEmpty ? ActiveMarker : tab.SectionColor;
+    }
     private void PaintTab(ToolStripItemRenderEventArgs e, bool showActiveMarker)
     {
         int w = e.Item.Width, h = e.Item.Height;
@@ -156,9 +161,9 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                     using (var border = new Pen(Ink) { Alignment = PenAlignment.Inset }) e.Graphics.DrawPath(border, shape);
                 if (showActiveMarker)
                 {
-                    int inset = HostChrome.Px(8, Dpi);
-                    using (var marker = new SolidBrush(ActiveMarker))
-                        e.Graphics.FillRectangle(marker, inset, 0, Math.Max(1, w - 2 * inset), HostChrome.Px(3, Dpi));
+                    e.Graphics.SmoothingMode = SmoothingMode.None;
+                    using (var marker = new SolidBrush(MarkerFor((PageTabButton)e.Item)))
+                        e.Graphics.FillRectangle(marker, 0, 0, w, HostChrome.Px(3, Dpi));
                 }
             }
         }
@@ -193,7 +198,9 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
-            using (var pen = new Pen(TextColor(e.Item), stroke) { LineJoin = LineJoin.Round })
+            e.Graphics.FillPolygon(Brushes.Gold, points);
+            Color outline = contrast ? TextColor(e.Item) : Luminance(Background(e.Item)) > 0.5 ? Color.DarkGoldenrod : Color.Gold;
+            using (var pen = new Pen(outline, stroke) { LineJoin = LineJoin.Round })
                 e.Graphics.DrawPolygon(pen, points);
         }
         finally { e.Graphics.Restore(saved); }

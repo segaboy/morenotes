@@ -33,7 +33,7 @@ internal sealed class NativeLayout : IDisposable
         var observed = new List<string>();
         foreach (IntPtr frame in Children(IntPtr.Zero, "Framework::CFrame"))
         {
-            if (IsIconic(frame)) { observed.Add("Frame " + frame + " minimized"); continue; }
+            if (IsIconic(frame) || !IsWindowEnabled(frame)) { observed.Add("Frame " + frame + " minimized or modal"); continue; }
             MatchDpi(frame);
             observed.Add("Frame " + frame + " at " + GetDpiForWindow(frame) + " DPI");
             foreach (IntPtr doc in Children(frame, "OneNote::MainWindow"))
@@ -115,26 +115,44 @@ internal sealed class NativeLayout : IDisposable
 
     // The host owns the outer edges. Recompute from the ribbon and current bottom each
     // time so repeated ticks cannot shrink the document again.
-    internal Rectangle Reserve()
+    internal Rectangle Reserve(bool waitForEditor = false)
     {
-        if (!Alive || !IsWindowVisible(Ribbon) || !IsWindowVisible(navigation))
-            throw new InvalidOperationException("OneNote replaced or hid a required layout window.");
+        if (!Alive || !IsWindowEnabled(Frame) || !IsWindowVisible(Ribbon) || !IsWindowVisible(navigation))
+            return Unavailable(waitForEditor, "OneNote replaced, disabled or hid a required layout window.");
         Rectangle body = DocumentBounds, ribbon = RibbonBounds;
         if (body.Top != ribbon.Bottom && (applied.IsEmpty || body.Top != applied.Top))
-            throw new InvalidOperationException("Unrecognized host layout. Cannot reserve a row.");
-        if (ribbon.Left > body.Left || ribbon.Right < body.Right || NavigationBounds.Top != body.Top)
-            throw new InvalidOperationException("Native controls no longer align with the document.");
+            return Unavailable(waitForEditor, "Unrecognized host layout. Cannot reserve a row.");
+        Rectangle nav = NavigationBounds;
+        if (ribbon.Left > body.Left || ribbon.Right < body.Right || nav.Top != body.Top || nav.Left != body.Left || nav.Width != body.Width)
+            return Unavailable(waitForEditor, "Native controls no longer align with the document.");
+        var middle = new Point(nav.Left + nav.Width / 2, nav.Top + nav.Height / 2);
+        if (ChildWindowFromPointEx(Frame, middle, 7) != Document)
+            return Unavailable(waitForEditor, "OneNote is covering the editor navigation.");
+        MapWindowPoints(Frame, Document, ref middle, 1);
+        if (ChildWindowFromPointEx(Document, middle, 7) != navigation)
+            return Unavailable(waitForEditor, "OneNote is covering the navigation row in the document.");
         int height = (int)Math.Round(32 * Dpi / 96.0);
         if (height <= 0 || body.Width < 120 || body.Bottom - ribbon.Bottom < height * 3)
-            throw new InvalidOperationException("Insufficient usable document space.");
+            return Unavailable(waitForEditor, "Insufficient usable document space.");
         Rectangle full = Rectangle.FromLTRB(body.Left, ribbon.Bottom, body.Right, body.Bottom);
         Rectangle next = Rectangle.FromLTRB(full.Left, full.Top + height, full.Right, full.Bottom);
         if (next != body) Move(Document, next);
         original = full;
         applied = next;
         if (DocumentBounds != next || NavigationBounds.Top != next.Top || RibbonBounds != ribbon)
-            throw new InvalidOperationException("OneNote did not preserve the reserved row.");
+            return Unavailable(waitForEditor, "OneNote did not preserve the reserved row.");
         return new Rectangle(full.Left, full.Top, full.Width, height);
+    }
+    private static Rectangle Unavailable(bool waitForEditor, string reason)
+    {
+        if (waitForEditor) return Rectangle.Empty;
+        throw new InvalidOperationException(reason);
+    }
+    internal void ReleaseForDialog()
+    {
+        if (applied.IsEmpty || !Alive || DocumentBounds != applied) return;
+        Move(Document, original);
+        applied = Rectangle.Empty;
     }
 
     public void Dispose()
@@ -180,7 +198,8 @@ internal sealed class NativeLayout : IDisposable
     [DllImport("user32.dll", SetLastError=true)] private static extern bool ScreenToClient(IntPtr window, ref Point point);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
-    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
+    [DllImport("user32.dll")] internal static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] internal static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] internal static extern IntPtr GetParent(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);

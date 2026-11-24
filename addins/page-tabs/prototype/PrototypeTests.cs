@@ -20,6 +20,8 @@ internal static class PrototypeTests
         internal bool LocationUnavailable, FailNextNavigation, DelayNextNavigation;
         internal string PendingPage;
         public string Current { get; private set; }
+        internal Color BookBColor = Color.DarkOrange;
+        public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.Teal : BookBColor; }
         internal readonly Dictionary<string, string> Renamed = new Dictionary<string, string>();
         public string Caption(string id)
         {
@@ -139,7 +141,28 @@ internal static class PrototypeTests
                         source.Navigate(source.PendingPage); strip.RefreshActive();
                         Check(strip.IsSelected(source.Current) && strip.HasTabFocus(source.Current), "Delayed navigation lost new-tab focus.");
                         Console.WriteLine("PASS + creates distinct Quick Notes from another notebook and focuses each new tab; missing destination and navigation retry preserve the working set.");
-                        foreach (var id in ids) { strip.ClickTab(id); Check(source.Current == id && strip.IsSelected(id), "Tab click did not navigate."); }
+                        Check(NotebookPages.ReadSectionColor(XElement.Parse("<Section color='#138bc4'/>")).ToArgb() == Color.FromArgb(19,139,196).ToArgb() &&
+                            NotebookPages.ReadSectionColor(XElement.Parse("<Section color='automatic'/>")).IsEmpty &&
+                            NotebookPages.ReadSectionColor(XElement.Parse("<Section/>")).IsEmpty, "Section color parsing failed.");
+                        foreach (var id in ids)
+                        {
+                            strip.ClickTab(id);
+                            Check(source.Current == id && strip.IsSelected(id), "Tab click did not navigate.");
+                            Check(strip.Items.OfType<PageTabButton>().Single(t => t.Checked).SectionColor == source.SectionColor(id),
+                                "The active tab kept the previous section color.");
+                        }
+                        var selected = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                        source.BookBColor = Color.Empty;
+                        var colorWait = System.Diagnostics.Stopwatch.StartNew();
+                        while (!selected.SectionColor.IsEmpty && colorWait.ElapsedMilliseconds < 5000)
+                        {
+                            Thread.Sleep(50);
+                            strip.RefreshActive();
+                        }
+                        var renderer = (TabRenderer)strip.Renderer;
+                        Check(selected.Checked && selected.SectionColor.IsEmpty && renderer.MarkerFor(selected) == renderer.ActiveMarker,
+                            "Changing the current section to automatic color did not restore the theme accent.");
+                        Console.WriteLine("PASS section marker follows pages across notebooks and refreshes an edited section color without navigation.");
                         using (var editor = new TextBox { Location = new Point(6, navigation.Bottom + 6) })
                         {
                             document.Controls.Add(editor);
@@ -269,6 +292,8 @@ internal static class PrototypeTests
             {
                 strip.ClickTab(pages[i]); WaitForPage(source, pages[i]); strip.RefreshActive();
                 Check(strip.IsSelected(pages[i]) && source.Frame == layout.Frame, "Wrong page or OneNote window.");
+                Check(strip.Items.OfType<PageTabButton>().Single(t => t.Checked).SectionColor == source.SectionColor(pages[i]),
+                    "The tab has a different color from its disposable section.");
                 Check(layout.StillReserved(slot), "OneNote reclaimed the strip after a tab click.");
                 layout.CheckHitTargets(strip.Handle, slot);
             }

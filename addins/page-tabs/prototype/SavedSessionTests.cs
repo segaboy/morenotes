@@ -15,6 +15,7 @@ internal static class SavedSessionTests
     {
         internal bool reopened;
         public string Current { get; private set; }
+        public Color SectionColor(string id) { return Color.Empty; }
         public string Caption(string id) { return id.StartsWith("b") ? "Dashboard / B & C" : "Dashboard / A"; }
         public string LinkFor(string id) { return id.StartsWith("b") ? PageLink : ""; }
         public string CreateQuickNote() { return "quick-" + Guid.NewGuid().ToString("N"); }
@@ -120,18 +121,46 @@ internal static class SavedSessionTests
                 frame.Show();
                 using (var layout = new NativeLayout(frame.Handle, body.Handle, ribbon.Handle, row.Handle))
                 using (var strip = new PageStrip(frame.Handle, source, Application.ExitThread, e => { throw e; }, new SessionStore(path)))
-                using (var closeHost = new Timer { Interval = 400 })
+                using (var closeHost = new Timer { Interval = 600 })
                 {
                     strip.Attach(layout.Reserve());
                     strip.RestoreOrSeed();
                     Check(strip.TabCount == 1 && strip.IsSelected("a1") == (attachment == 0), "New editor lost the prior working set.");
-                    closeHost.Tick += delegate { closeHost.Stop(); frame.Close(); };
+                    int phase = 0;
+                    bool hidden = false, modal = false, resumed = false;
+                    if (attachment == 0) row.Hide();
+                    closeHost.Tick += delegate
+                    {
+                        if (attachment == 0)
+                        {
+                            if (phase == 0)
+                            {
+                                hidden = !strip.Visible && body.Top == ribbon.Bottom;
+                                frame.Enabled = false;
+                                row.Show();
+                                phase++;
+                                return;
+                            }
+                            if (phase == 1)
+                            {
+                                modal = !strip.Visible;
+                                frame.Enabled = true;
+                                phase++;
+                                return;
+                            }
+                            resumed = strip.Visible && layout.StillReserved(strip.Bounds) && strip.IsSelected("a1");
+                        }
+                        closeHost.Stop();
+                        frame.Close();
+                    };
                     closeHost.Start();
                     Check(Program.RunInteractive(layout, strip, null), "Losing the host did not request reattachment.");
+                    if (attachment == 0)
+                        Check(hidden && modal && resumed, "The strip did not pause and resume in the same editor after a hidden row and modal dialog.");
                 }
             }
         }
-        Console.WriteLine("PASS resident loop detected host closure and restored the same row in a second controlled editor.");
+        Console.WriteLine("PASS resident loop released the row during a hidden editor and modal Options simulation, resumed the same tab, and reattached after closing the editor.");
     }
 
     internal static void ProcessPhase(Guid run, string phase)
