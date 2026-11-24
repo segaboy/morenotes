@@ -61,19 +61,31 @@ internal static class PrototypeTests
                     Rectangle expected = Rectangle.Empty;
                     using (var strip = new PageStrip(frame.Handle, source, delegate {}, delegate(Exception e) { failure = e; }))
                     {
+                        Rectangle slot = Rectangle.Empty;
                         foreach (int height in new int[] { 120, 60, 120 })
                         {
                             frame.ClientSize = new Size(frame.ClientSize.Width + 40, frame.ClientSize.Height + 10);
                             ribbon.Bounds = new Rectangle(0, 0, frame.ClientSize.Width, height);
                             expected = new Rectangle(0, height, frame.ClientSize.Width - 110, frame.ClientSize.Height - height);
                             document.Bounds = expected;
-                            var slot = layout.Reserve();
+                            slot = layout.Reserve();
                             strip.Attach(slot);
                             layout.CheckHitTargets(strip.Handle, slot);
                             Check(slot == layout.Reserve(), "A repeated tick consumed another row.");
                             Check(slot.Top == height && slot.Bottom == layout.NavigationBounds.Top && slot.Width == expected.Width &&
                                 layout.DocumentBounds.Bottom == expected.Bottom, "The test strip overlaps native controls.");
                         }
+                        using (var cover = new Panel { Bounds = new Rectangle(0, 0, document.Width / 3, navigation.Height) })
+                        {
+                            document.Controls.Add(cover);
+                            cover.BringToFront();
+                            bool detected = false;
+                            try { layout.CheckHitTargets(strip.Handle, slot); }
+                            catch (InvalidOperationException error) { detected = error.Message.Contains("navigation"); }
+                            Check(detected, "The hit test accepted a control covering the left of the navigation row.");
+                        }
+                        layout.CheckHitTargets(strip.Handle, slot);
+                        Console.WriteLine("PASS detected a partially covered navigation row and its recovery.");
                         string[] ids = { "a/1", "a/2", "b/1" };
                         foreach (var id in ids) { source.Navigate(id); strip.ClickAdd(); }
                         strip.ClickAdd();
@@ -158,6 +170,7 @@ internal static class PrototypeTests
                 strip.ClickTab(pages[i]); WaitForPage(source, pages[i]); strip.RefreshActive();
                 Check(strip.IsSelected(pages[i]) && source.Frame == layout.Frame, "Wrong page or OneNote window.");
                 Check(layout.StillReserved(slot), "OneNote reclaimed the strip after a tab click.");
+                layout.CheckHitTargets(strip.Handle, slot);
             }
             source.Navigate(previous); WaitForPage(source, previous); strip.RefreshActive();
             foreach (var id in pages) Check(!strip.IsSelected(id), "A stale test tab remained active.");

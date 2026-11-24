@@ -29,6 +29,15 @@ internal static class Program
                 NativeLayout.MatchDpi(candidate.Frame);
                 Console.WriteLine("Frame {0}, DPI {1}; ribbon {2}; navigation {3}; document {4}", candidate.Frame,
                     candidate.Dpi, candidate.RibbonBounds, candidate.NavigationBounds, candidate.DocumentBounds);
+                if (mode == "measure")
+                {
+                    try
+                    {
+                        candidate.CheckHitTargets(IntPtr.Zero, Rectangle.Empty);
+                        Console.WriteLine("Native hit test matched ribbon and navigation at left, center and right.");
+                    }
+                    catch (InvalidOperationException error) { Console.WriteLine(error.Message); }
+                }
             }
             if (mode == "measure") return 0;
             if (frame != IntPtr.Zero && !layouts.Exists(candidate => candidate.Frame == frame))
@@ -69,7 +78,8 @@ internal static class Program
                                 throw new InvalidOperationException("The host reclaimed or moved the strip during the idle placement test.");
                         }
                         strip.Enabled = true;
-                        Console.WriteLine("PASS reserved row survived the idle placement test.");
+                        layout.CheckHitTargets(strip.Handle, slot);
+                        Console.WriteLine("PASS reserved row survived the idle placement test with all three rows reachable.");
                     }
                     if (mode == "verify")
                     {

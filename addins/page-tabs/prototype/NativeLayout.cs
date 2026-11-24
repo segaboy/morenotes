@@ -81,15 +81,28 @@ internal sealed class NativeLayout : IDisposable
     internal uint Dpi { get { return GetDpiForWindow(Frame); } }
     internal void CheckHitTargets(IntPtr strip, Rectangle slot)
     {
-        // Use host-relative hit testing so a terminal on top of OneNote cannot
-        // invalidate the measurement. This checks sibling stacking, not user input.
-        int x = slot.Left + slot.Width / 2;
+        // Inspect child stacking inside the host, even when another app is in front.
         Rectangle nav = NavigationBounds;
+        Rectangle span = strip == IntPtr.Zero ? DocumentBounds : slot;
+        int ribbonY = RibbonBounds.Bottom - 1;
+        foreach (int x in new[] { span.Left + span.Width / 10, span.Left + span.Width / 2, span.Right - 1 - span.Width / 10 })
+        {
+            CheckChildAt(Frame, new Point(x, ribbonY), Ribbon, "ribbon");
+            if (strip != IntPtr.Zero)
+                CheckChildAt(Frame, new Point(x, slot.Top + slot.Height / 2), strip, "tab strip");
+            Point p = new Point(x, nav.Top + nav.Height / 2);
+            CheckChildAt(Frame, p, Document, "document at navigation row");
+            MapWindowPoints(Frame, Document, ref p, 1);
+            CheckChildAt(Document, p, navigation, "navigation");
+        }
+    }
+    private static void CheckChildAt(IntPtr parent, Point p, IntPtr expected, string row)
+    {
         const uint skipHiddenDisabledTransparent = 7;
-        if (ChildWindowFromPointEx(Frame, new Point(x, slot.Top - 1), skipHiddenDisabledTransparent) != Ribbon ||
-            ChildWindowFromPointEx(Frame, new Point(x, slot.Top + slot.Height / 2), skipHiddenDisabledTransparent) != strip ||
-            ChildWindowFromPointEx(Frame, new Point(x, nav.Top + nav.Height / 2), skipHiddenDisabledTransparent) != Document)
-            throw new InvalidOperationException("Ribbon, strip or navigation centre is obscured in the host's child-window stack.");
+        IntPtr hit = ChildWindowFromPointEx(parent, p, skipHiddenDisabledTransparent);
+        if (hit != expected)
+            throw new InvalidOperationException(String.Format("Hit test for {0} at ({1},{2}) in parent {3} reached {4}, expected {5}.",
+                row, p.X, p.Y, parent, hit, expected));
     }
     internal bool Alive { get { return IsWindow(Frame) && GetParent(Document) == Frame &&
         GetParent(Ribbon) == Frame && GetParent(navigation) == Document; } }
@@ -166,6 +179,7 @@ internal sealed class NativeLayout : IDisposable
     [DllImport("user32.dll")] internal static extern IntPtr GetParent(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr ChildWindowFromPointEx(IntPtr parent, Point point, uint flags);
+    [DllImport("user32.dll")] private static extern int MapWindowPoints(IntPtr from, IntPtr to, ref Point point, uint count);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
     [DllImport("user32.dll", SetLastError=true)] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);

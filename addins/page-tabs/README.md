@@ -17,7 +17,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 | Mode | What it tests |
 | --- | --- |
 | `Build` | Retains a standalone x64 executable at `artifacts/prototype/MoreTabsPrototype.exe`. Pass any test mode directly to this executable from a desktop terminal. |
-| `Measure` | Reports window handles, DPI and control bounds without changing the layout or reading notebook content. Multiple open windows are listed separately. |
+| `Measure` | Reports window handles, DPI, control bounds and native hit-test results for each measured window. Samples the left, center and right of the ribbon dock and section row without sending clicks or reading page content. |
 | `Placement` | Temporarily reserves 32 logical pixels, attaches a disabled child strip, watches whether OneNote keeps the space for 1.2 seconds without intervention, then restores the layout. Supply `-WindowHandle <number>` from Measure to select among several windows. |
 | `Com` | Opens the desktop COM interface and checks if the current window has a readable page ID. |
 | `Bind` | Matches the measured native editor to a OneNote COM window. Prints handles and bounds without moving controls or navigating. |
@@ -36,6 +36,8 @@ From the Work shell, the attempt to reposition the live document returned Win32 
 In a subsequent live check on the same build at 96 DPI, the desktop accessibility tree exposed the expanded ribbon, Quick Access Toolbar and Sections tab control. Native discovery measured one editor with a 1,345-pixel-wide ribbon dock ending at Y=216 and a navigation row spanning Y=216 through Y=263. The original verifier could report a missing layout even with those controls visible because it filtered native frames by the exact handle of the current COM window before measuring. The revised verifier prints the measured frames before requesting COM access. In this shell, that measurement succeeded and COM activation returned access denied. Matching to the live COM window still requires a desktop process with COM access.
 
 The controlled-window test passed child attachment, three ribbon/size configurations, preservation of the document's bottom edge, repeated layout passes without cumulative resizing, and restoration on close. Page tests passed with separate IDs for two pages titled Dashboard, repeated add, switching tabs, and navigating to an untracked page. Use `Run` for the remaining manual acceptance checks, including clicks on native controls, Back, keyboard focus, and a move between displays at different scale settings. Capture test content only.
+
+On the 1,345-pixel-wide editor described above, the read-only Windows hit test reached the ribbon dock at Y=215 and the native navigation child at Y=240 at all three sampled positions. A controlled test placed another control over the left third of the navigation row. The original center-only check passed incorrectly. The revised check detected the obstruction and passed once the covering control was removed. The live `Placement` command still stopped at the document move with Win32 error 5, before it could attach a strip.
 
 ## First milestone
 
