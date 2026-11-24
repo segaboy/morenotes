@@ -12,7 +12,7 @@ internal interface IPages
     string Current { get; }
     string Caption(string id);
     Color SectionColor(string pageId);
-    Dictionary<string, BookmarkNotebook> BookmarkOwners(IEnumerable<string> pageIds);
+    Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> pageIds);
     string CreateQuickNote();
     void Navigate(string id);
     string LinkFor(string id);
@@ -144,19 +144,19 @@ internal sealed class NotebookPages : IPages
         if (section == null || section.Name.LocalName != "Section") return Color.Empty;
         return BookmarkNotebook.ReadColor((string)section.Attribute("color"));
     }
-    public Dictionary<string, BookmarkNotebook> BookmarkOwners(IEnumerable<string> pageIds)
+    public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> pageIds)
     {
-        var result = new Dictionary<string, BookmarkNotebook>();
+        var result = new Dictionary<string, BookmarkLocation>();
         string xml;
         try { App.GetHierarchy("", One.HierarchyScope.hsSections, out xml, One.XMLSchema.xs2013); }
         catch (COMException) { return result; }
-        var sections = BookmarkNotebook.IndexSections(XElement.Parse(xml));
+        var sections = BookmarkLocation.IndexSections(XElement.Parse(xml));
         foreach (string pageId in pageIds)
         {
             string section;
             try { App.GetHierarchyParent(pageId, out section); }
             catch (COMException) { continue; } // A closed notebook can still be shown using its saved heading.
-            BookmarkNotebook owner;
+            BookmarkLocation owner;
             if (section != null && sections.TryGetValue(section, out owner)) result[pageId] = owner;
         }
         return result;
@@ -593,7 +593,7 @@ internal sealed class PageStrip : ToolStrip
     internal void SaveBookmark(SavedPage page)
     {
         if (page == null) return;
-        BookmarkNotebook owner;
+        BookmarkLocation owner;
         if (pages.BookmarkOwners(new[] { page.Id }).TryGetValue(page.Id, out owner))
             page = new SavedPage(page.Id, page.Caption, page.Link, owner);
         ApplyState(store.Change(s => WorkingSet.Keep(s.Bookmarks, page)));
@@ -607,28 +607,35 @@ internal sealed class PageStrip : ToolStrip
         ApplyState(store.Read());
         var menu = bookmarks.DropDownItems;
         ClearMenu(menu);
+        bookmarks.DropDown.MinimumSize = Size.Empty;
         menu.Add("Bookmark current page", null, delegate { Perform(delegate { SaveBookmark(CaptureCurrent()); }); });
         if (state.Bookmarks.Count == 0) return;
         var owners = pages.BookmarkOwners(state.Bookmarks.Select(page => page.Id));
-        if (state.Bookmarks.Any(p => owners.ContainsKey(p.Id) && !owners[p.Id].SameAs(p.Notebook)))
+        if (state.Bookmarks.Any(p => owners.ContainsKey(p.Id) && !owners[p.Id].SameAs(p.Location)))
         {
             // The menu can still use live colors if the optional offline cache cannot be written.
             try { ApplyState(store.Change(s => s.UpdateBookmarkOwners(owners))); }
             catch (System.IO.IOException) { }
             catch (UnauthorizedAccessException) { }
         }
+        if (state.Bookmarks.Count == 0) return;
         var remove = new ToolStripMenuItem("Remove bookmark");
         remove.DropDown.Renderer = appearance;
-        var booksById = owners.Values.Concat(state.Bookmarks.Select(p => p.Notebook).Where(n => n != null))
+        bookmarks.DropDown.ShowItemToolTips = remove.DropDown.ShowItemToolTips = true;
+        var booksById = owners.Values.Select(o => o.Notebook).Concat(state.Bookmarks.Select(p => p.Notebook).Where(n => n != null))
             .GroupBy(n => n.Id).ToDictionary(g => g.Key, g => g.First());
         var known = booksById.Values.ToLookup(n => n.Name, StringComparer.CurrentCultureIgnoreCase);
-        var groups = state.Bookmarks.Select(page => {
-            BookmarkNotebook book;
-            if (!owners.TryGetValue(page.Id, out book))
-                book = page.Notebook != null ? booksById[page.Notebook.Id] : page.NotebookForMenu();
+        var entries = state.Bookmarks.Select(page => {
+            BookmarkLocation location;
+            if (!owners.TryGetValue(page.Id, out location)) location = page.Location;
+            var book = location != null ? booksById[location.Notebook.Id] : page.NotebookForMenu();
             if (book.Id.Length == 0 && known[book.Name].Count() == 1) book = known[book.Name].First();
-            return new { Page = page, Book = book };
-        }).GroupBy(item => item.Book.Id.Length == 0 ? "name:" + item.Book.Name.ToUpperInvariant() : "id:" + item.Book.Id)
+            return new { Page = page, Book = book, Location = location };
+        }).ToList();
+        int screenWidth = Screen.FromHandle(Handle).WorkingArea.Width;
+        int sectionWidth = BookmarkRow.MeasureColumn(entries.Select(entry => entry.Location), bookmarks.DropDown.Font,
+            appearance.Dpi, screenWidth);
+        var groups = entries.GroupBy(item => item.Book.Id.Length == 0 ? "name:" + item.Book.Name.ToUpperInvariant() : "id:" + item.Book.Id)
           .OrderBy(group => group.First().Book.Name, StringComparer.CurrentCultureIgnoreCase);
         foreach (var group in groups)
         {
@@ -638,13 +645,28 @@ internal sealed class PageStrip : ToolStrip
             foreach (var entry in group)
             {
                 var page = entry.Page;
-                string label = page.BookmarkTitle.Replace("&", "&&");
-                menu.Add(label, null, delegate { Perform(delegate { OpenSaved(page); }); });
-                remove.DropDownItems.Add(label, null, delegate { Perform(delegate { RemoveBookmark(page); }); });
+                menu.Add(new BookmarkRow(page, entry.Location, sectionWidth, appearance.Dpi, delegate { Perform(delegate { OpenSaved(page); }); }));
+                remove.DropDownItems.Add(new BookmarkRow(page, entry.Location, sectionWidth, appearance.Dpi, delegate { Perform(delegate { RemoveBookmark(page); }); }));
             }
         }
         menu.Add(new ToolStripSeparator());
         menu.Add(remove);
+        int width = menu.OfType<BookmarkRow>().Max(row => row.ContentWidth);
+        SizeBookmarkMenu(bookmarks.DropDown, width, screenWidth);
+        SizeBookmarkMenu(remove.DropDown, width, screenWidth);
+    }
+    private static void SizeBookmarkMenu(ToolStripDropDown menu, int contentWidth, int screenWidth)
+    {
+        // The native menu measures only standard text and icon columns. Widen both the popup and its hit targets.
+        int border = 2 * SystemInformation.BorderSize.Width;
+        int width = Math.Min(screenWidth - border, Math.Max(contentWidth, menu.GetPreferredSize(Size.Empty).Width - border));
+        foreach (ToolStripItem item in menu.Items)
+        {
+            int height = item.GetPreferredSize(Size.Empty).Height;
+            item.AutoSize = false;
+            item.Size = new Size(width - item.Margin.Horizontal, height);
+        }
+        menu.MinimumSize = new Size(width + border, 0);
     }
     internal bool OpenSaved(SavedPage page, SavedTab target = null)
     {

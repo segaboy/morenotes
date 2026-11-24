@@ -37,17 +37,49 @@ internal sealed class BookmarkNotebook
         return String.IsNullOrEmpty(id) || String.IsNullOrWhiteSpace(name) ? null :
             new BookmarkNotebook(id, name, ReadColor((string)node.Attribute("color")));
     }
-    internal static Dictionary<string, BookmarkNotebook> IndexSections(XElement hierarchy)
+}
+
+internal sealed class BookmarkLocation
+{
+    internal readonly BookmarkNotebook Notebook;
+    internal readonly string SectionName;
+    internal readonly Color SectionColor;
+
+    internal BookmarkLocation(BookmarkNotebook notebook, string name, Color color)
     {
-        var sections = new Dictionary<string, BookmarkNotebook>();
+        Notebook = notebook;
+        SectionName = String.IsNullOrWhiteSpace(name) ? null : name;
+        SectionColor = color;
+    }
+    internal bool SameAs(BookmarkLocation other)
+    {
+        return other != null && Notebook.SameAs(other.Notebook) && SectionName == other.SectionName &&
+            SectionColor.ToArgb() == other.SectionColor.ToArgb();
+    }
+    internal XElement SectionXml()
+    {
+        return SectionName == null ? null : new XElement("section", new XAttribute("name", SectionName),
+            SectionColor.IsEmpty ? null : new XAttribute("color", "#" + (SectionColor.ToArgb() & 0xffffff).ToString("X6")));
+    }
+    internal static BookmarkLocation FromXml(XElement page)
+    {
+        var notebook = BookmarkNotebook.FromXml(page.Element("notebook"));
+        var section = page.Element("section");
+        return notebook == null ? null : new BookmarkLocation(notebook, section == null ? null : (string)section.Attribute("name"),
+            section == null ? Color.Empty : BookmarkNotebook.ReadColor((string)section.Attribute("color")));
+    }
+    internal static Dictionary<string, BookmarkLocation> IndexSections(XElement hierarchy)
+    {
+        var sections = new Dictionary<string, BookmarkLocation>();
         foreach (var node in hierarchy.DescendantsAndSelf().Where(n => n.Name.LocalName == "Notebook"))
         {
-            var notebook = FromXml(node);
+            var notebook = BookmarkNotebook.FromXml(node);
             if (notebook == null) continue;
             foreach (var section in node.Descendants().Where(n => n.Name.LocalName == "Section"))
             {
                 string sectionId = (string)section.Attribute("ID");
-                if (!String.IsNullOrEmpty(sectionId)) sections[sectionId] = notebook;
+                if (!String.IsNullOrEmpty(sectionId)) sections[sectionId] = new BookmarkLocation(notebook,
+                    (string)section.Attribute("name"), BookmarkNotebook.ReadColor((string)section.Attribute("color")));
             }
         }
         return sections;
@@ -83,5 +115,56 @@ internal sealed class BookmarkHeader : ToolStripMenuItem
         int textLeft = x + size + HostChrome.Px(7, palette.Dpi);
         TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(textLeft, 0, Math.Max(0, Width - textLeft - x), Height),
             ink, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+    }
+}
+
+internal sealed class BookmarkRow : ToolStripMenuItem
+{
+    private const TextFormatFlags MeasureFlags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+    private const TextFormatFlags DrawFlags = MeasureFlags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
+    internal readonly int SectionWidth;
+    internal readonly string SectionName;
+    internal Color SectionColor { get; private set; }
+    private readonly string title;
+    private readonly int padding;
+
+    internal BookmarkRow(SavedPage page, BookmarkLocation location, int width, uint dpi, EventHandler click)
+        : base(page.BookmarkTitle.Replace("&", "&&"), null, click)
+    {
+        title = page.BookmarkTitle;
+        SectionName = NameOfSection(location);
+        SectionColor = location == null ? Color.Empty : location.SectionColor;
+        SectionWidth = width;
+        padding = HostChrome.Px(7, dpi);
+        AccessibleName = title + ", " + SectionName;
+        ToolTipText = SectionName + " — " + title;
+    }
+    private static string NameOfSection(BookmarkLocation location)
+    {
+        return location == null || location.SectionName == null ? "Unknown section" : location.SectionName;
+    }
+    internal static int MeasureColumn(IEnumerable<BookmarkLocation> locations, Font font, uint dpi, int availableWidth)
+    {
+        int text = locations.Select(NameOfSection).Distinct().Max(name =>
+            TextRenderer.MeasureText(name, font, Size.Empty, MeasureFlags).Width);
+        return Math.Min(text + 2 * HostChrome.Px(7, dpi), availableWidth / 2);
+    }
+    internal int ContentWidth
+    {
+        get { return SectionWidth + 2 * padding + TextRenderer.MeasureText(title, Font, Size.Empty, MeasureFlags).Width; }
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var palette = (TabRenderer)Owner.Renderer;
+        e.Graphics.Clear(palette.Surface);
+        palette.DrawMenuItemBackground(new ToolStripItemRenderEventArgs(e.Graphics, this));
+        Color fill = palette.NotebookFill(SectionColor);
+        using (var brush = new SolidBrush(fill))
+            e.Graphics.FillRectangle(brush, 0, 0, SectionWidth, Height);
+        TextRenderer.DrawText(e.Graphics, SectionName, Font, new Rectangle(padding, 0, Math.Max(0, SectionWidth - 2 * padding), Height),
+            palette.NotebookInk(fill), DrawFlags);
+        int left = SectionWidth + padding;
+        TextRenderer.DrawText(e.Graphics, title, Font, new Rectangle(left, 0, Math.Max(0, Width - left - padding), Height),
+            palette.TextColor(this), DrawFlags);
     }
 }

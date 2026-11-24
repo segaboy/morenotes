@@ -36,9 +36,11 @@ Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and th
 
 The solid yellow star at the far left opens bookmarks. Its compact tab has the same fill, height and rounded lower corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
-The bookmarks menu lists notebooks alphabetically. Each heading shows a notebook icon and name on a solid band in the notebook's color. Under it, pages show their titles in the order they were bookmarked. The removal menu uses the same groups. MoreTabs looks up existing bookmarks when the menu opens and remembers notebook names and colors for offline use. If it has never seen the notebook color, it uses a theme color until the notebook is available.
+The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each row starts with the host section's name on its section color, followed by the page title on the regular menu background. One shared column fits the longest section name across all notebook groups, up to half the screen's working width. The removal menu uses the same layout.
 
-![Bookmarks grouped under two colored notebook headings](bookmarks.png)
+MoreTabs refreshes notebook and section names and colors when the menu opens and remembers them for offline use. Existing bookmarks gain their section labels automatically when OneNote can locate them. A bookmark whose section has never been resolved shows “Unknown section” in a theme color.
+
+![Bookmarks under two notebook headings, with section-color labels and aligned page titles](bookmarks.png)
 
 Every open page tab has a full-width stripe in its section's color. Selecting a tab fills its whole rounded shape with that color and adjusts the title color for readability. Pinned and regular tabs both follow this rule. MoreTabs reads section colors for restored tabs without opening their pages and refreshes them when sections are recolored. Automatic or unavailable colors use a theme accent. Windows high contrast uses the system palette. Naming or renaming the displayed page updates its tab title. If two pages in different notebooks share a title, the labels also show the notebook.
 

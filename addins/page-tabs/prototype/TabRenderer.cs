@@ -81,7 +81,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         if (item.Selected) return Hover;
         return item is PageTabButton || item is BookmarkButton ? Tab : Surface;
     }
-    private Color TextColor(ToolStripItem item)
+    internal Color TextColor(ToolStripItem item)
     {
         if (!item.Enabled) return contrast ? SystemColors.GrayText : Blend(Ink, Surface, 40);
         if (contrast && Highlighted(item)) return SystemColors.HighlightText;

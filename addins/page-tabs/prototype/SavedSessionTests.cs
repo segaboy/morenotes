@@ -17,11 +17,12 @@ internal static class SavedSessionTests
         internal bool reopened;
         public string Current { get; private set; }
         public Color SectionColor(string id) { return id == "a2" ? Color.Gold : Color.Indigo; }
-        public Dictionary<string, BookmarkNotebook> BookmarkOwners(IEnumerable<string> ids)
+        public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> ids)
         {
             var a = new BookmarkNotebook("a", "A", Color.Coral);
             var b = new BookmarkNotebook("b", "B & C", Color.Teal);
-            return ids.Where(id => id != "missing" && !(reopened && id == "b1")).ToDictionary(id => id, id => id.StartsWith("b") ? b : a);
+            return ids.Where(id => id != "missing" && !(reopened && id == "b1")).ToDictionary(id => id,
+                id => new BookmarkLocation(id.StartsWith("b") ? b : a, "Projects", SectionColor(id)));
         }
         public string Caption(string id) { return id.StartsWith("b") ? "Dashboard / B & C" : "Dashboard / A"; }
         public string LinkFor(string id) { return id.StartsWith("b") ? PageLink : ""; }
@@ -86,18 +87,25 @@ internal static class SavedSessionTests
 
     private static void ExerciseLegacyTabs(string path)
     {
-        var sections = BookmarkNotebook.IndexSections(System.Xml.Linq.XElement.Parse(
+        var sections = BookmarkLocation.IndexSections(System.Xml.Linq.XElement.Parse(
             "<Notebooks xmlns='urn:test'><Notebook ID='a' name='Shared' nickname='Field book' color='#2468AC'>" +
-            "<SectionGroup><SectionGroup><Section ID='s1' color='#FFFFFF'/></SectionGroup></SectionGroup></Notebook>" +
+            "<SectionGroup><SectionGroup><Section ID='s1' name='Drawings' color='#FFFFFF'/></SectionGroup></SectionGroup></Notebook>" +
             "<Notebook ID='b' name='Shared' color='automatic'><Section ID='s2'/></Notebook></Notebooks>"));
-        Check(sections["s1"].Name == "Field book" && sections["s1"].Color.ToArgb() == Color.FromArgb(36,104,172).ToArgb() &&
-            sections["s2"].Id == "b" && sections["s2"].Color.IsEmpty, "Nested sections must resolve to their owning notebook and its color.");
+        Check(sections["s1"].Notebook.Name == "Field book" && sections["s1"].Notebook.Color.ToArgb() == Color.FromArgb(36,104,172).ToArgb() &&
+            sections["s1"].SectionName == "Drawings" && sections["s1"].SectionColor.ToArgb() == Color.White.ToArgb() &&
+            sections["s2"].Notebook.Id == "b" && sections["s2"].SectionColor.IsEmpty, "Nested section and notebook metadata must stay distinct.");
         File.WriteAllText(path, "<workingSet version='1' revision='old'><tabs><page id='a' caption='First'/>" +
-            "<page id='b' caption='Second'/></tabs><bookmarks><page id='a' caption='First'/></bookmarks></workingSet>");
+            "<page id='b' caption='Second'/></tabs><bookmarks><page id='a' caption='First'>" +
+            "<notebook id='a' name='Field book' color='#2468AC'/></page></bookmarks></workingSet>");
         var store = new SessionStore(path);
         var legacy = store.Read();
         var first = legacy.Tabs[0];
         var second = legacy.Tabs[1];
+        var oldBookmark = legacy.Bookmarks.Single();
+        Check(oldBookmark.Notebook.Name == "Field book" && oldBookmark.Location.SectionName == null,
+            "A bookmark saved before section labels were introduced lost its notebook.");
+        store.Change(s => s.UpdateBookmarkOwners(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
+        Check(store.Read().Bookmarks.Single().Location.SameAs(sections["s1"]), "Could not backfill a legacy bookmark's section.");
         Check(!legacy.Tabs.Any(t => t.Pinned), "A legacy tab unexpectedly migrated as pinned.");
         store.Change(s => s.SetPinned(first.Key, true));
         store.Change(s => s.UpdateTab(first, second.Page));
@@ -218,7 +226,10 @@ internal static class SavedSessionTests
                     var offline = dropdown.DropDownItems.OfType<BookmarkHeader>().Single();
                     Check(offline.Text == "B & C" && offline.Notebook.Color.ToArgb() == Color.Teal.ToArgb(),
                         "An unavailable bookmark lost its notebook name or color after a restart.");
-                    dropdown.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Dashboard").PerformClick();
+                    var offlineRow = dropdown.DropDownItems.OfType<BookmarkRow>().Single();
+                    Check(offlineRow.SectionName == "Projects" && offlineRow.SectionColor.ToArgb() == Color.Indigo.ToArgb(),
+                        "The closed notebook lost its saved section name or color.");
+                    offlineRow.PerformClick();
                     dropdown.HideDropDown();
                     Check(source.Current == "b2" && strip.TabCount == 3 && strip.IsSelected("b1"), "Bookmark link did not restore the renamed ID.");
                     strip.ClickKeepCurrent();

@@ -76,7 +76,7 @@ internal static class AppearanceTests
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
         Console.WriteLine("PASS section stripes on every page tab and a full section-color fill on the selected tab, across themes and 96, 120, 144 and 192 DPI.");
-        Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and draw labeled full-width notebook color headers.");
+        Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
     }
 
     internal static Bitmap CheckBookmarkMenu(PageStrip strip, HostChrome chrome)
@@ -96,6 +96,28 @@ internal static class AppearanceTests
             try
             {
                 menu.DrawToBitmap(image, menu.ClientRectangle);
+                var rows = menu.Items.OfType<BookmarkRow>().ToArray();
+                Check(rows.Select(r => r.SectionName).SequenceEqual(new[] { "Route plans", "Sketches", "Materials & tools" }) &&
+                    rows.Select(r => r.Bounds.Left + r.SectionWidth).Distinct().Count() == 1,
+                    "Bookmark page titles are not aligned across notebook groups.");
+                var remove = (ToolStripMenuItem)menu.Items[menu.Items.Count - 1];
+                Check(remove.DropDownItems.OfType<BookmarkRow>().All(r => r.SectionWidth == rows[0].SectionWidth),
+                    "The removal menu does not use the same section column.");
+                foreach (var row in rows)
+                {
+                    int x = row.Bounds.Left + row.SectionWidth, y = row.Bounds.Top + 1;
+                    var fill = chrome.HighContrast ? SystemColors.Highlight : row.SectionColor;
+                    Check(image.GetPixel(row.Bounds.Left + 2, y).ToArgb() == fill.ToArgb() &&
+                        image.GetPixel(x - 1, y).ToArgb() == fill.ToArgb() &&
+                        image.GetPixel(x + 1, y).ToArgb() == (row.Selected ? ((TabRenderer)strip.Renderer).Hover : chrome.Surface).ToArgb(),
+                        "The section color must stop at the page-title column.");
+                    int titleWidth = TextRenderer.MeasureText(row.Text, row.Font, Size.Empty,
+                        TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Width;
+                    int visibleWidth = Rectangle.Intersect(menu.ClientRectangle, row.Bounds).Width;
+                    Check(visibleWidth >= row.SectionWidth + 2 * HostChrome.Px(7, chrome.Dpi) + titleWidth,
+                        "Bookmark at " + chrome.Dpi + " DPI needs " + row.ContentWidth + " pixels. Item " + row.Bounds +
+                        ", menu " + menu.ClientSize + ", minimum " + menu.MinimumSize + ".");
+                }
                 foreach (var header in menu.Items.OfType<BookmarkHeader>())
                 {
                     var bounds = header.Bounds;

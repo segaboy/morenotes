@@ -9,14 +9,15 @@ using System.Xml.Linq;
 internal sealed class SavedPage
 {
     internal readonly string Id, Caption, Link;
-    internal readonly BookmarkNotebook Notebook;
+    internal readonly BookmarkLocation Location;
+    internal BookmarkNotebook Notebook { get { return Location == null ? null : Location.Notebook; } }
     private readonly Guid pageGuid;
 
-    internal SavedPage(string id, string caption, string link, BookmarkNotebook notebook = null)
+    internal SavedPage(string id, string caption, string link, BookmarkLocation location = null)
     {
         Id = id;
         Caption = caption;
-        Notebook = notebook;
+        Location = location;
         Link = !String.IsNullOrEmpty(link) && link.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase) ? link : "";
         // OneNote desktop hyperlinks carry a page-id in the fragment after the section path.
         foreach (var part in Link.Split('#', '&', '?'))
@@ -43,7 +44,7 @@ internal sealed class SavedPage
     internal XElement ToXml(bool bookmark = false)
     {
         return new XElement("page", new XAttribute("id", Id), new XAttribute("caption", Caption), new XAttribute("link", Link),
-            bookmark && Notebook != null ? Notebook.ToXml() : null);
+            bookmark && Location != null ? Notebook.ToXml() : null, bookmark && Location != null ? Location.SectionXml() : null);
     }
 }
 
@@ -90,14 +91,14 @@ internal sealed class WorkingSet
         return true;
     }
 
-    internal bool UpdateBookmarkOwners(Dictionary<string, BookmarkNotebook> owners)
+    internal bool UpdateBookmarkOwners(Dictionary<string, BookmarkLocation> owners)
     {
         bool changed = false;
         for (int i = 0; i < Bookmarks.Count; i++)
         {
             var page = Bookmarks[i];
-            BookmarkNotebook owner;
-            if (!owners.TryGetValue(page.Id, out owner) || owner.SameAs(page.Notebook)) continue;
+            BookmarkLocation owner;
+            if (!owners.TryGetValue(page.Id, out owner) || owner.SameAs(page.Location)) continue;
             Bookmarks[i] = new SavedPage(page.Id, page.Caption, page.Link, owner);
             changed = true;
         }
@@ -109,9 +110,9 @@ internal sealed class WorkingSet
         int index = list.FindIndex(page.Matches);
         if (index < 0) { list.Add(page); return true; }
         var old = list[index];
-        page = new SavedPage(page.Id, page.Caption, page.Link.Length == 0 ? old.Link : page.Link, page.Notebook ?? old.Notebook);
+        page = new SavedPage(page.Id, page.Caption, page.Link.Length == 0 ? old.Link : page.Link, page.Location ?? old.Location);
         if (old.Id == page.Id && old.Caption == page.Caption && old.Link == page.Link &&
-            (old.Notebook == page.Notebook || (old.Notebook != null && old.Notebook.SameAs(page.Notebook)))) return false;
+            (old.Location == page.Location || (old.Location != null && old.Location.SameAs(page.Location)))) return false;
         list[index] = page;
         return true;
     }
@@ -171,7 +172,7 @@ internal sealed class SessionStore
     {
         string id = (string)element.Attribute("id"), caption = (string)element.Attribute("caption");
         if (String.IsNullOrEmpty(id) || caption == null) throw new InvalidDataException("Invalid saved page reference.");
-        return new SavedPage(id, caption, (string)element.Attribute("link"), BookmarkNotebook.FromXml(element.Element("notebook")));
+        return new SavedPage(id, caption, (string)element.Attribute("link"), BookmarkLocation.FromXml(element));
     }
 
     internal WorkingSet Change(Func<WorkingSet, bool> edit)

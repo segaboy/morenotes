@@ -22,11 +22,13 @@ internal static class PrototypeTests
         public string Current { get; private set; }
         internal Color BookBColor = Color.DarkOrange;
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.Teal : BookBColor; }
-        public Dictionary<string, BookmarkNotebook> BookmarkOwners(IEnumerable<string> ids)
+        public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> ids)
         {
             var a = new BookmarkNotebook("a", "Atlas", Color.SteelBlue);
             var b = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
-            return ids.ToDictionary(id => id, id => id.StartsWith("a/") ? a : b);
+            return ids.ToDictionary(id => id, id => id.StartsWith("a/") ? new BookmarkLocation(a, "Route plans", Color.Teal) :
+                id == "b/parts" ? new BookmarkLocation(b, "Materials & tools", Color.FromArgb(177, 205, 145)) :
+                new BookmarkLocation(b, "Sketches", Color.FromArgb(222, 174, 184)));
         }
         internal readonly Dictionary<string, string> Renamed = new Dictionary<string, string>();
         public string Caption(string id)
@@ -385,7 +387,10 @@ internal static class PrototypeTests
             Check(headings.Length == 2 && StringComparer.CurrentCultureIgnoreCase.Compare(headings[0].Text, headings[1].Text) <= 0,
                 "The two disposable notebooks were not grouped alphabetically.");
             var target = headings.Single(h => h.Notebook.Id == targetBook);
-            star.DropDownItems[star.DropDownItems.IndexOf(target) + 1].PerformClick();
+            var bookmark = (BookmarkRow)star.DropDownItems[star.DropDownItems.IndexOf(target) + 1];
+            Check(bookmark.SectionName == "Test" && bookmark.SectionColor.ToArgb() == source.SectionColor(pages[2]).ToArgb(),
+                "The bookmark row does not describe the disposable page's host section.");
+            bookmark.PerformClick();
             star.HideDropDown();
             WaitForPage(source, pages[2]); restored.RefreshActive();
             Check(restored.IsSelected(pages[2]) && restored.TabCount == 3 && source.Frame == layout.Frame,
