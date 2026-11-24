@@ -161,7 +161,7 @@ internal sealed class PageStrip : ToolStrip
 {
     private readonly IntPtr frame;
     private readonly IPages pages;
-    private readonly Dictionary<string, ToolStripButton> buttons = new Dictionary<string, ToolStripButton>();
+    private readonly Dictionary<string, PageTabButton> buttons = new Dictionary<string, PageTabButton>();
     private readonly ToolStripSplitButton add;
     private readonly BookmarkButton bookmarks = new BookmarkButton();
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
@@ -181,7 +181,6 @@ internal sealed class PageStrip : ToolStrip
     private bool focusPending;
     private DateTime nextRead;
     private DateTime nextCaptionCheck;
-    private DateTime nextColorCheck;
     private DateTime navigationDeadline;
     private readonly Action<Exception> onError;
     private const int FocusShortcut = 1;
@@ -515,7 +514,7 @@ internal sealed class PageStrip : ToolStrip
         foreach (var slot in state.Tabs)
         {
             SavedPage page = slot.Page;
-            ToolStripButton button;
+            PageTabButton button;
             if (!buttons.TryGetValue(slot.Key, out button))
             {
                 var pageTab = new PageTabButton { DisplayStyle = ToolStripItemDisplayStyle.Text };
@@ -529,6 +528,12 @@ internal sealed class PageStrip : ToolStrip
                     if (e.Button == MouseButtons.Middle) Perform(delegate { CloseTab((SavedTab)tab.Tag); });
                 };
                 buttons.Add(slot.Key, button);
+            }
+            else if (((SavedTab)button.Tag).Page.Id != page.Id)
+            {
+                button.SectionColor = Color.Empty;
+                button.NextColorCheck = DateTime.MinValue;
+                button.Invalidate();
             }
             string title = ShortCaption(page);
             button.Text = titles[title].Any(t => t.Page.Caption != page.Caption) ? page.Caption : title;
@@ -630,7 +635,12 @@ internal sealed class PageStrip : ToolStrip
             nextRead = DateTime.UtcNow.AddSeconds(2);
         }
         string id = pages.Current;
-        if (String.IsNullOrEmpty(id)) return; // OneNote can clear this briefly while switching notebooks.
+        if (String.IsNullOrEmpty(id))
+        {
+            // OneNote can clear the displayed page briefly. Saved tabs still have their own page IDs.
+            RefreshSectionColors(null, false);
+            return;
+        }
         bool moved = displayedPage == null || displayedPage.Id != id;
         var visible = moved ? new SavedPage(id, "", pages.LinkFor(id)) : displayedPage;
         var activeTab = state.Tabs.Find(t => t.Key == activeKey);
@@ -657,20 +667,12 @@ internal sealed class PageStrip : ToolStrip
         if (activeTab == null || !activeTab.Page.Matches(visible))
             activeTab = state.Tabs.Find(t => t.Page.Matches(visible));
         string selectedKey = activeTab == null ? null : activeTab.Key;
-        bool refreshColor = moved || selectedKey != activeKey || DateTime.UtcNow >= nextColorCheck;
+        bool selectionChanged = moved || selectedKey != activeKey;
         activeKey = selectedKey;
         displayedPage = visible;
         if (moved) nextCaptionCheck = DateTime.MinValue;
         if (activeTab != null) RefreshCaption(activeTab, id);
-        if (activeKey != null && refreshColor)
-        {
-            nextColorCheck = DateTime.UtcNow.AddSeconds(3);
-            var button = (PageTabButton)buttons[activeKey];
-            Color section;
-            try { section = pages.SectionColor(id); }
-            catch (COMException) { section = Color.Empty; }
-            if (section != button.SectionColor) { button.SectionColor = section; button.Invalidate(); }
-        }
+        RefreshSectionColors(id, selectionChanged);
         foreach (var entry in buttons)
         {
             bool active = entry.Key == activeKey;
@@ -685,6 +687,32 @@ internal sealed class PageStrip : ToolStrip
         }
         if (focusPending && (activeKey == null || DateTime.UtcNow > navigationDeadline || FocusTab(buttons[activeKey], ForegroundFocus())))
             focusPending = false;
+    }
+    private void RefreshSectionColors(string currentId, bool selectionChanged)
+    {
+        DateTime now = DateTime.UtcNow;
+        PageTabButton active = activeKey == null ? null : buttons[activeKey];
+        if (active != null && selectionChanged) active.NextColorCheck = DateTime.MinValue;
+        // Prioritize the displayed page, then service the oldest entries. Bound COM work per tick on large restores.
+        if (!buttons.Values.Any(button => button.NextColorCheck <= now)) return;
+        var byPage = buttons.Values.ToLookup(button => ((SavedTab)button.Tag).Page.Id);
+        var due = buttons.Values.Where(button => button.NextColorCheck <= now)
+            .OrderByDescending(button => button == active).ThenBy(button => button.NextColorCheck)
+            .Select(button => ((SavedTab)button.Tag).Page.Id).Distinct().Take(3).ToArray();
+        foreach (string pageId in due)
+        {
+            var tabs = byPage[pageId];
+            Color color;
+            try { color = pages.SectionColor(currentId != null && tabs.Contains(active) ? currentId : pageId); }
+            catch (COMException) { color = Color.Empty; }
+            foreach (var tab in tabs)
+            {
+                tab.NextColorCheck = now.AddSeconds(3);
+                if (tab.SectionColor == color) continue;
+                tab.SectionColor = color;
+                tab.Invalidate();
+            }
+        }
     }
     internal void ClickAdd() { add.PerformButtonClick(); }
     internal void ClickKeepCurrent() { add.DropDownItems[0].PerformClick(); }

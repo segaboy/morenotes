@@ -15,7 +15,7 @@ internal static class SavedSessionTests
     {
         internal bool reopened;
         public string Current { get; private set; }
-        public Color SectionColor(string id) { return Color.Empty; }
+        public Color SectionColor(string id) { return id == "a2" ? Color.Gold : Color.Indigo; }
         public string Caption(string id) { return id.StartsWith("b") ? "Dashboard / B & C" : "Dashboard / A"; }
         public string LinkFor(string id) { return id.StartsWith("b") ? PageLink : ""; }
         public string CreateQuickNote() { return "quick-" + Guid.NewGuid().ToString("N"); }
@@ -196,6 +196,8 @@ internal static class SavedSessionTests
                         strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 2, "Pinned group did not survive restart.");
                     Check(strip.TabCount == 2 && stored.Tabs.Select(t => t.Page.Id).SequenceEqual(new[] { "a1", "a2" }) &&
                         source.Current == "untracked" && !strip.IsSelected("a1"), "Restoration changed the page or lost the tab order.");
+                    Check(strip.Items.OfType<PageTabButton>().All(t => !t.Checked && t.SectionColor == source.SectionColor(((SavedTab)t.Tag).Page.Id)),
+                        "An inactive tab was restored without its section stripe.");
                     var saved = stored.Bookmarks.Single();
                     Check(saved.Caption == "Dashboard / B & C", "Bookmark caption did not round trip.");
                     var dropdown = strip.Items.OfType<ToolStripDropDownButton>().Single();

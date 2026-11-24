@@ -19,6 +19,7 @@ internal static class AppearanceTests
             "Tab labels must distinguish duplicate page titles.");
         Check(strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1, "An empty pinned group has two dividers.");
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
+        var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
         TogglePin(strip, schedule, true);
         var dark = Color.FromArgb(17, 12, 8);
         foreach (uint dpi in new uint[] { 96, 120, 144, 192 })
@@ -42,7 +43,25 @@ internal static class AppearanceTests
                 }
                 strip.Size = new Size(HostChrome.Px(950, dpi), HostChrome.Px(32, dpi));
                 strip.ApplyAppearance(expected);
-                using (var bitmap = CheckStrip(strip, expected)) { }
+                foreach (var selected in new[] { schedule, original })
+                {
+                    selected.PerformClick();
+                    using (var bitmap = CheckStrip(strip, expected))
+                    {
+                        if (contrast) continue;
+                        var title = Rectangle.Inflate(selected.Bounds, -HostChrome.Px(10, dpi), -HostChrome.Px(7, dpi));
+                        bool lightText = selected == schedule; // Teal needs light text; orange needs dark text.
+                        bool foundText = false;
+                        for (int y = title.Top; y < title.Bottom && !foundText; y++)
+                            for (int x = title.Left; x < title.Right && !foundText; x++)
+                            {
+                                Color ink = bitmap.GetPixel(x, y);
+                                foundText = lightText ? Math.Min(ink.R, Math.Min(ink.G, ink.B)) >= 225 :
+                                    Math.Max(ink.R, Math.Max(ink.G, ink.B)) <= 45;
+                            }
+                        Check(foundText, "The selected tab title did not contrast against its section color.");
+                    }
+                }
             }
         TogglePin(strip, schedule, false);
         Check(labels.SequenceEqual(strip.Items.OfType<PageTabButton>().Select(t => t.Text)),
@@ -55,7 +74,7 @@ internal static class AppearanceTests
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
-        Console.WriteLine("PASS dark, light and high-contrast rendering at 96, 120, 144 and 192 DPI: rounded bookmark tab, notebook icon alignment, equal divider gaps and the active page marker.");
+        Console.WriteLine("PASS section stripes on every page tab and a full section-color fill on the selected tab, across themes and 96, 120, 144 and 192 DPI.");
     }
 
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)
@@ -125,24 +144,20 @@ internal static class AppearanceTests
             }
             foreach (var tab in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main))
             {
-                int pixel = bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, tab.Bounds.Top + edge).ToArgb();
-                var marker = chrome.HighContrast || tab.SectionColor.IsEmpty ? palette.ActiveMarker : tab.SectionColor;
-                var expected = tab.Checked ? marker : tab.Selected ? palette.Hover : palette.Tab;
-                Check(pixel == expected.ToArgb(),
-                    "The persistent accent must appear on exactly the active tab.");
-                if (tab.Checked)
-                    for (int x = tab.Bounds.Left; x < tab.Bounds.Right; x++)
-                        Check(bitmap.GetPixel(x, tab.Bounds.Top + edge).ToArgb() == marker.ToArgb(),
-                            "Active marker pixel at offset " + (x - tab.Bounds.Left) + " of " + tab.Width +
-                            " differs from " + marker + " at " + chrome.Dpi + " DPI.");
+                Color marker = tab.SectionColor.IsEmpty ? palette.ActiveMarker : tab.SectionColor;
+                if (chrome.HighContrast)
+                    marker = tab.Checked ? SystemColors.Highlight : tab.Selected ? SystemColors.HighlightText : SystemColors.WindowText;
+                for (int x = tab.Bounds.Left; x < tab.Bounds.Right; x++)
+                    Check(bitmap.GetPixel(x, tab.Bounds.Top + edge).ToArgb() == marker.ToArgb(),
+                        "Missing full-width section color on " + (tab.Checked ? "active" : "inactive") + " tab.");
+                Color fill = tab.Checked ? marker : tab.Selected ? palette.Hover : palette.Tab;
+                Check(bitmap.GetPixel(tab.Bounds.Left + 2 * edge, tab.Bounds.Top + HostChrome.Px(3, chrome.Dpi) + edge).ToArgb() == fill.ToArgb() &&
+                    bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, tab.Bounds.Bottom - 3 * edge).ToArgb() == fill.ToArgb(),
+                    "Tab body fill does not match its selection state.");
             }
-            Check(bitmap.GetPixel(b.Left + 2 * edge, b.Top + HostChrome.Px(3, chrome.Dpi) + edge).ToArgb() == palette.Active.ToArgb(),
-                "The active tab has a gap or rounding at its upper-left corner.");
             Check(bitmap.GetPixel(b.Left + edge - 1, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
                 bitmap.GetPixel(b.Right - edge, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb(),
                 "The active tab's lower corners are not rounded.");
-            Check(bitmap.GetPixel(b.Left + b.Width / 2, b.Bottom - 3 * edge).ToArgb() == palette.Active.ToArgb(),
-                "The active tab did not use its theme color.");
             return bitmap;
         }
         catch { bitmap.Dispose(); throw; }

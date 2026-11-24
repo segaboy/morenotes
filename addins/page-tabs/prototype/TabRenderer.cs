@@ -27,6 +27,7 @@ internal sealed class BookmarkButton : ToolStripDropDownButton
 internal sealed class PageTabButton : ToolStripButton
 {
     internal Color SectionColor { get; set; }
+    internal DateTime NextColorCheck { get; set; }
     internal uint Dpi = 96;
     public override Size GetPreferredSize(Size constrainingSize)
     {
@@ -73,6 +74,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     private Color Background(ToolStripItem item)
     {
+        var page = item as PageTabButton;
+        if (page != null && page.Checked) return MarkerFor(page);
         var button = item as ToolStripButton;
         if (item.Pressed || (button != null && button.Checked)) return Active;
         if (item.Selected) return Hover;
@@ -133,14 +136,15 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
     {
         var tab = e.Item as PageTabButton;
-        if (tab == null || e.ToolStrip is ToolStripDropDown) { PaintCommand(e); return; }
-        PaintTab(e, tab.Checked);
+        if (tab == null) { PaintCommand(e); return; }
+        PaintTab(e, tab);
     }
     internal Color MarkerFor(PageTabButton tab)
     {
-        return contrast || tab.SectionColor.IsEmpty ? ActiveMarker : tab.SectionColor;
+        if (contrast) return tab.Checked ? Active : Highlighted(tab) ? SystemColors.HighlightText : Ink;
+        return tab.SectionColor.IsEmpty ? ActiveMarker : tab.SectionColor;
     }
-    private void PaintTab(ToolStripItemRenderEventArgs e, bool showActiveMarker)
+    private void PaintTab(ToolStripItemRenderEventArgs e, PageTabButton page)
     {
         int w = e.Item.Width, h = e.Item.Height;
         int diameter = Math.Min(HostChrome.Px(16, Dpi), Math.Min(w, h));
@@ -159,10 +163,10 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                 e.Graphics.FillPath(fill, shape);
                 if (contrast)
                     using (var border = new Pen(Ink) { Alignment = PenAlignment.Inset }) e.Graphics.DrawPath(border, shape);
-                if (showActiveMarker)
+                if (page != null)
                 {
                     e.Graphics.SmoothingMode = SmoothingMode.None;
-                    using (var marker = new SolidBrush(MarkerFor((PageTabButton)e.Item)))
+                    using (var marker = new SolidBrush(MarkerFor(page)))
                         e.Graphics.FillRectangle(marker, 0, 0, w, HostChrome.Px(3, Dpi));
                 }
             }
@@ -179,7 +183,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderDropDownButtonBackground(ToolStripItemRenderEventArgs e)
     {
         if (!(e.Item is BookmarkButton)) { PaintCommand(e); return; }
-        PaintTab(e, false);
+        PaintTab(e, null);
         float cy = e.Item.Height / 2f;
         float radius = Math.Min(HostChrome.Px(8, Dpi), cy - 1);
         if (radius < 1) return;

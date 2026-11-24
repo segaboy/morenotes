@@ -152,17 +152,19 @@ internal static class PrototypeTests
                                 "The active tab kept the previous section color.");
                         }
                         var selected = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                        var inactive = strip.Items.OfType<PageTabButton>().First(t => !t.Checked && ((SavedTab)t.Tag).Page.Id.StartsWith("personal/"));
                         source.BookBColor = Color.Empty;
                         var colorWait = System.Diagnostics.Stopwatch.StartNew();
-                        while (!selected.SectionColor.IsEmpty && colorWait.ElapsedMilliseconds < 5000)
+                        while ((!selected.SectionColor.IsEmpty || !inactive.SectionColor.IsEmpty) && colorWait.ElapsedMilliseconds < 5000)
                         {
                             Thread.Sleep(50);
                             strip.RefreshActive();
                         }
                         var renderer = (TabRenderer)strip.Renderer;
-                        Check(selected.Checked && selected.SectionColor.IsEmpty && renderer.MarkerFor(selected) == renderer.ActiveMarker,
+                        Check(selected.Checked && selected.SectionColor.IsEmpty && inactive.SectionColor.IsEmpty &&
+                            renderer.MarkerFor(selected) == (SystemInformation.HighContrast ? renderer.Active : renderer.ActiveMarker),
                             "Changing the current section to automatic color did not restore the theme accent.");
-                        Console.WriteLine("PASS section marker follows pages across notebooks and refreshes an edited section color without navigation.");
+                        Console.WriteLine("PASS active and inactive tabs follow section recoloring across notebooks without navigation.");
                         using (var editor = new TextBox { Location = new Point(6, navigation.Bottom + 6) })
                         {
                             document.Controls.Add(editor);
