@@ -184,10 +184,11 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolStripButton stop;
     private readonly ToolStripSplitButton add;
     private readonly BookmarkButton bookmarks = new BookmarkButton();
-    private readonly ToolStripDropDownButton options = new ToolStripDropDownButton {
+    private readonly StripMenuButton options = new StripMenuButton {
         AccessibleName = "MoreTabs options", ToolTipText = "MoreTabs options", AutoToolTip = false,
-        Text = "\uE713", ShowDropDownArrow = false, AutoSize = false, DisplayStyle = ToolStripItemDisplayStyle.Text, Overflow = ToolStripItemOverflow.Never
+        Text = "\uE713", ShowDropDownArrow = false, DisplayStyle = ToolStripItemDisplayStyle.Text, Overflow = ToolStripItemOverflow.Never
     };
+    internal Rectangle MenuTabBounds { get { return Rectangle.Union(bookmarks.Bounds, options.Bounds); } }
     private readonly ToolStripMenuItem colorLabels = new ToolStripMenuItem("Use notebook colors for labels");
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
@@ -234,8 +235,8 @@ internal sealed class PageStrip : ToolStrip
         add.DropDownItems.Add("Keep current page in a tab", null, delegate { Perform(AddCurrent); });
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
-        options.DropDownItems.AddRange(new ToolStripItem[] { colorLabels, showLabels, groupTabs });
-        options.DropDownOpening += delegate { Perform(delegate { ApplyState(this.store.Read()); RefreshOptions(); }); };
+        options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, colorLabels });
+        options.DropDownOpening += delegate { Perform(delegate { ApplyState(this.store.Read()); }); };
         foreach (ToolStripMenuItem item in options.DropDownItems)
         {
             var setting = item;
@@ -435,8 +436,7 @@ internal sealed class PageStrip : ToolStrip
         if (appearance != null)
         {
             var margin = TabMargin(appearance.Dpi);
-            bookmarks.Margin = new Padding(0, margin.Top, margin.Right, margin.Bottom);
-            options.Margin = margin;
+            SetMenuTabMargins(margin);
             foreach (var tab in buttons.Values) tab.Margin = margin;
             Invalidate();
         }
@@ -461,6 +461,7 @@ internal sealed class PageStrip : ToolStrip
             ForeColor = appearance.Ink;
             Host.Style(appearance);
             foreach (var label in labels.Values) StyleCaption(label);
+            if (state != null) RefreshOptions();
         }
         // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
         int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), chrome.Inset);
@@ -472,7 +473,7 @@ internal sealed class PageStrip : ToolStrip
         if (metrics)
         {
             var tabMargin = TabMargin(chrome.Dpi);
-            bookmarks.Margin = new Padding(0, tabMargin.Top, tabMargin.Right, tabMargin.Bottom);
+            SetMenuTabMargins(tabMargin);
             Font oldRegular = tabFont, oldSelected = selectedTabFont, oldCaption = captionFont, oldGear = gearFont;
             var menuFont = SystemFonts.MenuFont;
             tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -482,8 +483,7 @@ internal sealed class PageStrip : ToolStrip
             gearFont = new Font("Segoe MDL2 Assets", HostChrome.Px(15, chrome.Dpi), FontStyle.Regular, GraphicsUnit.Pixel);
             options.Font = gearFont;
             options.DropDown.Font = tabFont;
-            options.Size = new Size(HostChrome.Px(25, chrome.Dpi), HostChrome.Px(24, chrome.Dpi));
-            options.Margin = tabMargin;
+            options.TabWidth = HostChrome.Px(25, chrome.Dpi);
             var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
             foreach (ToolStripItem item in Items)
                 if (!(item is PageTabButton) && !(item is ToolStripSeparator) && item != bookmarks && item != options) item.Padding = commandPadding;
@@ -509,6 +509,11 @@ internal sealed class PageStrip : ToolStrip
         int gap = HostChrome.Px(3, dpi);
         return new Padding(side, AtBottom ? gap : 0, side, AtBottom ? 0 : gap);
     }
+    private void SetMenuTabMargins(Padding margin)
+    {
+        bookmarks.Margin = new Padding(0, margin.Top, 0, margin.Bottom);
+        options.Margin = new Padding(0, margin.Top, margin.Right, margin.Bottom);
+    }
     private void SizeTab(PageTabButton tab)
     {
         uint dpi = appearance.Dpi;
@@ -522,30 +527,29 @@ internal sealed class PageStrip : ToolStrip
     {
         label.ForeColor = appearance.HighContrast || !state.ColorNotebookLabels || label.Notebook == null || label.Notebook.Color.IsEmpty ? appearance.Ink : label.Notebook.Color;
     }
-    internal bool WantsCaptionRow { get { return state == null || state.ShowNotebookLabels || state.Tabs.Any(t => t.Pinned); } }
+    internal bool WantsCaptionRow { get { return state != null && state.GroupByNotebook && state.ShowNotebookLabels; } }
     private void RefreshOptions()
     {
-        colorLabels.Checked = state.ColorNotebookLabels;
-        showLabels.Checked = state.ShowNotebookLabels;
         groupTabs.Checked = state.GroupByNotebook;
+        showLabels.Enabled = state.GroupByNotebook;
+        showLabels.Checked = WantsCaptionRow;
+        colorLabels.Enabled = WantsCaptionRow && !highContrast;
+        colorLabels.Checked = colorLabels.Enabled && state.ColorNotebookLabels;
     }
     private void ChangeOption(ToolStripMenuItem item)
     {
+        if (!item.Enabled) return;
         bool enable = !item.Checked;
-        bool hadCaptionRow = WantsCaptionRow;
         try
         {
             ApplyState(store.Change(s => {
+                if (item != groupTabs && !s.GroupByNotebook) return false;
+                if (item == colorLabels && !s.ShowNotebookLabels) return false;
                 if (item == colorLabels) s.ColorNotebookLabels = enable;
                 else if (item == showLabels) s.ShowNotebookLabels = enable;
                 else s.GroupByNotebook = enable;
                 return true;
             }));
-            if (hadCaptionRow != WantsCaptionRow && attachedLayout != null && attachedLayout.StillReserved(Host.Bounds))
-            {
-                Rectangle slot = attachedLayout.Reserve(true);
-                if (!slot.IsEmpty) Attach(slot, attachedLayout);
-            }
         }
         catch (System.IO.IOException) { notice.Show("Could not save MoreTabs options.", this, 4, Height, 4000); }
         catch (UnauthorizedAccessException) { notice.Show("Could not save MoreTabs options.", this, 4, Height, 4000); }
@@ -675,9 +679,15 @@ internal sealed class PageStrip : ToolStrip
         state = updated;
         RefreshOptions();
         if (displayedRevision == updated.Revision) return;
+        bool resize = attachedLayout != null && attachedLayout.ShowCaptions != WantsCaptionRow;
         SuspendLayout();
         try { UpdateTabItems(); displayedRevision = updated.Revision; }
         finally { ResumeLayout(true); }
+        if (resize && Host.Visible && attachedLayout.StillReserved(Host.Bounds))
+        {
+            Rectangle slot = attachedLayout.Reserve(true);
+            if (!slot.IsEmpty) Attach(slot, attachedLayout);
+        }
     }
     private void UpdateTabItems()
     {
@@ -791,7 +801,7 @@ internal sealed class PageStrip : ToolStrip
         {
             var tabs = visible[label];
             var first = tabs.FirstOrDefault();
-            if (first == null || (label.Notebook != null && !state.ShowNotebookLabels)) { label.Hide(); continue; }
+            if (first == null || !WantsCaptionRow) { label.Hide(); continue; }
             label.Bounds = Rectangle.FromLTRB(first.Bounds.Left + TabRenderer.CornerRadius(first.Dpi), 0,
                 tabs.Last().Bounds.Right, Host.Captions.Height);
             label.Show();

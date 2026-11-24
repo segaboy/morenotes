@@ -213,13 +213,14 @@ internal static class SavedSessionTests
                     Check(b.Id == "b1" && b.Link == PageLink, "Bookmark menu did not capture the displayed page.");
                     strip.CloseTab(store.Read().Tabs.Single(t => t.Page.Matches(b)));
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
-                    foreach (ToolStripMenuItem setting in ((ToolStripDropDownButton)strip.Items[1]).DropDownItems) setting.PerformClick();
+                    ((ToolStripDropDownButton)strip.Items[1]).DropDownItems[0].PerformClick();
                     break;
                 case "restore":
                     var stored = store.Read();
-                    Check(!stored.ColorNotebookLabels && !stored.ShowNotebookLabels && !stored.GroupByNotebook &&
-                        ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripMenuItem>().All(i => !i.Checked),
-                        "The gear settings did not survive a fresh process.");
+                    var settings = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripMenuItem>().ToArray();
+                    Check(stored.ColorNotebookLabels && stored.ShowNotebookLabels && !stored.GroupByNotebook && !strip.WantsCaptionRow &&
+                        settings.All(i => !i.Checked) && settings[0].Enabled && settings.Skip(1).All(i => !i.Enabled),
+                        "A restart lost the dependent preferences or showed them as active with grouping off.");
                     var pinned = strip.Items.OfType<PageTabButton>().First();
                     Check(((SavedTab)pinned.Tag).Pinned && ((SavedTab)pinned.Tag).Page.Id == "a2" &&
                         strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 2, "Pinned group did not survive restart.");

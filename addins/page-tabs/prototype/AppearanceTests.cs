@@ -103,42 +103,59 @@ internal static class AppearanceTests
     private static void CheckOptions(PageStrip strip, NativeLayout layout)
     {
         var gear = (ToolStripDropDownButton)strip.Items[1];
-        Check(gear.AccessibleName == "MoreTabs options" && gear.Bounds.Left >= strip.Items[0].Bounds.Right,
-            "The options gear must follow the bookmark star.");
+        var star = (BookmarkButton)strip.Items[0];
+        Check(gear.AccessibleName == "MoreTabs options" && gear.Bounds.Left == star.Bounds.Right &&
+            strip.GetItemAt(star.Bounds.Right - 1, star.Bounds.Top + star.Height / 2) == star &&
+            strip.GetItemAt(gear.Bounds.Left, gear.Bounds.Top + gear.Height / 2) == gear,
+            "The halves of the menu tab must touch and provide separate click targets.");
         gear.ShowDropDown();
-        var settings = gear.DropDownItems.Cast<ToolStripMenuItem>().ToArray();
-        Check(settings.Length == 3 && settings.All(s => s.Checked), "All three options should default to enabled.");
+        var group = (ToolStripMenuItem)gear.DropDownItems[0];
+        var labels = (ToolStripMenuItem)gear.DropDownItems[1];
+        var colors = (ToolStripMenuItem)gear.DropDownItems[2];
+        Check(group.Checked && labels.Checked && colors.Checked, "All three options should default to enabled.");
         gear.HideDropDown();
         var selected = strip.ActiveTabKey;
         var grouped = strip.Items.OfType<PageTabButton>().ToArray();
-        settings[2].PerformClick();
-        var ungrouped = strip.Items.OfType<PageTabButton>().ToArray();
-        Check(ungrouped.SequenceEqual(new[] { grouped[0], grouped[2], grouped[1] }) &&
-            ungrouped.Select(t => t.Group).Distinct().Count() == 3 && strip.ActiveTabKey == selected,
-            "Ungrouping must restore opening order, individual notebook captions and the selected tab.");
-        settings[0].PerformClick();
+        colors.PerformClick();
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
             strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = surface });
-            Check(ungrouped.All(t => t.Group.ForeColor == ((TabRenderer)strip.Renderer).Ink), "Default caption ink ignored the theme.");
+            Check(grouped.All(t => t.Group.ForeColor == ((TabRenderer)strip.Renderer).Ink), "Default caption ink ignored the theme.");
         }
-        settings[1].PerformClick();
-        Check(!strip.Host.Captions.Visible && strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false) &&
-            layout.StillReserved(strip.Host.Bounds), "Hidden notebook captions left a blank row.");
+        colors.PerformClick();
         TogglePin(strip, grouped[2], true);
-        strip.Attach(layout.Reserve(), layout);
-        Check(grouped[2].Group.Text == "Pinned" && grouped[2].Group.Visible && !grouped[0].Group.Visible &&
-            strip.Items.OfType<PageTabButton>().First() == grouped[2], "Hiding notebooks or disabling grouping lost the pinned group.");
+        int fullDocument = layout.DocumentBounds.Height;
+        labels.PerformClick();
+        Check(!colors.Enabled && !colors.Checked && group.Checked && labels.Enabled && !labels.Checked &&
+            !strip.Host.Captions.Visible && !grouped[2].Group.Visible && strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false) &&
+            layout.DocumentBounds.Height == fullDocument + HostChrome.CaptionHeight(layout.Dpi) &&
+            layout.StillReserved(strip.Host.Bounds), String.Format(
+                "Hiding captions with pins: colors {0}/{1}, grouping {2}, labels {3}/{4}, visible {5}/{6}, strip {7}px, document {8}px (was {9}px), reserved {10}.",
+                colors.Enabled, colors.Checked, group.Checked, labels.Enabled, labels.Checked, strip.Host.Captions.Visible,
+                grouped[2].Group.Visible, strip.Host.Height, layout.DocumentBounds.Height, fullDocument, layout.StillReserved(strip.Host.Bounds)));
+        group.PerformClick();
+        Check(!labels.Enabled && !colors.Enabled && strip.Items.OfType<PageTabButton>().First() == grouped[2],
+            "Disabling grouping must keep pins first and disable the caption controls.");
+        group.PerformClick();
+        Check(labels.Enabled && !labels.Checked && !colors.Enabled && !strip.WantsCaptionRow,
+            "Regrouping lost the preference to keep labels hidden.");
+        labels.PerformClick();
+        Check(grouped[2].Group.Visible && colors.Enabled && colors.Checked && layout.DocumentBounds.Height == fullDocument,
+            "Showing labels must restore the Pinned caption, the color preference and the original document height.");
         TogglePin(strip, grouped[2], false);
-        settings[2].PerformClick();
-        Check(strip.Items.OfType<PageTabButton>().SequenceEqual(grouped) && !strip.Host.Captions.Visible,
-            "Grouping must also work with captions hidden.");
-        settings[1].PerformClick();
-        settings[0].PerformClick();
+        group.PerformClick();
+        Check(strip.Items.OfType<PageTabButton>().SequenceEqual(new[] { grouped[0], grouped[2], grouped[1] }) &&
+            !labels.Enabled && !labels.Checked && !colors.Enabled && !colors.Checked &&
+            !strip.Host.Captions.Visible && layout.DocumentBounds.Height == fullDocument + HostChrome.CaptionHeight(layout.Dpi),
+            "Ungrouping must restore opening order and remove the caption row.");
+        group.PerformClick();
+        Check(strip.ActiveTabKey == selected && strip.Items.OfType<PageTabButton>().SequenceEqual(grouped) &&
+            labels.Checked && colors.Checked && strip.Host.Captions.Visible && layout.DocumentBounds.Height == fullDocument,
+            "Regrouping must restore the labels and colors without changing the active page.");
+        strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = SystemColors.Window, HighContrast = true });
+        Check(!colors.Enabled && !colors.Checked && labels.Enabled && labels.Checked, "High contrast must use system caption colors.");
         strip.Attach(layout.Reserve(), layout);
-        Check(strip.ActiveTabKey == selected && strip.Host.Captions.Visible && settings.All(s => s.Checked),
-            "Options changed the selected page or did not restore the captions.");
-        Console.WriteLine("PASS gear settings independently control theme ink, caption height and saved tab order.");
+        Console.WriteLine("PASS shared star and gear tab, settings dependencies, remembered preferences and reclaimed document height with pins.");
     }
 
     internal static Bitmap CheckBookmarkMenu(PageStrip strip, HostChrome chrome)
@@ -225,6 +242,7 @@ internal static class AppearanceTests
         strip.PerformLayout();
         var first = strip.Items.OfType<PageTabButton>().First(b => b.Placement == ToolStripItemPlacement.Main);
         var star = strip.Items[0] as BookmarkButton;
+        var gear = strip.Items[1];
         var dividers = strip.Items.OfType<ToolStripSeparator>().Where(s => s.Available).ToArray();
         Check(star != null && star.Available && star.AccessibleName == "Bookmarks" && !star.ShowDropDownArrow &&
             star.DisplayStyle == ToolStripItemDisplayStyle.None && dividers.Length == 2,
@@ -239,8 +257,8 @@ internal static class AppearanceTests
         bool bottom = strip.AtBottom;
         Check(bottom ? first.Bounds.Bottom == strip.Height && active.Bounds.Bottom == strip.Height :
             first.Bounds.Top == 0 && active.Bounds.Top == 0, "Tabs are not flush with the docked edge.");
-        Check(star.Bounds.Top == first.Bounds.Top && star.Height == first.Height,
-            "Bookmark and page tabs have different vertical bounds: " + star.Bounds + " and " + first.Bounds);
+        Check(star.Bounds.Top == first.Bounds.Top && star.Height == first.Height && star.Bounds.Right == gear.Bounds.Left &&
+            star.Bounds.Top == gear.Bounds.Top && star.Height == gear.Height, "Menu tab halves must join across the full height.");
         var bitmap = new Bitmap(strip.Width, strip.Height);
         try
         {
@@ -271,14 +289,17 @@ internal static class AppearanceTests
                 }
             }
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
+            Color gearBackground = gear.Pressed ? palette.Active : gear.Selected ? palette.Hover : palette.Tab;
             int starCenter = star.Bounds.Left + star.Width / 2;
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + star.Height / 2).ToArgb() == Color.Gold.ToArgb(),
                 "The bookmark star must have a solid yellow center.");
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + 2 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(starCenter, star.Bounds.Bottom - 3 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(star.Bounds.Left, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
-                bitmap.GetPixel(star.Bounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb(),
-                "The bookmark star must have the tab fill and rounded corners facing the editor.");
+                bitmap.GetPixel(gear.Bounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(star.Bounds.Right - 1, FlatEdgeY(star, !bottom, 2 * edge)).ToArgb() == starBackground.ToArgb() &&
+                bitmap.GetPixel(gear.Bounds.Left, FlatEdgeY(star, !bottom, 2 * edge)).ToArgb() == gearBackground.ToArgb(),
+                "Only the two outside corners of the shared bookmark and options tab should be rounded.");
             // Read through the two side points, ignoring very faint antialiasing pixels.
             int armY = star.Bounds.Top + star.Height / 2 - HostChrome.Px(2, chrome.Dpi);
             int starLeft = -1;

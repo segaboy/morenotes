@@ -38,15 +38,15 @@ In either position, the star lines up horizontally with the native notebook icon
 
 ![MoreTabs docked at the bottom, with notebook captions above the tabs](appearance-bottom.png)
 
-The solid yellow star at the far left opens bookmarks. The gear immediately to its right opens **MoreTabs options**. A short divider separates these controls from the page tabs. Pinned tabs appear first and share one **Pinned** caption in the theme's text color.
+The star and gear share the first rounded tab. Click the gold star for bookmarks or the gear for **MoreTabs options**. A divider separates this tab from the page tabs. Pinned pages always come first.
 
-All three options start enabled. Changes apply immediately and are saved across restarts.
+All three options start enabled. Changes apply immediately. MoreTabs remembers your label and color choices when you turn grouping off and when you restart.
 
 | Option | When turned off |
 | --- | --- |
-| **Use notebook colors for labels** | Notebook names use the theme's regular text color. Windows high contrast always uses system text colors. |
-| **Show notebook labels** | Notebook names disappear. The **Pinned** caption stays when pins are present. With no pins, the caption row gives its space back to OneNote. |
-| **Group tabs by notebook** | Unpinned tabs return to saved tab order. If labels are enabled, each tab shows its own notebook name. |
+| **Group tabs by notebook** | Unpinned tabs return to saved tab order. Both label options are grayed out and OneNote gets the whole caption row back. |
+| **Show notebook labels** | Tabs stay grouped. All captions, including **Pinned**, disappear and OneNote gets the whole row back. The label color option is grayed out. |
+| **Use notebook colors for labels** | Notebook names use the theme's regular text color. Windows high contrast uses system text colors and disables this option. |
 
 With grouping on, each notebook group starts at its first open tab in saved order. Tabs within each group keep their order. Captions sit below the tabs when docked at the top and above them when docked at the bottom. The smaller, regular-weight names start just past the first visible tab's rounded corner. Hover over a clipped caption to read its full name. Notebook IDs distinguish notebooks with the same name.
 

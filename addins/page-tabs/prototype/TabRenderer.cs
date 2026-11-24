@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-internal sealed class BookmarkButton : ToolStripDropDownButton
+internal class StripMenuButton : ToolStripDropDownButton
 {
     internal int TabWidth;
 
@@ -13,6 +13,10 @@ internal sealed class BookmarkButton : ToolStripDropDownButton
         size.Width = TabWidth;
         return size;
     }
+}
+
+internal sealed class BookmarkButton : StripMenuButton
+{
     internal BookmarkButton()
     {
         AccessibleName = ToolTipText = "Bookmarks";
@@ -116,7 +120,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var button = item as ToolStripButton;
         if (item.Pressed || (button != null && button.Checked)) return Active;
         if (item.Selected) return Hover;
-        return item is PageTabButton || item is BookmarkButton ? Tab : Surface;
+        return item is PageTabButton || item is StripMenuButton ? Tab : Surface;
     }
     internal Color TextColor(ToolStripItem item)
     {
@@ -202,12 +206,20 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     private void PaintTab(ToolStripItemRenderEventArgs e, PageTabButton page)
     {
         int w = e.Item.Width, h = e.Item.Height;
-        int diameter = Math.Min(2 * CornerRadius(Dpi), Math.Min(w, h));
-        if (diameter < 2) return;
         var state = e.Graphics.Save();
         try
         {
             var strip = e.Item.Owner as PageStrip;
+            if (page == null && strip != null)
+            {
+                // Both menu buttons paint the same outline, clipped to their separate hit targets.
+                Rectangle both = strip.MenuTabBounds;
+                e.Graphics.SetClip(new Rectangle(Point.Empty, e.Item.Size), CombineMode.Intersect);
+                e.Graphics.TranslateTransform(both.Left - e.Item.Bounds.Left, 0);
+                w = both.Width;
+            }
+            int diameter = Math.Min(2 * CornerRadius(Dpi), Math.Min(w, h));
+            if (diameter < 2) return;
             if (strip != null && strip.AtBottom)
             {
                 e.Graphics.TranslateTransform(0, h);
@@ -243,8 +255,9 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) { PaintCommand(e); }
     protected override void OnRenderDropDownButtonBackground(ToolStripItemRenderEventArgs e)
     {
-        if (!(e.Item is BookmarkButton)) { PaintCommand(e); return; }
+        if (!(e.Item is StripMenuButton)) { PaintCommand(e); return; }
         PaintTab(e, null);
+        if (!(e.Item is BookmarkButton)) return;
         float cy = e.Item.Height / 2f;
         float radius = Math.Min(HostChrome.Px(8, Dpi), cy - 1);
         if (radius < 1) return;
