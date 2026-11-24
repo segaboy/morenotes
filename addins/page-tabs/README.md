@@ -16,17 +16,29 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 | Mode | What it tests |
 | --- | --- |
-| `Build` | Retains a standalone x64 executable at `artifacts/prototype/MoreTabsPrototype.exe`. Pass any test mode directly to this executable from a desktop terminal. |
+| `Build` | Retains a standalone x64 executable and a double-click launcher, `artifacts/prototype/Run-MoreTabs.cmd`. |
 | `Measure` | Reports window handles, DPI, control bounds and native hit-test results for each measured window. Samples the left, center and right of the ribbon dock and section row without sending clicks or reading page content. |
 | `Placement` | Temporarily reserves 32 logical pixels, attaches a disabled child strip, watches whether OneNote keeps the space for 1.2 seconds without intervention, then restores the layout. Supply `-WindowHandle <number>` from Measure to select among several windows. |
 | `Com` | Opens the desktop COM interface and checks if the current window has a readable page ID. |
 | `Bind` | Matches the measured native editor to a OneNote COM window. Prints handles and bounds without moving controls or navigating. |
 | `Verify` | Runs the idle placement test in the matched editor. Then creates two local disposable notebooks under a unique temporary directory, drives the actual add/tab click handlers for three pages, and checks the window handle, selected page, and layout. Attempts to return to the original page and close the two test notebooks. The disposable notebook files stay in the temporary directory. |
 | `HandsOn` | Sets up the same three disposable tabs and keeps the strip open for mouse and keyboard input. On **Close prototype**, checks for a typing marker in the disposable B page, restores the original page and closes the test notebooks. |
-| `Run` | Opens a session in the matched editor. Use native navigation to visit a page, then press `+` to keep it in the row. Click a tab to return to its page. Selection follows the current page ID. Visiting an untracked page clears the highlight. Choose **Close prototype** to release the row. Tabs are held in memory during the experiment. |
-| `SelfTest` | Runs a controlled WinForms window and in-memory page source to exercise child placement, resize, ribbon-height changes, restoration, and selection. This does not exercise OneNote. |
+| `Run` | Restores the saved tabs in the matched editor and follows its current page. When that editor closes, the running prototype waits for another compatible OneNote editor. **Close prototype** exits the program. |
+| `SelfTest` | Exercises a controlled window and starts fresh prototype processes to verify disk persistence, bookmark reopening, and an intentionally empty session. Uses isolated temporary data. |
 
-`Bind`, `Verify`, `HandsOn` and `Run` enumerate the visible layouts, then compare each COM window's top-level ancestor to the measured frames. They prefer the current COM window when it matches. If it cannot identify an editor, a single matching COM window is sufficient. With several candidates, supply `-WindowHandle` with the decimal frame number from the current measurement. A closed or ambiguous target stops the test before it changes OneNote.
+`Bind`, `Verify`, `HandsOn` and `Run` enumerate the visible layouts, then compare each COM window's top-level ancestor to the measured frames. They prefer the current COM window when it matches. If it cannot identify an editor, a single matching COM window is sufficient. With several candidates, supply `-WindowHandle` with the decimal frame number from the current measurement. The handle selects the initial attachment. A restarted editor receives a new handle.
+
+### Saved tabs and bookmarks
+
+Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
+
+- Click **+** to keep the displayed page. Right-click a tab and choose **Close tab**, or middle-click it. Closing a tab removes it from the working set while leaving its page open in OneNote.
+- Choose **Bookmarks → Bookmark current page**, or right-click a tab and choose **Bookmark this tab**. Select a saved page in **Bookmarks** to open it in the same editor and return it to the tab row. **Remove bookmark** removes only the bookmark.
+- Leave the prototype running when closing OneNote to let it attach when OneNote reopens. After exiting the prototype or restarting Windows, launch it again. The prototype has no installer or sign-in startup entry.
+
+Tabs and bookmarks share one user-local file at `%LOCALAPPDATA%\MoreNotes\MoreTabs\working-set.xml`. Each edit saves the page ID, caption and OneNote desktop hyperlink when available. File updates merge under a short write lock and replace the prior version atomically. Separate attached windows use the same saved working set. The saved file contains notebook metadata and belongs outside public diagnostics.
+
+MoreTabs first navigates using the saved page ID. If OneNote rejects it, MoreTabs tries the saved OneNote link in the same window. An unavailable page stays in the list for retry or removal. Restoring caret position, selection and scroll offset remains unverified.
 
 ### Hands-on test
 
@@ -46,6 +58,10 @@ On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop One
 | Reserved row | The 1,345-pixel-wide strip occupied Y=216–247 below the ribbon and Quick Access Toolbar. The native section row moved from Y=216 to Y=248. The strip held its space during the 1.2-second idle test and through page switches. Win32 hit tests reached each row at left, center and right. |
 | Page switching | The verifier exercised the add and tab click handlers on three disposable pages from two notebooks, including two pages titled Dashboard. All five tab selections reached the expected page ID in the same window. |
 | Return and close | Returning to the original untracked page through COM cleared the active tab highlight. The verifier closed the test notebooks, released the row and exited with code 0. A separate measurement confirmed the original document bounds and section row at Y=216. |
+
+The saved-session verification also passed in the live editor on the same x64 build at 96 DPI. With the ribbon dock ending at Y=78, the strip moved the navigation row to Y=110. The verifier saved three disposable tabs across two notebooks, bookmarked one and closed its tab. A fresh strip read the file, restored the two remaining tabs, and reopened the bookmarked page in the other notebook in the same editor. The verifier restored the preceding page, released the row and exited with code 0.
+
+The controlled suite separately verified restoration across fresh processes, an empty saved session, bookmark removal, fallback from an obsolete page ID, and concurrent writes from independent stores. It also closed a controlled editor while the interactive loop was running and restored the saved row in a second editor.
 
 The next live checks cover physical mouse and keyboard input, native page-list and Back navigation, resizing, ribbon collapse, and movement between displays with different scale settings. Before-and-after screenshots of test content are still pending.
 
@@ -92,6 +108,6 @@ The prototype recognizes a native ribbon dock adjacent to a document window and 
 ## Follow-up requirements
 
 - Decide how closing, reordering and pinning affect the working set and what the new-tab picker shows.
-- Store bookmarks and session tabs in add-in-owned state. Test references after renaming and moving pages, notebook closure/reopening, deletion and application restart. Make missing pages identifiable and removable.
+- Verify OneNote references after renaming or moving pages, closing and reopening notebooks, and deleting pages. Exercise the resident prototype across a full desktop OneNote restart.
 - Test page restoration separately from caret, selected text and scroll offset. Record what OneNote restores itself and what the add-in can reliably restore.
-- Decide how multiple windows relate to saved sessions, how to organize bookmarks, and how to recover from a missing notebook.
+- Evaluate whether users need separate working sets per window and folders for organizing bookmarks.

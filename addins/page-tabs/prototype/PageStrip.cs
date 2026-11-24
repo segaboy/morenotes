@@ -12,6 +12,8 @@ internal interface IPages
     string Current { get; }
     string Caption(string id);
     void Navigate(string id);
+    string LinkFor(string id);
+    void NavigateLink(string link);
 }
 
 internal sealed class NotebookPages : IPages
@@ -70,6 +72,13 @@ internal sealed class NotebookPages : IPages
     }
     public string Current { get { return Window.CurrentPageId; } }
     public void Navigate(string id) { Window.NavigateTo(id, null); }
+    public void NavigateLink(string link) { Window.NavigateToUrl(link); }
+    public string LinkFor(string id)
+    {
+        string link;
+        try { App.GetHyperlinkToObject(id, "", out link); return link; }
+        catch (COMException) { return ""; }
+    }
     internal string NameOf(string id)
     {
         string xml;
@@ -94,15 +103,24 @@ internal sealed class PageStrip : ToolStrip
     private readonly IPages pages;
     private readonly Dictionary<string, ToolStripButton> buttons = new Dictionary<string, ToolStripButton>();
     private readonly ToolStripButton add;
+    private readonly ToolStripDropDownButton bookmarks = new ToolStripDropDownButton("Bookmarks");
+    private readonly ContextMenuStrip tabMenu = new ContextMenuStrip();
+    private readonly ToolTip notice = new ToolTip();
+    private readonly SessionStore store;
+    private WorkingSet state;
+    private string displayedRevision;
+    private SavedPage displayedPage;
+    private DateTime nextRead;
     private readonly Action<Exception> onError;
     private const int FocusShortcut = 1;
     private bool shortcutRegistered, shortcutAttempted;
     private IntPtr returnFocus;
-    internal PageStrip(IntPtr frame, IPages pages, Action close, Action<Exception> onError)
+    internal PageStrip(IntPtr frame, IPages pages, Action close, Action<Exception> onError, SessionStore store = null)
     {
         this.frame = frame;
         this.pages = pages;
         this.onError = onError;
+        this.store = store ?? new SessionStore(null);
         AutoSize = false;
         GripStyle = ToolStripGripStyle.Hidden;
         Dock = DockStyle.None;
@@ -113,15 +131,24 @@ internal sealed class PageStrip : ToolStrip
         add = new ToolStripButton("+") { AccessibleName = "Add current page", ToolTipText = "Keep the displayed page in a tab" };
         add.Click += delegate { Perform(AddCurrent); };
         Items.Add(add);
+        bookmarks.DropDownItems.Add("Bookmark current page");
+        bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
+        Items.Add(bookmarks);
         var stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
+        ApplyState(this.store.Read());
     }
     protected override CreateParams CreateParams
     {
         get { var cp = base.CreateParams; cp.Parent = frame; cp.Style |= 0x40000000; return cp; }
     }
     private void Perform(Action action) { try { action(); } catch (Exception e) { onError(e); } }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { tabMenu.Dispose(); notice.Dispose(); }
+        base.Dispose(disposing);
+    }
 
     internal void UpdateFocusShortcut()
     {
@@ -230,22 +257,142 @@ internal sealed class PageStrip : ToolStrip
     }
     internal void AddCurrent()
     {
-        string id = pages.Current;
-        if (String.IsNullOrEmpty(id)) return;
-        if (!buttons.ContainsKey(id))
+        SavedPage page = CaptureCurrent();
+        if (page != null) ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page)));
+        RefreshActive();
+    }
+    internal void RestoreOrSeed()
+    {
+        if (state.Revision == null)
         {
-            var button = new ToolStripButton(pages.Caption(id)) { DisplayStyle = ToolStripItemDisplayStyle.Text };
-            button.Click += delegate { Perform(delegate { pages.Navigate(id); RefreshActive(); }); };
-            buttons.Add(id, button);
-            Items.Insert(Items.IndexOf(add), button);
+            SavedPage page = CaptureCurrent();
+            if (page != null) ApplyState(store.Change(s => s.Revision == null && WorkingSet.Keep(s.Tabs, page)));
         }
         RefreshActive();
+        Console.WriteLine("Working set attached: {0} tab(s), {1} bookmark(s).", state.Tabs.Count, state.Bookmarks.Count);
+    }
+    private SavedPage CaptureCurrent()
+    {
+        string id = pages.Current;
+        return String.IsNullOrEmpty(id) ? null : new SavedPage(id, pages.Caption(id), pages.LinkFor(id));
+    }
+    private void ApplyState(WorkingSet updated)
+    {
+        state = updated;
+        if (displayedRevision == updated.Revision) return;
+        displayedPage = null;
+        foreach (var id in buttons.Keys.Where(id => !state.Tabs.Any(p => p.Id == id)).ToArray())
+        {
+            var obsolete = buttons[id];
+            buttons.Remove(id);
+            Items.Remove(obsolete);
+            obsolete.Dispose();
+        }
+        for (int i = 0; i < state.Tabs.Count; i++)
+        {
+            SavedPage page = state.Tabs[i];
+            ToolStripButton button;
+            if (!buttons.TryGetValue(page.Id, out button))
+            {
+                button = new ToolStripButton { DisplayStyle = ToolStripItemDisplayStyle.Text };
+                var tab = button;
+                tab.Click += delegate { Perform(delegate { OpenSaved((SavedPage)tab.Tag, false); }); };
+                tab.MouseUp += delegate(object sender, MouseEventArgs e)
+                {
+                    if (e.Button == MouseButtons.Right) ShowTabMenu((SavedPage)tab.Tag);
+                    if (e.Button == MouseButtons.Middle) Perform(delegate { CloseTab((SavedPage)tab.Tag); });
+                };
+                buttons.Add(page.Id, button);
+            }
+            button.Text = page.Caption;
+            button.ToolTipText = page.Caption + "\nRight-click to bookmark or close this tab.";
+            button.Tag = page;
+            if (Items.IndexOf(button) != i) { Items.Remove(button); Items.Insert(i, button); }
+        }
+        displayedRevision = updated.Revision;
+    }
+    private void ShowTabMenu(SavedPage page)
+    {
+        ClearMenu(tabMenu.Items);
+        tabMenu.Items.Add("Bookmark this tab", null, delegate { Perform(delegate { SaveBookmark(page); }); });
+        tabMenu.Items.Add("Close tab", null, delegate { Perform(delegate { CloseTab(page); }); });
+        tabMenu.Show(Cursor.Position);
+    }
+    private static void ClearMenu(ToolStripItemCollection items)
+    {
+        while (items.Count > 0) { var item = items[0]; items.RemoveAt(0); item.Dispose(); }
+    }
+    internal void CloseTab(SavedPage page)
+    {
+        ApplyState(store.Change(s => s.Tabs.RemoveAll(page.Matches) > 0));
+        RefreshActive();
+    }
+    internal void SaveBookmark(SavedPage page)
+    {
+        if (page != null) ApplyState(store.Change(s => WorkingSet.Keep(s.Bookmarks, page)));
+    }
+    internal void RemoveBookmark(SavedPage page)
+    {
+        ApplyState(store.Change(s => s.Bookmarks.RemoveAll(page.Matches) > 0));
+    }
+    private void BuildBookmarksMenu()
+    {
+        ApplyState(store.Read());
+        var menu = bookmarks.DropDownItems;
+        ClearMenu(menu);
+        menu.Add("Bookmark current page", null, delegate { Perform(delegate { SaveBookmark(CaptureCurrent()); }); });
+        if (state.Bookmarks.Count == 0) return;
+        menu.Add(new ToolStripSeparator());
+        var remove = new ToolStripMenuItem("Remove bookmark");
+        foreach (var saved in state.Bookmarks)
+        {
+            var page = saved;
+            string label = page.Caption.Replace("&", "&&");
+            menu.Add(label, null, delegate { Perform(delegate { OpenSaved(page, true); }); });
+            remove.DropDownItems.Add(label, null, delegate { Perform(delegate { RemoveBookmark(page); }); });
+        }
+        menu.Add(new ToolStripSeparator());
+        menu.Add(remove);
+    }
+    internal bool OpenSaved(SavedPage page, bool addTab)
+    {
+        try { pages.Navigate(page.Id); }
+        catch (COMException)
+        {
+            bool opened = false;
+            if (page.Link.Length > 0)
+            {
+                try { pages.NavigateLink(page.Link); opened = true; }
+                catch (COMException) { /* Keep the reference so the user can retry or remove it. */ }
+            }
+            if (!opened)
+            {
+                notice.Show("OneNote could not open this page. Open its notebook and try again.", this, 4, Height, 4500);
+                return false;
+            }
+        }
+        if (addTab) ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page)));
+        RefreshActive();
+        return true;
     }
     internal void RefreshActive()
     {
+        if (DateTime.UtcNow >= nextRead)
+        {
+            ApplyState(store.Read());
+            nextRead = DateTime.UtcNow.AddSeconds(2);
+        }
         string id = pages.Current;
+        if (displayedPage == null || displayedPage.Id != id)
+        {
+            string link = !String.IsNullOrEmpty(id) && !buttons.ContainsKey(id) && state.Tabs.Count > 0 ? pages.LinkFor(id) : "";
+            displayedPage = new SavedPage(id, "", link);
+        }
         foreach (var entry in buttons)
-            if (entry.Value.Checked != (entry.Key == id)) entry.Value.Checked = entry.Key == id;
+        {
+            bool active = ((SavedPage)entry.Value.Tag).Matches(displayedPage);
+            if (entry.Value.Checked != active) entry.Value.Checked = active;
+        }
     }
     internal void ClickAdd() { add.PerformClick(); }
     internal void ClickTab(string id) { buttons[id].PerformClick(); }

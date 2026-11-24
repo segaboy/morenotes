@@ -12,7 +12,7 @@ MoreNotes is a collection of independently installable add-ins for Microsoft One
 | --- | --- | --- |
 | [MoreTabs](addins/page-tabs/README.md) | Keep pages from different notebooks open as tabs in one OneNote window. Bookmark the ones you come back to. | In development |
 
-The MoreTabs prototype reserved a row below the Quick Access Toolbar and above OneNote's native section tabs, then switched among three pages in two notebooks in the same Windows desktop window. Live checks for resizing, keyboard focus and display scaling are still pending. [Prototype results](addins/page-tabs/README.md#live-desktop-verification)
+The MoreTabs prototype reserved a row below the Quick Access Toolbar and above OneNote's native section tabs, then switched among three pages in two notebooks in the same Windows desktop window. Its **Run** mode saves tab order and bookmarks between sessions. [Use saved tabs and bookmarks](addins/page-tabs/README.md#saved-tabs-and-bookmarks)
 
 ## Releases
 

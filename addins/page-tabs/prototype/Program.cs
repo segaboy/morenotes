@@ -6,99 +6,25 @@ using One = Microsoft.Office.Interop.OneNote;
 
 internal static class Program
 {
+    private const int WaitForEditor = 10;
     [STAThread]
     private static int Main(string[] args)
     {
         try
         {
-            string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "measure";
-            if (mode == "selftest") { PrototypeTests.ControlledWindow(); return 0; }
-            if (mode == "com")
+            bool reconnect = false;
+            for (;;)
             {
-                var app = new One.Application();
-                var window = app.Windows.CurrentWindow;
-                Console.WriteLine("OneNote COM window and page readable: " + (window != null && !String.IsNullOrEmpty(window.CurrentPageId)));
-                return 0;
+                int result = RunOnce(args, reconnect);
+                if (result != WaitForEditor) return result;
+                if (!reconnect) Console.WriteLine("Waiting for a compatible OneNote editor. Ctrl+C stops MoreTabs.");
+                reconnect = true;
+                // Drop interop wrappers from the old attachment before waiting for a new editor.
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                while (NativeLayout.Discover(false).Count == 0) System.Threading.Thread.Sleep(750);
+                System.Threading.Thread.Sleep(750);
             }
-            if (mode != "measure" && mode != "placement" && mode != "run" && mode != "verify" && mode != "handson" && mode != "bind")
-                throw new ArgumentException("Use Measure, Placement, Com, Bind, Run, Verify, HandsOn or SelfTest.");
-            IntPtr frame = args.Length == 2 ? new IntPtr(long.Parse(args[1])) : IntPtr.Zero;
-            var layouts = NativeLayout.Discover();
-            foreach (var candidate in layouts)
-            {
-                NativeLayout.MatchDpi(candidate.Frame);
-                Console.WriteLine("Frame {0}, DPI {1}; ribbon {2}; navigation {3}; document {4}", candidate.Frame,
-                    candidate.Dpi, candidate.RibbonBounds, candidate.NavigationBounds, candidate.DocumentBounds);
-                if (mode == "measure")
-                {
-                    try
-                    {
-                        candidate.CheckHitTargets(IntPtr.Zero, Rectangle.Empty);
-                        Console.WriteLine("Native hit test matched ribbon and navigation at left, center and right.");
-                    }
-                    catch (InvalidOperationException error) { Console.WriteLine(error.Message); }
-                }
-            }
-            if (mode == "measure") return 0;
-            if (frame != IntPtr.Zero && !layouts.Exists(candidate => candidate.Frame == frame))
-                throw new InvalidOperationException("Requested frame " + frame + " was not among the measured frames above.");
-            NotebookPages source = null;
-            if (mode != "placement")
-            {
-                source = NotebookPages.Bind(layouts, frame);
-                frame = source.Frame;
-                if (frame == IntPtr.Zero) throw new InvalidOperationException("The bound COM window closed.");
-            }
-            if (frame != IntPtr.Zero) layouts = layouts.FindAll(candidate => candidate.Frame == frame);
-            if (layouts.Count != 1) throw new InvalidOperationException("Expected one candidate row. Select a frame with exactly one measured row using -WindowHandle.");
-            using (var layout = layouts[0])
-            {
-                NativeLayout.MatchDpi(layout.Frame);
-                Console.WriteLine("Selected measured frame {0}.", layout.Frame);
-                if (mode == "bind") return 0;
-                var initial = layout.DocumentBounds;
-                Rectangle slot = layout.Reserve();
-                Exception failure = null;
-                Action<Exception> stop = delegate(Exception e) { failure = e; Application.ExitThread(); };
-                using (var strip = new PageStrip(layout.Frame, source, Application.ExitThread, stop))
-                {
-                    strip.Attach(slot);
-                    layout.CheckHitTargets(strip.Handle, slot);
-                    Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);
-                    if (mode == "placement" || mode == "verify" || mode == "handson")
-                    {
-                        strip.Enabled = false;
-                        // Observe without repositioning. Reapplying the reservation here would
-                        // hide a OneNote layout pass which took the space back from the strip.
-                        for (int i = 0; i < 12; i++)
-                        {
-                            Application.DoEvents();
-                            System.Threading.Thread.Sleep(100);
-                            if (!layout.StillReserved(slot) || NativeLayout.Bounds(strip.Handle, layout.Frame) != slot)
-                                throw new InvalidOperationException("The host reclaimed or moved the strip during the idle placement test.");
-                        }
-                        strip.Enabled = true;
-                        layout.CheckHitTargets(strip.Handle, slot);
-                        Console.WriteLine("PASS reserved row survived the idle placement test with all three rows reachable.");
-                    }
-                    if (mode == "verify" || mode == "handson")
-                    {
-                        PrototypeTests.DisposableNotebooks(source, strip, layout, slot, mode == "handson");
-                    }
-                    else if (mode == "run")
-                    {
-                        strip.AddCurrent();
-                        Console.WriteLine("Use + to keep the displayed page. Choose Close prototype to restore the layout.");
-                        RunInteractive(layout, strip, null);
-                    }
-                    if (failure != null) throw failure;
-                }
-                layout.Dispose();
-                if (mode == "placement" && layout.DocumentBounds != initial)
-                    throw new InvalidOperationException("The final document bounds differ from the original measurement.");
-                Console.WriteLine("Prototype closed and reserved row released.");
-            }
-            return 0;
         }
         catch (Exception ex)
         {
@@ -109,9 +35,110 @@ internal static class Program
         }
     }
 
-    internal static void RunInteractive(NativeLayout layout, PageStrip strip, Action<Rectangle> observe)
+    private static int RunOnce(string[] args, bool reconnect)
+    {
+        string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "measure";
+        if (mode == "selftest") { PrototypeTests.ControlledWindow(); SavedSessionTests.Run(); return 0; }
+        if (mode == "sessiontest" && args.Length == 3) { SavedSessionTests.ProcessPhase(Guid.Parse(args[1]), args[2]); return 0; }
+        if (mode == "com")
+        {
+            var app = new One.Application();
+            var window = app.Windows.CurrentWindow;
+            Console.WriteLine("OneNote COM window and page readable: " + (window != null && !String.IsNullOrEmpty(window.CurrentPageId)));
+            return 0;
+        }
+        if (mode != "measure" && mode != "placement" && mode != "run" && mode != "verify" && mode != "handson" && mode != "bind")
+            throw new ArgumentException("Use Measure, Placement, Com, Bind, Run, Verify, HandsOn or SelfTest.");
+        IntPtr frame = !reconnect && args.Length == 2 ? new IntPtr(long.Parse(args[1])) : IntPtr.Zero;
+        var layouts = NativeLayout.Discover(mode != "run" || frame != IntPtr.Zero);
+        if (layouts.Count == 0) return WaitForEditor;
+        foreach (var candidate in layouts)
+        {
+            NativeLayout.MatchDpi(candidate.Frame);
+            Console.WriteLine("Frame {0}, DPI {1}; ribbon {2}; navigation {3}; document {4}", candidate.Frame,
+                candidate.Dpi, candidate.RibbonBounds, candidate.NavigationBounds, candidate.DocumentBounds);
+            if (mode == "measure")
+            {
+                try
+                {
+                    candidate.CheckHitTargets(IntPtr.Zero, Rectangle.Empty);
+                    Console.WriteLine("Native hit test matched ribbon and navigation at left, center and right.");
+                }
+                catch (InvalidOperationException error) { Console.WriteLine(error.Message); }
+            }
+        }
+        if (mode == "measure") return 0;
+        if (frame != IntPtr.Zero && !layouts.Exists(candidate => candidate.Frame == frame))
+            throw new InvalidOperationException("Requested frame " + frame + " was not among the measured frames above.");
+        NotebookPages source = null;
+        if (mode != "placement")
+        {
+            try { source = NotebookPages.Bind(layouts, frame); }
+            catch (System.Runtime.InteropServices.COMException) { if (reconnect) return WaitForEditor; throw; }
+            catch (InvalidOperationException) { if (reconnect && layouts.Count == 1) return WaitForEditor; throw; }
+            frame = source.Frame;
+            if (frame == IntPtr.Zero) throw new InvalidOperationException("The bound COM window closed.");
+        }
+        if (frame != IntPtr.Zero) layouts = layouts.FindAll(candidate => candidate.Frame == frame);
+        if (layouts.Count != 1) throw new InvalidOperationException("Expected one candidate row. Select a frame with exactly one measured row using -WindowHandle.");
+        using (var layout = layouts[0])
+        {
+            NativeLayout.MatchDpi(layout.Frame);
+            Console.WriteLine("Selected measured frame {0}.", layout.Frame);
+            if (mode == "bind") return 0;
+            var initial = layout.DocumentBounds;
+            Rectangle slot = layout.Reserve();
+            Exception failure = null;
+            Action<Exception> stop = delegate(Exception e) { failure = e; Application.ExitThread(); };
+            bool closeRequested = false;
+            Action close = delegate { closeRequested = true; Application.ExitThread(); };
+            var store = mode == "run" ? SessionStore.ForUser() : null;
+            using (var strip = new PageStrip(layout.Frame, source, close, stop, store))
+            {
+                strip.Attach(slot);
+                layout.CheckHitTargets(strip.Handle, slot);
+                Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);
+                if (mode == "placement" || mode == "verify" || mode == "handson")
+                {
+                    strip.Enabled = false;
+                    // Observe without repositioning. Reapplying the reservation here would
+                    // hide a OneNote layout pass which took the space back from the strip.
+                    for (int i = 0; i < 12; i++)
+                    {
+                        Application.DoEvents();
+                        System.Threading.Thread.Sleep(100);
+                        if (!layout.StillReserved(slot) || NativeLayout.Bounds(strip.Handle, layout.Frame) != slot)
+                            throw new InvalidOperationException("The host reclaimed or moved the strip during the idle placement test.");
+                    }
+                    strip.Enabled = true;
+                    layout.CheckHitTargets(strip.Handle, slot);
+                    Console.WriteLine("PASS reserved row survived the idle placement test with all three rows reachable.");
+                }
+                if (mode == "verify" || mode == "handson")
+                {
+                    PrototypeTests.DisposableNotebooks(source, strip, layout, slot, mode == "handson");
+                }
+                else if (mode == "run")
+                {
+                    strip.RestoreOrSeed();
+                    Console.WriteLine("Tabs restored. Use + to keep a page, or Bookmarks to save or reopen it.");
+                    bool detached = RunInteractive(layout, strip, null);
+                    if (!closeRequested && failure == null && detached) return WaitForEditor;
+                }
+                if (failure != null) throw failure;
+            }
+            layout.Dispose();
+            if (mode == "placement" && layout.DocumentBounds != initial)
+                throw new InvalidOperationException("The final document bounds differ from the original measurement.");
+            Console.WriteLine("Prototype closed and reserved row released.");
+        }
+        return 0;
+    }
+
+    internal static bool RunInteractive(NativeLayout layout, PageStrip strip, Action<Rectangle> observe)
     {
         int cancel = 0;
+        bool detached = false;
         Exception failure = null;
         ConsoleCancelEventHandler cancelHandler = delegate(object sender, ConsoleCancelEventArgs e)
         {
@@ -128,6 +155,7 @@ internal static class Program
                     if (!layout.Alive)
                     {
                         if (observe != null) throw new InvalidOperationException("OneNote closed or replaced the measured layout during the test.");
+                        detached = true;
                         Application.ExitThread(); return;
                     }
                     strip.UpdateFocusShortcut();
@@ -137,7 +165,14 @@ internal static class Program
                     strip.RefreshActive();
                     if (observe != null) observe(slot);
                 }
-                catch (Exception e) { failure = e; Application.ExitThread(); }
+                catch (Exception e)
+                {
+                    bool serverClosed = e.HResult == unchecked((int)0x80010108) || e.HResult == unchecked((int)0x800706BA) ||
+                        e.HResult == unchecked((int)0x800401FD);
+                    if (observe == null && (!layout.Alive || serverClosed)) detached = true;
+                    else failure = e;
+                    Application.ExitThread();
+                }
             };
             strip.UpdateFocusShortcut();
             timer.Start();
@@ -146,5 +181,6 @@ internal static class Program
             finally { Console.CancelKeyPress -= cancelHandler; }
         }
         if (failure != null) throw failure;
+        return cancel == 0 && (detached || !layout.Alive);
     }
 }

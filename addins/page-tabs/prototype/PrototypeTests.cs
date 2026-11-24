@@ -19,6 +19,8 @@ internal static class PrototypeTests
         public string Current { get; private set; }
         public string Caption(string id) { return id == "b/1" ? "Dashboard / B" : id == "a/1" ? "Dashboard / A" : "Schedule / A"; }
         public void Navigate(string id) { Current = id; }
+        public string LinkFor(string id) { return ""; }
+        public void NavigateLink(string link) { throw new NotSupportedException(); }
     }
     internal static void ControlledWindow()
     {
@@ -196,6 +198,12 @@ internal static class PrototypeTests
                 layout.CheckHitTargets(strip.Handle, slot);
             }
             if (handsOn) ObserveHandsOn(source, strip, layout, pages);
+            else
+            {
+                strip.Hide();
+                try { VerifySavedTabs(source, pages, layout, slot, Path.Combine(directory, "working-set.xml")); }
+                finally { strip.Show(); }
+            }
             source.Navigate(previous); WaitForPage(source, previous); strip.RefreshActive();
             foreach (var id in pages) Check(!strip.IsSelected(id), "A stale test tab remained active.");
             Console.WriteLine("PASS OneNote COM and tab clicks: three pages, two notebooks, same editor window, external return to an untracked page.");
@@ -205,6 +213,35 @@ internal static class PrototypeTests
             try { source.Navigate(previous); WaitForPage(source, previous); }
             finally { foreach (var book in books) source.App.CloseNotebook(book, false); }
         }
+    }
+
+    private static void VerifySavedTabs(NotebookPages source, List<string> pages, NativeLayout layout, Rectangle slot, string path)
+    {
+        var store = new SessionStore(path);
+        using (var first = new PageStrip(layout.Frame, source, delegate { }, e => { throw e; }, store))
+        {
+            first.Attach(slot);
+            foreach (var id in pages)
+            {
+                source.Navigate(id); WaitForPage(source, id); first.ClickAdd();
+            }
+            var saved = store.Read().Tabs[2];
+            first.SaveBookmark(saved);
+            first.CloseTab(saved);
+        }
+        source.Navigate(pages[0]); WaitForPage(source, pages[0]);
+        using (var restored = new PageStrip(layout.Frame, source, delegate { }, e => { throw e; }, new SessionStore(path)))
+        {
+            restored.Attach(slot);
+            restored.RestoreOrSeed();
+            Check(restored.TabCount == 2 && restored.IsSelected(pages[0]), "Reopening MoreTabs did not restore the two remaining tabs.");
+            Check(restored.OpenSaved(store.Read().Bookmarks.Single(), true), "Could not reopen bookmarked page.");
+            WaitForPage(source, pages[2]); restored.RefreshActive();
+            Check(restored.IsSelected(pages[2]) && restored.TabCount == 3 && source.Frame == layout.Frame,
+                "Opening a saved bookmark did not restore its tab in the same editor.");
+            layout.CheckHitTargets(restored.Handle, slot);
+        }
+        Console.WriteLine("PASS disk restore in OneNote: kept two tabs, reopened closed tab from bookmark in the other notebook, same editor.");
     }
 
     private static void ObserveHandsOn(NotebookPages source, PageStrip strip, NativeLayout layout, List<string> pages)

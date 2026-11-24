@@ -21,7 +21,7 @@ internal sealed class NativeLayout : IDisposable
         navigation = navigationRow;
     }
 
-    internal static List<NativeLayout> Discover()
+    internal static List<NativeLayout> Discover(bool requireMatch = true)
     {
         var result = new List<NativeLayout>();
         var observed = new List<string>();
@@ -51,7 +51,7 @@ internal sealed class NativeLayout : IDisposable
                 }
             }
         }
-        if (result.Count == 0) throw new InvalidOperationException(observed.Count == 0
+        if (requireMatch && result.Count == 0) throw new InvalidOperationException(observed.Count == 0
             ? "Native discovery found no visible Framework::CFrame windows on this desktop."
             : "Native discovery found no adjacent ribbon, document and full-width navigation row. Observed: " + String.Join("; ", observed));
         return result;

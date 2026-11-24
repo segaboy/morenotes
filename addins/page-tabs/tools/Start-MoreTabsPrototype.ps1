@@ -20,6 +20,8 @@ try {
     if ($Mode -eq 'Build') {
         $standalone = Join-Path $output 'MoreTabsPrototype.exe'
         Copy-Item -LiteralPath $exe -Destination $standalone -Force
+        @('@echo off', '"%~dp0MoreTabsPrototype.exe" Run', 'if errorlevel 1 pause') |
+            Set-Content -LiteralPath (Join-Path $output 'Run-MoreTabs.cmd') -Encoding Ascii
         Write-Output $standalone
         return
     }
