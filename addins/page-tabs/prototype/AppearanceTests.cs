@@ -202,8 +202,8 @@ internal static class AppearanceTests
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
             var band = strip.Host.Captions;
-            Check(band.Left == strip.Left && (bottom ? strip.Bottom == band.Top : band.Bottom == strip.Top),
-                "The notebook captions did not mirror with the dock.");
+            Check(band.Left == strip.Left && (bottom ? band.Bottom == strip.Top : band.Top == strip.Bottom),
+                "The notebook captions must sit on the side of the tabs facing the page.");
             using (var captions = new Bitmap(band.Width, band.Height))
             {
                 band.DrawToBitmap(captions, band.ClientRectangle);
@@ -211,7 +211,7 @@ internal static class AppearanceTests
                 {
                     var label = group.Key;
                     var box = label.Bounds;
-                    Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Bold &&
+                    Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
                         label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left && box.Right == group.Last().Bounds.Right &&
                         box.Height == label.Font.Height, "A notebook caption did not fit its tabs on one compact line.");
                     Color ink = chrome.HighContrast || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;

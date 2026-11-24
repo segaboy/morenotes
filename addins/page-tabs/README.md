@@ -34,13 +34,13 @@ MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far 
 
 In either position, the star lines up horizontally with the native notebook icon. The strip samples the navigation row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence.
 
-![MoreTabs in dark mode with two pages under Atlas and a third under Workshop](appearance.png)
+![MoreTabs docked at the top, with Atlas below its two tabs and Workshop below its tab](appearance.png)
 
-![The same tabs docked at the bottom, with upright titles, bottom stripes and an up arrow](appearance-bottom.png)
+![MoreTabs docked at the bottom, with notebook captions above the tabs](appearance-bottom.png)
 
 The solid yellow star at the far left opens bookmarks. Its compact tab has the same height and rounded corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
-Within the pinned and regular areas, tabs are grouped by notebook. Each notebook name sits above its pages when docked at the top and below them when docked at the bottom. The caption uses smaller bold type in the notebook's color and spans the width of its visible tabs. Hover over a clipped caption to read the full name. Groups follow the first open tab for each notebook in saved tab order. The pages within a group keep their order. Notebook IDs distinguish notebooks with the same name. MoreTabs remembers the notebook name and color for restored tabs and refreshes both when OneNote is available. Windows high contrast uses system text colors.
+Within the pinned and regular areas, tabs are grouped by notebook. Each notebook name sits below its tabs when the strip is docked at the top and above them when docked at the bottom. The caption uses smaller, regular-weight type in the notebook's color and spans the width of its visible tabs. Hover over a clipped caption to read the full name. Groups follow the first open tab for each notebook in saved tab order. The pages within a group keep their order. Notebook IDs distinguish notebooks with the same name. MoreTabs remembers the notebook name and color for restored tabs and refreshes both when OneNote is available. Windows high contrast uses system text colors.
 
 The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 

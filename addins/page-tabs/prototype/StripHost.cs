@@ -7,7 +7,7 @@ using System.Windows.Forms;
 internal sealed class StripHost : Panel
 {
     private readonly IntPtr frame;
-    internal readonly Panel Captions = new Panel { Dock = DockStyle.Top, TabStop = false };
+    internal readonly Panel Captions = new Panel { TabStop = false };
     internal readonly DockArrow MoveButton = new DockArrow {
         Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, UseMnemonic = false
     };

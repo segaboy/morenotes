@@ -24,7 +24,7 @@ internal sealed class HostChrome
     internal static Font CaptionFont(uint dpi)
     {
         using (var menu = SystemFonts.MenuFont)
-            return new Font(menu.FontFamily, menu.SizeInPoints * dpi / 72f * 0.84f, FontStyle.Bold, GraphicsUnit.Pixel);
+            return new Font(menu.FontFamily, menu.SizeInPoints * dpi / 72f * 0.84f, FontStyle.Regular, GraphicsUnit.Pixel);
     }
     private static uint captionDpi;
     private static int captionHeight;

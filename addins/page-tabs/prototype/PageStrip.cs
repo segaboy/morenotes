@@ -402,7 +402,7 @@ internal sealed class PageStrip : ToolStrip
     private void SetDirection(bool bottom)
     {
         AtBottom = bottom;
-        Host.Captions.Dock = bottom ? DockStyle.Bottom : DockStyle.Top;
+        Host.Captions.Dock = bottom ? DockStyle.Top : DockStyle.Bottom;
         DefaultDropDownDirection = bottom ? ToolStripDropDownDirection.AboveRight : ToolStripDropDownDirection.BelowRight;
         Host.MoveButton.PointsUp = bottom;
         Host.MoveButton.Invalidate();
