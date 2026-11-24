@@ -16,9 +16,22 @@ internal static class PrototypeTests
     }
     private sealed class TestPages : IPages
     {
+        internal int NotesCreated;
+        internal bool LocationUnavailable, FailNextNavigation, DelayNextNavigation;
+        internal string PendingPage;
         public string Current { get; private set; }
         public string Caption(string id) { return id == "b/1" ? "Dashboard / B" : id == "a/1" ? "Dashboard / A" : "Schedule / A"; }
-        public void Navigate(string id) { Current = id; }
+        public string CreateQuickNote()
+        {
+            if (LocationUnavailable) throw new InvalidOperationException("No configured Quick Notes section.");
+            return "personal/quick/" + ++NotesCreated;
+        }
+        public void Navigate(string id)
+        {
+            if (FailNextNavigation) { FailNextNavigation = false; throw new System.Runtime.InteropServices.COMException(); }
+            if (DelayNextNavigation) { DelayNextNavigation = false; PendingPage = id; return; }
+            Current = id;
+        }
         public string LinkFor(string id) { return ""; }
         public void NavigateLink(string link) { throw new NotSupportedException(); }
     }
@@ -89,9 +102,32 @@ internal static class PrototypeTests
                         layout.CheckHitTargets(strip.Handle, slot);
                         Console.WriteLine("PASS detected a partially covered navigation row and its recovery.");
                         string[] ids = { "a/1", "a/2", "b/1" };
-                        foreach (var id in ids) { source.Navigate(id); strip.ClickAdd(); }
-                        strip.ClickAdd();
+                        foreach (var id in ids) { source.Navigate(id); strip.ClickKeepCurrent(); }
+                        strip.ClickKeepCurrent();
                         Check(strip.TabCount == 3, "Duplicate add created another tab.");
+                        Check(source.NotesCreated == 0, "Keeping an existing page created a Quick Note.");
+                        strip.ClickAdd();
+                        Check(strip.HasTabFocus(source.Current), "The first Quick Note tab did not receive keyboard focus.");
+                        strip.ClickAdd();
+                        Check(source.NotesCreated == 2 && strip.TabCount == 5 && source.Current == "personal/quick/2" &&
+                            strip.IsSelected(source.Current) && strip.HasTabFocus(source.Current), "Each click should create, open and focus a distinct Quick Note tab.");
+                        source.LocationUnavailable = true;
+                        strip.ClickAdd();
+                        Check(source.NotesCreated == 2 && strip.TabCount == 5 && source.Current == "personal/quick/2",
+                            "Missing Quick Notes destination changed tabs or created a page elsewhere.");
+                        source.LocationUnavailable = false;
+                        source.FailNextNavigation = true;
+                        strip.ClickAdd();
+                        strip.ClickTab("personal/quick/3");
+                        Check(source.NotesCreated == 3 && strip.TabCount == 6 && strip.IsSelected("personal/quick/3"),
+                            "Retrying a created Quick Note lost the page or created a duplicate.");
+                        source.DelayNextNavigation = true;
+                        strip.ClickAdd();
+                        Check(strip.IsSelected("personal/quick/3") && !strip.HasTabFocus(source.PendingPage),
+                            "Focus moved to the new tab before its page opened.");
+                        source.Navigate(source.PendingPage); strip.RefreshActive();
+                        Check(strip.IsSelected(source.Current) && strip.HasTabFocus(source.Current), "Delayed navigation lost new-tab focus.");
+                        Console.WriteLine("PASS + creates distinct Quick Notes from another notebook and focuses each new tab; missing destination and navigation retry preserve the working set.");
                         foreach (var id in ids) { strip.ClickTab(id); Check(source.Current == id && strip.IsSelected(id), "Tab click did not navigate."); }
                         using (var editor = new TextBox { Location = new Point(6, navigation.Bottom + 6) })
                         {
@@ -138,12 +174,12 @@ internal static class PrototypeTests
         Check(strip.PreProcessMessage(ref message), "The strip did not handle " + key);
     }
 
-    private static void WaitForPage(NotebookPages source, string id)
+    private static void WaitForPage(NotebookPages source, string id, string action = "tab navigation")
     {
         var timer = System.Diagnostics.Stopwatch.StartNew();
         while (source.Current != id)
         {
-            if (timer.ElapsedMilliseconds > 5000) throw new TimeoutException("OneNote did not display the requested test page.");
+            if (timer.ElapsedMilliseconds > 10000) throw new TimeoutException("OneNote did not display the requested page during " + action + ".");
             Application.DoEvents(); Thread.Sleep(40);
         }
     }
@@ -163,13 +199,13 @@ internal static class PrototypeTests
         return id;
     }
 
-    internal static void DisposableNotebooks(NotebookPages source, PageStrip strip, NativeLayout layout, Rectangle slot, bool handsOn)
+    internal static void DisposableNotebooks(NotebookPages source, PageStrip strip, NativeLayout layout, Rectangle slot, bool handsOn, string directory)
     {
         string previous = source.Current;
         if (String.IsNullOrEmpty(previous)) throw new InvalidOperationException("Select a page that can be restored after the test.");
-        string directory = Path.Combine(Path.GetTempPath(), "MoreTabs-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var books = new List<string>();
+        string quickSection = null;
         var pages = new List<string>();
         try
         {
@@ -179,16 +215,18 @@ internal static class PrototypeTests
                 source.App.OpenHierarchy(Path.Combine(directory, bookName), "", out book, One.CreateFileType.cftNotebook);
                 books.Add(book);
                 source.App.OpenHierarchy("Test.one", book, out section, One.CreateFileType.cftSection);
+                if (books.Count == 2) quickSection = section;
                 pages.Add(CreatePage(source.App, section, "Dashboard"));
                 if (books.Count == 1) pages.Add(CreatePage(source.App, section, "Schedule"));
             }
             for (int i = 0; i < pages.Count; i++)
             {
-                source.Navigate(pages[i]); WaitForPage(source, pages[i]);
+                source.Navigate(pages[i]); WaitForPage(source, pages[i], "opening fixture page " + (i + 1));
                 Check(source.Window.CurrentNotebookId == books[i == 2 ? 1 : 0], "Notebook mismatch.");
                 Check(layout.StillReserved(slot), "OneNote reclaimed the strip when navigating to a test page.");
-                strip.ClickAdd();
+                strip.ClickKeepCurrent();
             }
+            Console.WriteLine("Kept three fixture pages across two test notebooks.");
             Check(strip.TabCount == 3, "Expected three tracked pages.");
             foreach (int i in new[] { 0, 2, 1, 2, 0 })
             {
@@ -200,6 +238,26 @@ internal static class PrototypeTests
             if (handsOn) ObserveHandsOn(source, strip, layout, pages);
             else
             {
+                var existing = new HashSet<string>(pages);
+                source.Navigate(pages[0]); WaitForPage(source, pages[0], "selecting the starting notebook for Quick Notes");
+                for (int i = 0; i < 2; i++)
+                {
+                    strip.ClickAdd();
+                    Check(strip.TabCount == 4 + i, "Quick Note click " + (i + 1) + " did not add a new tab.");
+                    string id = ((SavedPage)strip.Items.OfType<ToolStripButton>().Last(b => b.Tag is SavedPage).Tag).Id;
+                    WaitForPage(source, id, "opening Quick Note " + (i + 1)); strip.RefreshActive();
+                    string parent;
+                    source.App.GetHierarchyParent(id, out parent);
+                    Check(existing.Add(id) && parent == quickSection && source.Window.CurrentNotebookId == books[1] &&
+                        source.Frame == layout.Frame && strip.IsSelected(id) && strip.HasTabFocus(id) && strip.TabCount == 4 + i,
+                        "New Quick Note did not open with its own focused tab in the disposable destination section.");
+                }
+                Console.WriteLine("PASS two + clicks created two Quick Notes in the disposable destination section and focused each new tab in this editor.");
+                string configured = source.ResolveQuickNotesSection(null), xml;
+                source.App.GetHierarchy(configured, One.HierarchyScope.hsSelf, out xml, One.XMLSchema.xs2013);
+                Check(XElement.Parse(xml).DescendantsAndSelf().Any(e => e.Name.LocalName == "Section" && (string)e.Attribute("ID") == configured),
+                    "The configured Quick Notes location did not resolve to a section.");
+                Console.WriteLine("PASS resolved the user's configured Quick Notes section without creating a personal page.");
                 strip.Hide();
                 try { VerifySavedTabs(source, pages, layout, slot, Path.Combine(directory, "working-set.xml")); }
                 finally { strip.Show(); }
@@ -210,7 +268,7 @@ internal static class PrototypeTests
         }
         finally
         {
-            try { source.Navigate(previous); WaitForPage(source, previous); }
+            try { source.Navigate(previous); WaitForPage(source, previous, "restoring the preceding page"); }
             finally { foreach (var book in books) source.App.CloseNotebook(book, false); }
         }
     }
@@ -223,7 +281,7 @@ internal static class PrototypeTests
             first.Attach(slot);
             foreach (var id in pages)
             {
-                source.Navigate(id); WaitForPage(source, id); first.ClickAdd();
+                source.Navigate(id); WaitForPage(source, id); first.ClickKeepCurrent();
             }
             var saved = store.Read().Tabs[2];
             first.SaveBookmark(saved);

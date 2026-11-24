@@ -17,6 +17,7 @@ internal static class SavedSessionTests
         public string Current { get; private set; }
         public string Caption(string id) { return id.StartsWith("b") ? "Dashboard / B & C" : "Dashboard / A"; }
         public string LinkFor(string id) { return id.StartsWith("b") ? PageLink : ""; }
+        public string CreateQuickNote() { return "quick-" + Guid.NewGuid().ToString("N"); }
         public void Navigate(string id)
         {
             if (id == "missing" || (reopened && id == "b1")) throw new COMException("Unavailable test ID");
@@ -120,8 +121,8 @@ internal static class SavedSessionTests
             switch (phase)
             {
                 case "save":
-                    source.Navigate("a2"); strip.ClickAdd();
-                    source.Navigate("b1"); strip.ClickAdd(); strip.ClickAdd();
+                    source.Navigate("a2"); strip.ClickKeepCurrent();
+                    source.Navigate("b1"); strip.ClickKeepCurrent(); strip.ClickKeepCurrent();
                     var menu = strip.Items.OfType<ToolStripDropDownButton>().Single();
                     menu.ShowDropDown();
                     menu.DropDownItems[0].PerformClick();
@@ -142,7 +143,7 @@ internal static class SavedSessionTests
                     dropdown.DropDownItems[2].PerformClick();
                     dropdown.HideDropDown();
                     Check(source.Current == "b2" && strip.TabCount == 3 && strip.IsSelected("b1"), "Bookmark link did not restore the renamed ID.");
-                    strip.ClickAdd();
+                    strip.ClickKeepCurrent();
                     Check(strip.TabCount == 3 && strip.IsSelected("b2"), "Changed runtime ID created a duplicate tab.");
                     var gone = new SavedPage("missing", "Unavailable page", "onenote:missing");
                     strip.SaveBookmark(gone);

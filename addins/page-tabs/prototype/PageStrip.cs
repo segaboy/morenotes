@@ -11,6 +11,7 @@ internal interface IPages
 {
     string Current { get; }
     string Caption(string id);
+    string CreateQuickNote();
     void Navigate(string id);
     string LinkFor(string id);
     void NavigateLink(string link);
@@ -20,10 +21,12 @@ internal sealed class NotebookPages : IPages
 {
     internal readonly One.Window Window;
     internal readonly One.Application App;
-    internal NotebookPages(One.Application app, One.Window window)
+    private readonly string quickNotesPath;
+    internal NotebookPages(One.Application app, One.Window window, string quickNotesPath = null)
     {
         App = app;
         Window = window;
+        this.quickNotesPath = quickNotesPath;
     }
 
     private static IntPtr HandleOf(One.Window window)
@@ -32,7 +35,7 @@ internal sealed class NotebookPages : IPages
     }
     internal IntPtr Frame { get { return NativeLayout.RootOf(HandleOf(Window)); } }
 
-    internal static NotebookPages Bind(List<NativeLayout> layouts, IntPtr requested)
+    internal static NotebookPages Bind(List<NativeLayout> layouts, IntPtr requested, string quickNotesPath = null)
     {
         var app = new One.Application();
         var windows = app.Windows;
@@ -52,7 +55,7 @@ internal sealed class NotebookPages : IPages
                 matches.Add(new KeyValuePair<IntPtr, One.Window>(root, window));
         }
         IntPtr frame = SelectFrame(matches.Select(pair => pair.Key).ToList(), NativeLayout.RootOf(current), requested);
-        return new NotebookPages(app, matches.Single(pair => pair.Key == frame).Value);
+        return new NotebookPages(app, matches.Single(pair => pair.Key == frame).Value, quickNotesPath);
     }
 
     internal static IntPtr SelectFrame(List<IntPtr> matchedFrames, IntPtr currentRoot, IntPtr requested)
@@ -71,6 +74,43 @@ internal sealed class NotebookPages : IPages
         return selected;
     }
     public string Current { get { return Window.CurrentPageId; } }
+    public string CreateQuickNote()
+    {
+        string page;
+        App.CreateNewPage(ResolveQuickNotesSection(quickNotesPath), out page, One.NewPageStyle.npsBlankPageWithTitle);
+        return page;
+    }
+    internal string ResolveQuickNotesSection(string path)
+    {
+        if (path == null) App.GetSpecialLocation(One.SpecialLocation.slUnfiledNotesSection, out path);
+        if (String.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("OneNote has no configured Quick Notes location.");
+        string xml, section;
+        App.GetHierarchy("", One.HierarchyScope.hsSections, out xml, One.XMLSchema.xs2013);
+        var nodes = XElement.Parse(xml).DescendantsAndSelf();
+        var open = nodes.FirstOrDefault(n => n.Name.LocalName == "Section" && SameLocation((string)n.Attribute("path"), path));
+        if (open != null && !String.IsNullOrEmpty((string)open.Attribute("ID"))) return (string)open.Attribute("ID");
+        // An already-open section can still lack a backing file while OneNote syncs it.
+        // Ask for it relative to its known notebook or section group in that case.
+        int split = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
+        var parent = split <= 0 ? null : nodes.FirstOrDefault(n => (n.Name.LocalName == "Notebook" || n.Name.LocalName == "SectionGroup") &&
+            SameLocation((string)n.Attribute("path"), path.Substring(0, split)));
+        if (parent != null && !String.IsNullOrEmpty((string)parent.Attribute("ID")))
+            App.OpenHierarchy(Uri.UnescapeDataString(path.Substring(split + 1)), (string)parent.Attribute("ID"), out section, One.CreateFileType.cftNone);
+        else App.OpenHierarchy(path, "", out section, One.CreateFileType.cftNone);
+        if (String.IsNullOrEmpty(section)) throw new InvalidOperationException("OneNote did not resolve the Quick Notes section.");
+        return section;
+    }
+    private static bool SameLocation(string left, string right)
+    {
+        if (String.IsNullOrEmpty(left) || String.IsNullOrEmpty(right)) return false;
+        left = left.TrimEnd('\\', '/');
+        right = right.TrimEnd('\\', '/');
+        if (String.Equals(left, right, StringComparison.Ordinal)) return true;
+        Uri a, b;
+        if (!Uri.TryCreate(left, UriKind.Absolute, out a) || !Uri.TryCreate(right, UriKind.Absolute, out b)) return false;
+        if (a.IsFile && b.IsFile) return String.Equals(a.LocalPath, b.LocalPath, StringComparison.OrdinalIgnoreCase);
+        return (a.Scheme == Uri.UriSchemeHttp || a.Scheme == Uri.UriSchemeHttps) && a.Equals(b) && a.Fragment == b.Fragment;
+    }
     public void Navigate(string id) { Window.NavigateTo(id, null); }
     public void NavigateLink(string link) { Window.NavigateToUrl(link); }
     public string LinkFor(string id)
@@ -102,7 +142,7 @@ internal sealed class PageStrip : ToolStrip
     private readonly IntPtr frame;
     private readonly IPages pages;
     private readonly Dictionary<string, ToolStripButton> buttons = new Dictionary<string, ToolStripButton>();
-    private readonly ToolStripButton add;
+    private readonly ToolStripSplitButton add;
     private readonly ToolStripDropDownButton bookmarks = new ToolStripDropDownButton("Bookmarks");
     private readonly ContextMenuStrip tabMenu = new ContextMenuStrip();
     private readonly ToolTip notice = new ToolTip();
@@ -111,6 +151,9 @@ internal sealed class PageStrip : ToolStrip
     private string displayedRevision;
     private SavedPage displayedPage;
     private DateTime nextRead;
+    private DateTime nextCaptionCheck;
+    private string focusWhenDisplayed;
+    private DateTime focusDeadline;
     private readonly Action<Exception> onError;
     private const int FocusShortcut = 1;
     private bool shortcutRegistered, shortcutAttempted;
@@ -128,8 +171,9 @@ internal sealed class PageStrip : ToolStrip
         SetStyle(ControlStyles.Selectable, true);
         AccessibleName = "MoreTabs page tabs";
         AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, or Escape to return.";
-        add = new ToolStripButton("+") { AccessibleName = "Add current page", ToolTipText = "Keep the displayed page in a tab" };
-        add.Click += delegate { Perform(AddCurrent); };
+        add = new ToolStripSplitButton("+") { AccessibleName = "New Quick Note", ToolTipText = "Create a new Quick Note", Overflow = ToolStripItemOverflow.Never };
+        add.ButtonClick += delegate { Perform(CreateQuickNote); };
+        add.DropDownItems.Add("Keep current page in a tab", null, delegate { Perform(AddCurrent); });
         Items.Add(add);
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
@@ -188,12 +232,17 @@ internal sealed class PageStrip : ToolStrip
     }
     internal void FocusPageTabs(IntPtr previous)
     {
+        var active = buttons.Values.FirstOrDefault(button => button.Checked);
+        FocusTab((ToolStripItem)active ?? add, previous);
+    }
+    private bool FocusTab(ToolStripItem tab, IntPtr previous)
+    {
         if (!ContainsFocus && previous != IntPtr.Zero && NativeLayout.RootOf(previous) == frame)
             returnFocus = previous;
-        if (!Focus()) { Console.WriteLine("Could not focus the tab strip."); return; }
-        var active = buttons.Values.FirstOrDefault(button => button.Checked);
-        (active ?? add).Select();
+        if (!Focus()) { Console.WriteLine("Could not focus the tab strip."); return false; }
+        tab.Select();
         Console.WriteLine("Keyboard focus entered the tab strip.");
+        return ContainsFocus && tab.Selected;
     }
     private void ReturnToEditor()
     {
@@ -208,7 +257,7 @@ internal sealed class PageStrip : ToolStrip
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (!ContainsFocus) return base.ProcessCmdKey(ref msg, keyData);
-        var choices = Items.OfType<ToolStripButton>().Where(item => item.Available && item.Enabled).ToList();
+        var choices = Items.Cast<ToolStripItem>().Where(item => (item is ToolStripButton || item == add) && item.Available && item.Enabled).ToList();
         int index = choices.FindIndex(item => item.Selected);
         if (choices.Count > 0 && (keyData == Keys.Left || keyData == Keys.Right))
         {
@@ -218,8 +267,8 @@ internal sealed class PageStrip : ToolStrip
         }
         if ((keyData == Keys.Enter || keyData == Keys.Space) && index >= 0)
         {
-            choices[index].PerformClick();
-            ReturnToEditor();
+            if (choices[index] == add) add.PerformButtonClick();
+            else { choices[index].PerformClick(); ReturnToEditor(); }
             return true;
         }
         if (keyData == Keys.Escape || keyData == Keys.F6 || keyData == Keys.Tab || keyData == (Keys.Shift | Keys.Tab))
@@ -261,6 +310,40 @@ internal sealed class PageStrip : ToolStrip
         if (page != null) ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page)));
         RefreshActive();
     }
+    private void CreateQuickNote()
+    {
+        focusWhenDisplayed = null;
+        string id;
+        try { id = pages.CreateQuickNote(); }
+        catch (Exception error)
+        {
+            if (!(error is COMException || error is InvalidOperationException)) throw;
+            Console.WriteLine("Quick Note creation failed ({0}, 0x{1:X8}).", error.GetType().Name, error.HResult);
+            notice.Show("OneNote could not create a Quick Note. Check the Quick Notes location and write access.", this, 4, Height, 6000);
+            return;
+        }
+        var page = new SavedPage(id, "Quick Note", pages.LinkFor(id));
+        bool saved = true;
+        try { ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page))); }
+        catch (System.IO.IOException) { saved = false; }
+        catch (UnauthorizedAccessException) { saved = false; }
+        try { pages.Navigate(id); }
+        catch (COMException error)
+        {
+            Console.WriteLine("Opening the newly created Quick Note failed (0x{0:X8}).", error.HResult);
+            notice.Show(saved ? "Quick Note created. Click its tab to try opening it again." :
+                "Quick Note created in OneNote. MoreTabs could not save or open its tab.", this, 4, Height, 6000);
+            return;
+        }
+        if (saved)
+        {
+            focusWhenDisplayed = id;
+            focusDeadline = DateTime.UtcNow.AddSeconds(5);
+        }
+        else notice.Show("Quick Note opened. MoreTabs could not save its tab.", this, 4, Height, 6000);
+        nextCaptionCheck = DateTime.MinValue;
+        RefreshActive();
+    }
     internal void RestoreOrSeed()
     {
         if (state.Revision == null)
@@ -275,6 +358,25 @@ internal sealed class PageStrip : ToolStrip
     {
         string id = pages.Current;
         return String.IsNullOrEmpty(id) ? null : new SavedPage(id, pages.Caption(id), pages.LinkFor(id));
+    }
+    private void RefreshCaption(string id)
+    {
+        ToolStripButton current;
+        if (DateTime.UtcNow >= nextCaptionCheck && !String.IsNullOrEmpty(id) && buttons.TryGetValue(id, out current))
+        {
+            nextCaptionCheck = DateTime.UtcNow.AddSeconds(5);
+            try
+            {
+                var previous = (SavedPage)current.Tag;
+                var caption = pages.Caption(id);
+                if (caption != previous.Caption && pages.Current == id)
+                {
+                    var renamed = new SavedPage(id, caption, previous.Link);
+                    ApplyState(store.Change(s => s.Tabs.Exists(previous.Matches) && WorkingSet.Keep(s.Tabs, renamed)));
+                }
+            }
+            catch (COMException) { /* Retry on the next tick if OneNote is busy with an edit. */ }
+        }
     }
     private void ApplyState(WorkingSet updated)
     {
@@ -356,6 +458,7 @@ internal sealed class PageStrip : ToolStrip
     }
     internal bool OpenSaved(SavedPage page, bool addTab)
     {
+        focusWhenDisplayed = null;
         try { pages.Navigate(page.Id); }
         catch (COMException)
         {
@@ -383,6 +486,7 @@ internal sealed class PageStrip : ToolStrip
             nextRead = DateTime.UtcNow.AddSeconds(2);
         }
         string id = pages.Current;
+        RefreshCaption(id);
         if (displayedPage == null || displayedPage.Id != id)
         {
             string link = !String.IsNullOrEmpty(id) && !buttons.ContainsKey(id) && state.Tabs.Count > 0 ? pages.LinkFor(id) : "";
@@ -391,11 +495,20 @@ internal sealed class PageStrip : ToolStrip
         foreach (var entry in buttons)
         {
             bool active = ((SavedPage)entry.Value.Tag).Matches(displayedPage);
+            var overflow = active ? ToolStripItemOverflow.Never : ToolStripItemOverflow.AsNeeded;
+            if (entry.Value.Overflow != overflow) entry.Value.Overflow = overflow;
             if (entry.Value.Checked != active) entry.Value.Checked = active;
         }
+        if (focusWhenDisplayed == null) return;
+        if (DateTime.UtcNow > focusDeadline) { focusWhenDisplayed = null; return; }
+        ToolStripButton target;
+        if (id == focusWhenDisplayed && buttons.TryGetValue(id, out target) && FocusTab(target, ForegroundFocus()))
+            focusWhenDisplayed = null;
     }
-    internal void ClickAdd() { add.PerformClick(); }
+    internal void ClickAdd() { add.PerformButtonClick(); }
+    internal void ClickKeepCurrent() { add.DropDownItems[0].PerformClick(); }
     internal void ClickTab(string id) { buttons[id].PerformClick(); }
     internal bool IsSelected(string id) { return buttons[id].Checked; }
+    internal bool HasTabFocus(string id) { return ContainsFocus && buttons[id].Selected; }
     internal int TabCount { get { return buttons.Count; } }
 }

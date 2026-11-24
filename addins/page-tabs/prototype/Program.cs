@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using System.ComponentModel;
 using One = Microsoft.Office.Interop.OneNote;
@@ -71,9 +72,11 @@ internal static class Program
         if (frame != IntPtr.Zero && !layouts.Exists(candidate => candidate.Frame == frame))
             throw new InvalidOperationException("Requested frame " + frame + " was not among the measured frames above.");
         NotebookPages source = null;
+        string fixtureDirectory = mode == "verify" || mode == "handson" ?
+            Path.Combine(Path.GetTempPath(), "MoreTabs-" + Guid.NewGuid().ToString("N")) : null;
         if (mode != "placement")
         {
-            try { source = NotebookPages.Bind(layouts, frame); }
+            try { source = NotebookPages.Bind(layouts, frame, fixtureDirectory == null ? null : Path.Combine(fixtureDirectory, "MoreTabs B", "Test.one")); }
             catch (System.Runtime.InteropServices.COMException) { if (reconnect) return WaitForEditor; throw; }
             catch (InvalidOperationException) { if (reconnect && layouts.Count == 1) return WaitForEditor; throw; }
             frame = source.Frame;
@@ -116,12 +119,12 @@ internal static class Program
                 }
                 if (mode == "verify" || mode == "handson")
                 {
-                    PrototypeTests.DisposableNotebooks(source, strip, layout, slot, mode == "handson");
+                    PrototypeTests.DisposableNotebooks(source, strip, layout, slot, mode == "handson", fixtureDirectory);
                 }
                 else if (mode == "run")
                 {
                     strip.RestoreOrSeed();
-                    Console.WriteLine("Tabs restored. Use + to keep a page, or Bookmarks to save or reopen it.");
+                    Console.WriteLine("Tabs restored. + creates a new Quick Note. Its arrow keeps the current page in a tab.");
                     bool detached = RunInteractive(layout, strip, null);
                     if (!closeRequested && failure == null && detached) return WaitForEditor;
                 }

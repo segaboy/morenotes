@@ -21,7 +21,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 | `Placement` | Temporarily reserves 32 logical pixels, attaches a disabled child strip, watches whether OneNote keeps the space for 1.2 seconds without intervention, then restores the layout. Supply `-WindowHandle <number>` from Measure to select among several windows. |
 | `Com` | Opens the desktop COM interface and checks if the current window has a readable page ID. |
 | `Bind` | Matches the measured native editor to a OneNote COM window. Prints handles and bounds without moving controls or navigating. |
-| `Verify` | Runs the idle placement test in the matched editor. Then creates two local disposable notebooks under a unique temporary directory, drives the actual add/tab click handlers for three pages, and checks the window handle, selected page, and layout. Attempts to return to the original page and close the two test notebooks. The disposable notebook files stay in the temporary directory. |
+| `Verify` | Creates two disposable notebooks, keeps three pages, and clicks **+** twice with the Quick Notes destination set to a section in the second test notebook. Checks both new page IDs, their parent section, the editor window and keyboard focus on each new tab. Attempts to restore the original page and close the test notebooks. The disposable notebook files stay in the temporary directory. |
 | `HandsOn` | Sets up the same three disposable tabs and keeps the strip open for mouse and keyboard input. On **Close prototype**, checks for a typing marker in the disposable B page, restores the original page and closes the test notebooks. |
 | `Run` | Restores the saved tabs in the matched editor and follows its current page. When that editor closes, the running prototype waits for another compatible OneNote editor. **Close prototype** exits the program. |
 | `SelfTest` | Exercises a controlled window and starts fresh prototype processes to verify disk persistence, bookmark reopening, and an intentionally empty session. Uses isolated temporary data. |
@@ -32,7 +32,8 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
 
-- Click **+** to keep the displayed page. Right-click a tab and choose **Close tab**, or middle-click it. Closing a tab removes it from the working set while leaving its page open in OneNote.
+- Click **+** to create a blank page in your configured OneNote Quick Notes section. Each click opens its own tab in the same editor and gives that tab keyboard focus. This follows your personal Quick Notes destination whatever notebook you have open. If you have redirected Quick Notes, MoreTabs uses that setting.
+- To keep an existing page, use the arrow beside **+** and choose **Keep current page in a tab**. Right-click a tab and choose **Close tab**, or middle-click it. Closing a tab leaves the underlying OneNote page intact.
 - Choose **Bookmarks → Bookmark current page**, or right-click a tab and choose **Bookmark this tab**. Select a saved page in **Bookmarks** to open it in the same editor and return it to the tab row. **Remove bookmark** removes only the bookmark.
 - Leave the prototype running when closing OneNote to let it attach when OneNote reopens. After exiting the prototype or restarting Windows, launch it again. The prototype has no installer or sign-in startup entry.
 
@@ -63,6 +64,8 @@ The saved-session verification also passed in the live editor on the same x64 bu
 
 The controlled suite separately verified restoration across fresh processes, an empty saved session, bookmark removal, fallback from an obsolete page ID, and concurrent writes from independent stores. It also closed a controlled editor while the interactive loop was running and restored the saved row in a second editor.
 
+The Windows control test clicked **+** twice from a tracked page, checked for two distinct page IDs and verified keyboard focus on each new tab. It also exercised delayed navigation, an unavailable destination, and retrying a created tab after navigation failed. In the live verifier, the creation test uses a disposable Quick Notes section and separately resolves the user's configured section.
+
 The next live checks cover physical mouse and keyboard input, native page-list and Back navigation, resizing, ribbon collapse, and movement between displays with different scale settings. Before-and-after screenshots of test content are still pending.
 
 In the first hands-on run, the native page-list and Back sequence displayed Schedule A and Dashboard A with their matching tabs highlighted. Dashboard B also highlighted. During ribbon changes the strip moved from Y=216 through Y=162 and Y=113 to Y=78. Each sample retained a 32-pixel row and passed all three hit tests at 96 DPI. The operator reported typing and mouse interaction worked and identified one failure: neither F6 nor Tab reached the strip from the page. The log ended at Ctrl+C before the marker and cleanup checks. Window-width and mixed-DPI changes were not recorded. A subsequent measurement still found a 32-pixel gap. Resize the host to let OneNote lay it out again after an interrupted run.
@@ -88,7 +91,7 @@ Prove same-window navigation and the requested placement on Windows desktop. Use
 | Test | Acceptance criteria |
 | --- | --- |
 | Placement | With the Quick Access Toolbar below the ribbon and horizontal section tabs active, the new strip occupies its own row directly between the toolbar and native notebook/section row. Both native rows and the editor remain fully visible and clickable. Capture before and after views of test content. |
-| New tab and navigation | Use `+` to add or choose existing pages. Alternate among all three in the original OneNote window. The active page ID matches the selected tab each time, the window handle stays the same, and switching notebooks preserves the set. |
+| New tab and navigation | From another notebook, click **+** twice. Each click creates one page in the configured Quick Notes section, opens it in the same editor and focuses its new tab. Keep existing pages via the arrow beside **+**. Alternate among three pages across two notebooks and verify that the active page matches the selected tab. |
 | Native navigation | Use OneNote's native page list, section navigation and Back to visit tracked pages. The active tab follows. Visiting an untracked page clears the previous highlight or indicates the untracked state without navigating the user back. |
 | Layout | Resize and maximize/restore the window. Collapse/expand the ribbon. Check at 100% and 150% scaling and across monitors with different scaling when available. Verify alignment, click targets, native controls and page content each time. Record unavailable configurations as untested. |
 | Keyboard focus | Navigate and activate tabs with the keyboard, return focus to the page, and type into a test page. Repeat after using native navigation. No stolen keystrokes, unexpected window activation or focus trap. |
@@ -107,7 +110,7 @@ The prototype recognizes a native ribbon dock adjacent to a document window and 
 
 ## Follow-up requirements
 
-- Decide how closing, reordering and pinning affect the working set and what the new-tab picker shows.
+- Decide how reordering and pinning affect the working set.
 - Verify OneNote references after renaming or moving pages, closing and reopening notebooks, and deleting pages. Exercise the resident prototype across a full desktop OneNote restart.
 - Test page restoration separately from caret, selected text and scroll offset. Record what OneNote restores itself and what the add-in can reliably restore.
 - Evaluate whether users need separate working sets per window and folders for organizing bookmarks.
