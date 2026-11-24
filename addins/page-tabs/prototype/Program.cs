@@ -60,6 +60,9 @@ internal static class Program
                 candidate.Dpi, candidate.RibbonBounds, candidate.NavigationBounds, candidate.DocumentBounds);
             if (mode == "measure")
             {
+                var chrome = candidate.Appearance();
+                Console.WriteLine("Strip appearance: surface #{0:X6}, first tab inset {1}px ({2}).",
+                    chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, chrome.Measured ? "measured notebook icon" : "fallback");
                 try
                 {
                     candidate.CheckHitTargets(IntPtr.Zero, Rectangle.Empty);
@@ -98,7 +101,7 @@ internal static class Program
             var store = mode == "run" ? SessionStore.ForUser() : null;
             using (var strip = new PageStrip(layout.Frame, source, close, stop, store))
             {
-                strip.Attach(slot);
+                strip.Attach(slot, layout);
                 layout.CheckHitTargets(strip.Handle, slot);
                 Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);
                 if (mode == "placement" || mode == "verify" || mode == "handson")
@@ -164,7 +167,7 @@ internal static class Program
                     strip.UpdateFocusShortcut();
                     if (NativeLayout.IsIconic(layout.Frame)) return;
                     Rectangle slot = layout.Reserve();
-                    strip.Attach(slot);
+                    strip.Attach(slot, layout);
                     strip.RefreshActive();
                     if (observe != null) observe(slot);
                 }

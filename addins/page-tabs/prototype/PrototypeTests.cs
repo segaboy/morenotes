@@ -84,7 +84,7 @@ internal static class PrototypeTests
                             expected = new Rectangle(0, height, frame.ClientSize.Width - 110, frame.ClientSize.Height - height);
                             document.Bounds = expected;
                             slot = layout.Reserve();
-                            strip.Attach(slot);
+                            strip.Attach(slot, layout);
                             layout.CheckHitTargets(strip.Handle, slot);
                             Check(slot == layout.Reserve(), "A repeated tick consumed another row.");
                             Check(slot.Top == height && slot.Bottom == layout.NavigationBounds.Top && slot.Width == expected.Width &&
@@ -105,6 +105,7 @@ internal static class PrototypeTests
                         foreach (var id in ids) { source.Navigate(id); strip.ClickKeepCurrent(); }
                         strip.ClickKeepCurrent();
                         Check(strip.TabCount == 3, "Duplicate add created another tab.");
+                        AppearanceTests.Controlled(strip, layout, slot);
                         Check(source.NotesCreated == 0, "Keeping an existing page created a Quick Note.");
                         strip.ClickAdd();
                         Check(strip.HasTabFocus(source.Current), "The first Quick Note tab did not receive keyboard focus.");
@@ -238,6 +239,7 @@ internal static class PrototypeTests
             if (handsOn) ObserveHandsOn(source, strip, layout, pages);
             else
             {
+                AppearanceTests.Live(strip, layout, directory);
                 var existing = new HashSet<string>(pages);
                 source.Navigate(pages[0]); WaitForPage(source, pages[0], "selecting the starting notebook for Quick Notes");
                 for (int i = 0; i < 2; i++)
@@ -278,7 +280,7 @@ internal static class PrototypeTests
         var store = new SessionStore(path);
         using (var first = new PageStrip(layout.Frame, source, delegate { }, e => { throw e; }, store))
         {
-            first.Attach(slot);
+            first.Attach(slot, layout);
             foreach (var id in pages)
             {
                 source.Navigate(id); WaitForPage(source, id); first.ClickKeepCurrent();
@@ -290,7 +292,7 @@ internal static class PrototypeTests
         source.Navigate(pages[0]); WaitForPage(source, pages[0]);
         using (var restored = new PageStrip(layout.Frame, source, delegate { }, e => { throw e; }, new SessionStore(path)))
         {
-            restored.Attach(slot);
+            restored.Attach(slot, layout);
             restored.RestoreOrSeed();
             Check(restored.TabCount == 2 && restored.IsSelected(pages[0]), "Reopening MoreTabs did not restore the two remaining tabs.");
             Check(restored.OpenSaved(store.Read().Bookmarks.Single(), true), "Could not reopen bookmarked page.");

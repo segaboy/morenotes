@@ -11,6 +11,12 @@ internal sealed class NativeLayout : IDisposable
     internal readonly IntPtr Document;
     internal readonly IntPtr Ribbon;
     private readonly IntPtr navigation;
+    private readonly HostChrome chrome = new HostChrome();
+    internal HostChrome Appearance(bool force = false)
+    {
+        chrome.Update(navigation, Dpi, force);
+        return chrome;
+    }
     private Rectangle original, applied;
 
     internal NativeLayout(IntPtr frame, IntPtr document, IntPtr ribbon, IntPtr navigationRow)

@@ -146,6 +146,10 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolStripDropDownButton bookmarks = new ToolStripDropDownButton("Bookmarks");
     private readonly ContextMenuStrip tabMenu = new ContextMenuStrip();
     private readonly ToolTip notice = new ToolTip();
+    private TabRenderer appearance;
+    private readonly HostChrome defaultChrome = new HostChrome();
+    private bool highContrast;
+    private Font tabFont, selectedTabFont;
     private readonly SessionStore store;
     private WorkingSet state;
     private string displayedRevision;
@@ -181,6 +185,8 @@ internal sealed class PageStrip : ToolStrip
         var stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
+        defaultChrome.Update(IntPtr.Zero, 96);
+        ApplyAppearance(defaultChrome);
         ApplyState(this.store.Read());
     }
     protected override CreateParams CreateParams
@@ -192,6 +198,11 @@ internal sealed class PageStrip : ToolStrip
     {
         if (disposing) { tabMenu.Dispose(); notice.Dispose(); }
         base.Dispose(disposing);
+        if (disposing)
+        {
+            if (tabFont != null) tabFont.Dispose();
+            if (selectedTabFont != null) selectedTabFont.Dispose();
+        }
     }
 
     internal void UpdateFocusShortcut()
@@ -297,12 +308,57 @@ internal sealed class PageStrip : ToolStrip
     [DllImport("user32.dll", SetLastError=true)] private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr window, int id);
 
-    internal void Attach(Rectangle slot)
+    internal void Attach(Rectangle slot, NativeLayout layout = null)
     {
         Bounds = slot;
+        if (layout != null) ApplyAppearance(layout.Appearance());
         if (NativeLayout.GetParent(Handle) != frame || NativeLayout.Bounds(Handle, frame) != slot)
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
         Show();
+    }
+    internal void ApplyAppearance(HostChrome chrome)
+    {
+        bool metrics = appearance == null || appearance.Dpi != chrome.Dpi;
+        if (metrics || appearance.Surface.ToArgb() != chrome.Surface.ToArgb() || highContrast != chrome.HighContrast)
+        {
+            highContrast = chrome.HighContrast;
+            appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast);
+            Renderer = appearance;
+            tabMenu.Renderer = bookmarks.DropDown.Renderer = add.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
+            BackColor = appearance.Surface;
+            ForeColor = appearance.Ink;
+        }
+        var inset = new Padding(chrome.Inset, 0, HostChrome.Px(2, chrome.Dpi), 0);
+        if (Padding != inset) Padding = inset;
+        if (metrics)
+        {
+            Font oldRegular = tabFont, oldSelected = selectedTabFont;
+            var menuFont = SystemFonts.MenuFont;
+            tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
+            selectedTabFont = new Font(tabFont, FontStyle.Bold);
+            Font = tabMenu.Font = tabFont;
+            var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
+            foreach (ToolStripItem item in Items)
+                if (!(item is PageTabButton)) item.Padding = commandPadding;
+            foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);
+            if (oldRegular != null) oldRegular.Dispose();
+            if (oldSelected != null) oldSelected.Dispose();
+        }
+    }
+    private void SizeTab(PageTabButton tab)
+    {
+        uint dpi = appearance.Dpi;
+        tab.Dpi = dpi;
+        // Measure both states at the heavier weight so selecting a tab never shifts its neighbors.
+        tab.Font = selectedTabFont;
+        tab.Margin = new Padding(0, 0, HostChrome.Px(2, dpi), HostChrome.Px(3, dpi));
+        tab.Padding = new Padding(HostChrome.Px(10, dpi), 0, HostChrome.Px(10, dpi), 0);
+    }
+    private static string ShortCaption(SavedPage page)
+    {
+        const string separator = " / ";
+        int split = page.Caption.IndexOf(separator, StringComparison.Ordinal);
+        return split > 0 && split == page.Caption.LastIndexOf(separator, StringComparison.Ordinal) ? page.Caption.Substring(0, split) : page.Caption;
     }
     internal void AddCurrent()
     {
@@ -390,13 +446,16 @@ internal sealed class PageStrip : ToolStrip
             Items.Remove(obsolete);
             obsolete.Dispose();
         }
+        var titles = state.Tabs.ToLookup(ShortCaption, StringComparer.CurrentCultureIgnoreCase);
         for (int i = 0; i < state.Tabs.Count; i++)
         {
             SavedPage page = state.Tabs[i];
             ToolStripButton button;
             if (!buttons.TryGetValue(page.Id, out button))
             {
-                button = new ToolStripButton { DisplayStyle = ToolStripItemDisplayStyle.Text };
+                var pageTab = new PageTabButton { DisplayStyle = ToolStripItemDisplayStyle.Text };
+                SizeTab(pageTab);
+                button = pageTab;
                 var tab = button;
                 tab.Click += delegate { Perform(delegate { OpenSaved((SavedPage)tab.Tag, false); }); };
                 tab.MouseUp += delegate(object sender, MouseEventArgs e)
@@ -406,7 +465,9 @@ internal sealed class PageStrip : ToolStrip
                 };
                 buttons.Add(page.Id, button);
             }
-            button.Text = page.Caption;
+            string title = ShortCaption(page);
+            button.Text = titles[title].Count() == 1 ? title : page.Caption;
+            button.AccessibleName = page.Caption;
             button.ToolTipText = page.Caption + "\nRight-click to bookmark or close this tab.";
             button.Tag = page;
             if (Items.IndexOf(button) != i) { Items.Remove(button); Items.Insert(i, button); }

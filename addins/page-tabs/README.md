@@ -30,6 +30,12 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 ### Saved tabs and bookmarks
 
+Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and their lower corners use an eight-logical-pixel radius. The strip samples the background and notebook icon from the visible leading edge of the native navigation row. It uses that color and aligns the first tab to the icon, refreshing the measurement when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence. The active page has a distinct fill, and keyboard focus adds an outline.
+
+![MoreTabs rendered with sample pages and the measured dark OneNote theme](appearance.png)
+
+Tabs show the page title. If two open pages share a title, their labels also show the notebook. Hovering over a tab shows its full saved caption.
+
 Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
 
 - Click **+** to create a blank page in your configured OneNote Quick Notes section. Each click opens its own tab in the same editor and gives that tab keyboard focus. This follows your personal Quick Notes destination whatever notebook you have open. If you have redirected Quick Notes, MoreTabs uses that setting.
@@ -51,6 +57,8 @@ Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for t
 4. Choose **Close prototype**. The output reports displayed test pages, highlighting, sampled layout changes, DPI and whether the B page body contains the marker. The operator supplies the observations about input method and focus. A normal exit alone does not establish that each step was exercised.
 
 ### Live desktop verification
+
+On November 24, 2026, a read-only measurement of OneNote `16.0.20715.20004` (x64) at 96 DPI found the left edge of the notebook icon 25 pixels into the row and its surrounding color was `#110C08`. The preview above shows the prototype rendered with those measurements and two sample pages. The controlled renderer tests checked dark, light and high-contrast palettes at 96 and 144 DPI, including both bottom corners and the position of the tab against the toolbar.
 
 On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. The COM window handle belonged to a child of the measured editor frame. Matching its top-level ancestor selected the correct editor.
 
