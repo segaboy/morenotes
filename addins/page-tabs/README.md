@@ -22,10 +22,20 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 | `Com` | Opens the desktop COM interface and checks if the current window has a readable page ID. |
 | `Bind` | Matches the measured native editor to a OneNote COM window. Prints handles and bounds without moving controls or navigating. |
 | `Verify` | Runs the idle placement test in the matched editor. Then creates two local disposable notebooks under a unique temporary directory, drives the actual add/tab click handlers for three pages, and checks the window handle, selected page, and layout. Attempts to return to the original page and close the two test notebooks. The disposable notebook files stay in the temporary directory. |
+| `HandsOn` | Sets up the same three disposable tabs and keeps the strip open for mouse and keyboard input. On **Close prototype**, checks for a typing marker in the disposable B page, restores the original page and closes the test notebooks. |
 | `Run` | Opens a session in the matched editor. Use native navigation to visit a page, then press `+` to keep it in the row. Click a tab to return to its page. Selection follows the current page ID. Visiting an untracked page clears the highlight. Choose **Close prototype** to release the row. Tabs are held in memory during the experiment. |
 | `SelfTest` | Runs a controlled WinForms window and in-memory page source to exercise child placement, resize, ribbon-height changes, restoration, and selection. This does not exercise OneNote. |
 
-`Bind`, `Verify` and `Run` enumerate the visible layouts, then compare each COM window's top-level ancestor to the measured frames. They prefer the current COM window when it matches. If it cannot identify an editor, a single matching COM window is sufficient. With several candidates, supply `-WindowHandle` with the decimal frame number from the current measurement. A closed or ambiguous target stops the test before it changes OneNote.
+`Bind`, `Verify`, `HandsOn` and `Run` enumerate the visible layouts, then compare each COM window's top-level ancestor to the measured frames. They prefer the current COM window when it matches. If it cannot identify an editor, a single matching COM window is sufficient. With several candidates, supply `-WindowHandle` with the decimal frame number from the current measurement. A closed or ambiguous target stops the test before it changes OneNote.
+
+### Hands-on test
+
+Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for the three tabs and the console's READY message.
+
+1. From Dashboard in MoreTabs A, click **Schedule** in OneNote's page list, then **Back**. Pause on each page and check that its tab highlights.
+2. Click **Dashboard / MoreTabs B** on the strip. Click the page body and type `MoreTabs focus OK`. Try reaching the strip from the page and returning using only the keyboard. Record any unreachable controls, stolen keystrokes or unexpected focus changes.
+3. Resize the window, maximize and restore it, then collapse and expand the ribbon. Pause briefly after each change and check the strip and both adjacent rows. If available, move the window to a display with a different scale setting.
+4. Choose **Close prototype**. The output reports displayed test pages, highlighting, sampled layout changes, DPI and whether the B page body contains the marker. The operator supplies the observations about input method and focus. A normal exit alone does not establish that each step was exercised.
 
 ### Live desktop verification
 

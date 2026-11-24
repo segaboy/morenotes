@@ -20,8 +20,8 @@ internal static class Program
                 Console.WriteLine("OneNote COM window and page readable: " + (window != null && !String.IsNullOrEmpty(window.CurrentPageId)));
                 return 0;
             }
-            if (mode != "measure" && mode != "placement" && mode != "run" && mode != "verify" && mode != "bind")
-                throw new ArgumentException("Use Measure, Placement, Com, Bind, Run, Verify or SelfTest.");
+            if (mode != "measure" && mode != "placement" && mode != "run" && mode != "verify" && mode != "handson" && mode != "bind")
+                throw new ArgumentException("Use Measure, Placement, Com, Bind, Run, Verify, HandsOn or SelfTest.");
             IntPtr frame = args.Length == 2 ? new IntPtr(long.Parse(args[1])) : IntPtr.Zero;
             var layouts = NativeLayout.Discover();
             foreach (var candidate in layouts)
@@ -65,7 +65,7 @@ internal static class Program
                     strip.Attach(slot);
                     layout.CheckHitTargets(strip.Handle, slot);
                     Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);
-                    if (mode == "placement" || mode == "verify")
+                    if (mode == "placement" || mode == "verify" || mode == "handson")
                     {
                         strip.Enabled = false;
                         // Observe without repositioning. Reapplying the reservation here would
@@ -81,39 +81,15 @@ internal static class Program
                         layout.CheckHitTargets(strip.Handle, slot);
                         Console.WriteLine("PASS reserved row survived the idle placement test with all three rows reachable.");
                     }
-                    if (mode == "verify")
+                    if (mode == "verify" || mode == "handson")
                     {
-                        PrototypeTests.DisposableNotebooks(source, strip, layout, slot);
+                        PrototypeTests.DisposableNotebooks(source, strip, layout, slot, mode == "handson");
                     }
                     else if (mode == "run")
                     {
                         strip.AddCurrent();
-                        int cancel = 0;
-                        ConsoleCancelEventHandler cancelHandler = delegate(object sender, ConsoleCancelEventArgs e)
-                        {
-                            e.Cancel = true;
-                            System.Threading.Interlocked.Exchange(ref cancel, 1);
-                        };
-                        using (var timer = new Timer { Interval = 250 })
-                        {
-                            timer.Tick += delegate
-                            {
-                                try
-                                {
-                                    if (System.Threading.Volatile.Read(ref cancel) != 0 || !layout.Alive)
-                                    { Application.ExitThread(); return; }
-                                    if (NativeLayout.IsIconic(layout.Frame)) return;
-                                    strip.Attach(layout.Reserve());
-                                    strip.RefreshActive();
-                                }
-                                catch (Exception e) { stop(e); }
-                            };
-                            Console.WriteLine("Use + to keep the displayed page. Choose Close prototype to restore the layout.");
-                            timer.Start();
-                            Console.CancelKeyPress += cancelHandler;
-                            try { Application.Run(); }
-                            finally { Console.CancelKeyPress -= cancelHandler; }
-                        }
+                        Console.WriteLine("Use + to keep the displayed page. Choose Close prototype to restore the layout.");
+                        RunInteractive(layout, strip, null);
                     }
                     if (failure != null) throw failure;
                 }
@@ -131,5 +107,42 @@ internal static class Program
             else Console.Error.WriteLine("{0}: {1} (0x{2:X8})", ex.GetType().Name, ex.Message, ex.HResult);
             return 1;
         }
+    }
+
+    internal static void RunInteractive(NativeLayout layout, PageStrip strip, Action<Rectangle> observe)
+    {
+        int cancel = 0;
+        Exception failure = null;
+        ConsoleCancelEventHandler cancelHandler = delegate(object sender, ConsoleCancelEventArgs e)
+        {
+            e.Cancel = true;
+            System.Threading.Interlocked.Exchange(ref cancel, 1);
+        };
+        using (var timer = new Timer { Interval = 250 })
+        {
+            timer.Tick += delegate
+            {
+                try
+                {
+                    if (System.Threading.Volatile.Read(ref cancel) != 0) { Application.ExitThread(); return; }
+                    if (!layout.Alive)
+                    {
+                        if (observe != null) throw new InvalidOperationException("OneNote closed or replaced the measured layout during the test.");
+                        Application.ExitThread(); return;
+                    }
+                    if (NativeLayout.IsIconic(layout.Frame)) return;
+                    Rectangle slot = layout.Reserve();
+                    strip.Attach(slot);
+                    strip.RefreshActive();
+                    if (observe != null) observe(slot);
+                }
+                catch (Exception e) { failure = e; Application.ExitThread(); }
+            };
+            timer.Start();
+            Console.CancelKeyPress += cancelHandler;
+            try { Application.Run(); }
+            finally { Console.CancelKeyPress -= cancelHandler; }
+        }
+        if (failure != null) throw failure;
     }
 }

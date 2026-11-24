@@ -138,7 +138,7 @@ internal static class PrototypeTests
         return id;
     }
 
-    internal static void DisposableNotebooks(NotebookPages source, PageStrip strip, NativeLayout layout, Rectangle slot)
+    internal static void DisposableNotebooks(NotebookPages source, PageStrip strip, NativeLayout layout, Rectangle slot, bool handsOn)
     {
         string previous = source.Current;
         if (String.IsNullOrEmpty(previous)) throw new InvalidOperationException("Select a page that can be restored after the test.");
@@ -172,6 +172,7 @@ internal static class PrototypeTests
                 Check(layout.StillReserved(slot), "OneNote reclaimed the strip after a tab click.");
                 layout.CheckHitTargets(strip.Handle, slot);
             }
+            if (handsOn) ObserveHandsOn(source, strip, layout, pages);
             source.Navigate(previous); WaitForPage(source, previous); strip.RefreshActive();
             foreach (var id in pages) Check(!strip.IsSelected(id), "A stale test tab remained active.");
             Console.WriteLine("PASS OneNote COM and tab clicks: three pages, two notebooks, same editor window, external return to an untracked page.");
@@ -181,5 +182,39 @@ internal static class PrototypeTests
             try { source.Navigate(previous); WaitForPage(source, previous); }
             finally { foreach (var book in books) source.App.CloseNotebook(book, false); }
         }
+    }
+
+    private static void ObserveHandsOn(NotebookPages source, PageStrip strip, NativeLayout layout, List<string> pages)
+    {
+        Console.WriteLine("READY for hands-on input on Dashboard / MoreTabs A. Choose Close prototype when finished.");
+        string[] labels = { "Dashboard A", "Schedule A", "Dashboard B" };
+        int lastPage = -2;
+        Rectangle lastSlot = Rectangle.Empty, lastBody = Rectangle.Empty;
+        uint lastDpi = 0;
+        Program.RunInteractive(layout, strip, delegate(Rectangle slot)
+        {
+            Rectangle body = layout.DocumentBounds;
+            uint dpi = layout.Dpi;
+            if (slot != lastSlot || body != lastBody || dpi != lastDpi)
+            {
+                layout.CheckHitTargets(strip.Handle, slot);
+                Console.WriteLine("Layout sampled: row {0}, document {1}, DPI {2}; all three rows reachable.", slot, body, dpi);
+                lastSlot = slot; lastBody = body; lastDpi = dpi;
+            }
+            int index = pages.IndexOf(source.Current);
+            if (index != lastPage)
+            {
+                Console.WriteLine(index < 0 ? "Page outside the three test pages." :
+                    "Displayed " + labels[index] + ", tab highlighted: " + strip.IsSelected(pages[index]));
+                lastPage = index;
+            }
+        });
+        // Read only the disposable B page. Report presence of the marker, never the contents.
+        string xml;
+        source.App.GetPageContent(pages[2], out xml, One.PageInfo.piBasic, One.XMLSchema.xs2013);
+        var page = XElement.Parse(xml);
+        XNamespace ns = page.Name.Namespace;
+        bool typed = page.Elements(ns + "Outline").Descendants(ns + "T").Any(node => node.Value.Contains("MoreTabs focus OK"));
+        Console.WriteLine("Typing marker in Dashboard B page body: " + (typed ? "found" : "not observed"));
     }
 }

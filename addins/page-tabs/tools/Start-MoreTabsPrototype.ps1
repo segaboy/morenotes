@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Build', 'Measure', 'Placement', 'Com', 'Bind', 'Run', 'Verify', 'SelfTest')]
+    [ValidateSet('Build', 'Measure', 'Placement', 'Com', 'Bind', 'Run', 'Verify', 'HandsOn', 'SelfTest')]
     [string]$Mode = 'Measure',
     [long]$WindowHandle
 )
@@ -24,7 +24,7 @@ try {
         return
     }
     if ($PSBoundParameters.ContainsKey('WindowHandle')) {
-        if ($Mode -notin 'Placement', 'Bind', 'Run', 'Verify') { throw 'WindowHandle applies to Placement, Bind, Run and Verify. Use a frame number reported by Measure.' }
+        if ($Mode -notin 'Placement', 'Bind', 'Run', 'Verify', 'HandsOn') { throw 'WindowHandle applies to Placement, Bind, Run, Verify and HandsOn. Use a frame number reported by Measure.' }
         if ($WindowHandle -le 0) { throw 'WindowHandle must be a positive frame number reported by Measure.' }
         & $exe $Mode $WindowHandle
     } else {
