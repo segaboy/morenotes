@@ -10,11 +10,14 @@ internal sealed class NativeLayout : IDisposable
     internal readonly IntPtr Frame;
     internal readonly IntPtr Document;
     internal readonly IntPtr Ribbon;
-    private readonly IntPtr navigation;
-    private readonly HostChrome chrome = new HostChrome();
+    private readonly IntPtr knownRow, knownWorkspace;
+    private IntPtr landmark;
+    private HostChrome chrome = new HostChrome();
+    internal bool VerticalTabs { get; private set; }
+    internal string WaitReason { get; private set; }
     internal HostChrome Appearance(bool force = false)
     {
-        chrome.Update(navigation, Dpi, force);
+        chrome.Update(VerticalTabs ? IntPtr.Zero : landmark, Dpi, force);
         return chrome;
     }
     private Rectangle original, applied;
@@ -22,12 +25,13 @@ internal sealed class NativeLayout : IDisposable
     internal IntPtr StripWindow;
     internal bool ShowCaptions = true;
 
-    internal NativeLayout(IntPtr frame, IntPtr document, IntPtr ribbon, IntPtr navigationRow)
+    internal NativeLayout(IntPtr frame, IntPtr document, IntPtr ribbon, IntPtr navigationRow = default(IntPtr), IntPtr workspace = default(IntPtr))
     {
         Frame = frame;
         Document = document;
         Ribbon = ribbon;
-        navigation = navigationRow;
+        knownRow = landmark = navigationRow;
+        knownWorkspace = workspace;
     }
 
     internal static List<NativeLayout> Discover(bool requireMatch = true)
@@ -47,22 +51,15 @@ internal sealed class NativeLayout : IDisposable
                 {
                     Rectangle top = Bounds(dock, frame);
                     observed.Add("ribbon dock " + top);
-                    foreach (IntPtr nav in Children(doc, "OneNote::NavigationUI"))
-                    {
-                        Rectangle row = Bounds(nav, frame);
-                        observed.Add("navigation " + row);
-                        if (top.Bottom != body.Top || top.Left > body.Left || top.Right < body.Right ||
-                            row.Top != body.Top || row.Left != body.Left || row.Width != body.Width ||
-                            row.Height < 12 || row.Height > GetDpiForWindow(frame) ||
-                            row.Height >= body.Height) continue;
-                        result.Add(new NativeLayout(frame, doc, dock, nav));
-                    }
+                    if (top.Height <= 0 || top.Bottom != body.Top || top.Left > body.Left || top.Right < body.Right) continue;
+                    var layout = new NativeLayout(frame, doc, dock);
+                    if (layout.SelectLandmark(body)) result.Add(layout);
                 }
             }
         }
         if (requireMatch && result.Count == 0) throw new InvalidOperationException(observed.Count == 0
             ? "Native discovery found no visible Framework::CFrame windows on this desktop."
-            : "Native discovery found no adjacent ribbon, document and full-width navigation row. Observed: " + String.Join("; ", observed));
+            : "Native discovery found no adjacent ribbon and document with reachable navigation or page editor. Observed: " + String.Join("; ", observed));
         return result;
     }
 
@@ -79,7 +76,7 @@ internal sealed class NativeLayout : IDisposable
     }
 
     internal Rectangle DocumentBounds { get { return Bounds(Document, Frame); } }
-    internal Rectangle NavigationBounds { get { return Bounds(navigation, Frame); } }
+    internal Rectangle LandmarkBounds { get { return Bounds(landmark, Frame); } }
     internal Rectangle RibbonBounds { get { return Bounds(Ribbon, Frame); } }
     private Rectangle ClientBounds
     {
@@ -92,7 +89,7 @@ internal sealed class NativeLayout : IDisposable
     }
     internal bool StillReserved(Rectangle slot)
     {
-        if (!Alive || slot.IsEmpty || DocumentBounds != applied || applied.Top != NavigationBounds.Top) return false;
+        if (!Alive || slot.IsEmpty || DocumentBounds != applied || !SelectLandmark(applied)) return false;
         if (AtBottom)
         {
             var client = ClientBounds;
@@ -105,7 +102,7 @@ internal sealed class NativeLayout : IDisposable
     internal void CheckHitTargets(IntPtr strip, Rectangle slot)
     {
         // Inspect child stacking inside the host, even when another app is in front.
-        Rectangle nav = NavigationBounds;
+        Rectangle target = LandmarkBounds;
         Rectangle span = strip == IntPtr.Zero ? DocumentBounds : slot;
         int ribbonY = RibbonBounds.Bottom - 1;
         foreach (int x in new[] { span.Left + span.Width / 10, span.Left + span.Width / 2, span.Right - 1 - span.Width / 10 })
@@ -115,10 +112,14 @@ internal sealed class NativeLayout : IDisposable
                 CheckChildAt(Frame, new Point(x, slot.Top + slot.Height / 2), strip, "tab strip");
             if (AtBottom && strip != IntPtr.Zero)
                 CheckChildAt(Frame, new Point(x, slot.Top - 1), Document, "document above bottom strip");
-            Point p = new Point(x, nav.Top + nav.Height / 2);
-            CheckChildAt(Frame, p, Document, "document at navigation row");
-            MapWindowPoints(Frame, Document, ref p, 1);
-            CheckChildAt(Document, p, navigation, "navigation");
+        }
+        foreach (var point in SamplePoints(target, VerticalTabs, Dpi))
+        {
+            string name = VerticalTabs ? "page editor" : "navigation";
+            CheckChildAt(Frame, point, Document, "document at " + name);
+            var local = point;
+            MapWindowPoints(Frame, Document, ref local, 1);
+            CheckChildAt(Document, local, landmark, name);
         }
     }
     private static void CheckChildAt(IntPtr parent, Point p, IntPtr expected, string row)
@@ -129,25 +130,67 @@ internal sealed class NativeLayout : IDisposable
             throw new InvalidOperationException(String.Format("Hit test for {0} at ({1},{2}) in parent {3} reached {4}, expected {5}.",
                 row, p.X, p.Y, parent, hit, expected));
     }
-    internal bool Alive { get { return IsWindow(Frame) && GetParent(Document) == Frame &&
-        GetParent(Ribbon) == Frame && GetParent(navigation) == Document; } }
+    internal bool Alive { get { return IsWindow(Frame) && GetParent(Document) == Frame && GetParent(Ribbon) == Frame; } }
+
+    private static IEnumerable<Point> SamplePoints(Rectangle area, bool editor, uint dpi)
+    {
+        int y = area.Top + (editor ? Math.Min(area.Height / 2, HostChrome.Px(24, dpi)) : area.Height / 2);
+        yield return new Point(area.Left + area.Width / 10, y);
+        yield return new Point(area.Left + area.Width / 2, y);
+        yield return new Point(area.Right - 1 - area.Width / 10, y);
+    }
+
+    private bool TryUseLandmark(IntPtr child, Rectangle area, bool editor, uint dpi)
+    {
+        foreach (var point in SamplePoints(area, editor, dpi))
+        {
+            // During a resize or dock change our existing strip can still occupy the old slot.
+            var hit = ChildWindowFromPointEx(Frame, point, 7);
+            if (hit != Document && (StripWindow == IntPtr.Zero || hit != StripWindow)) return false;
+            var local = point;
+            MapWindowPoints(Frame, Document, ref local, 1);
+            if (ChildWindowFromPointEx(Document, local, 7) != child) return false;
+        }
+        if (VerticalTabs != editor) chrome = new HostChrome();
+        VerticalTabs = editor;
+        landmark = child;
+        return true;
+    }
+
+    private bool SelectLandmark(Rectangle body)
+    {
+        uint dpi = Dpi;
+        var rows = knownRow == IntPtr.Zero ? Children(Document, "OneNote::NavigationUI") : new[] { knownRow };
+        int rowBottom = body.Top;
+        foreach (var row in rows)
+        {
+            if (!IsWindowVisible(row) || GetParent(row) != Document) continue;
+            var area = Bounds(row, Frame);
+            if (area.Top != body.Top || area.Left != body.Left || area.Width != body.Width ||
+                area.Height < 12 || area.Height > dpi || area.Height >= body.Height) continue;
+            rowBottom = Math.Max(rowBottom, area.Bottom);
+            if (TryUseLandmark(row, area, false, dpi)) return true;
+        }
+        // Vertical Tabs can leave a full-width navigation HWND behind the actual panes.
+        // Only use the page workspace when it occupies that upper band and receives the hits.
+        var workspace = knownWorkspace != IntPtr.Zero ? knownWorkspace : FindWindowEx(Document, IntPtr.Zero, "OneNote::CWorkspace", null);
+        if (!IsWindowVisible(workspace) || GetParent(workspace) != Document ||
+            (knownWorkspace == IntPtr.Zero && !IsWindowVisible(FindWindowEx(workspace, IntPtr.Zero, "OneNote::DocumentCanvas", null)))) return false;
+        var editor = Rectangle.Intersect(body, Bounds(workspace, Frame));
+        return editor.Width >= HostChrome.Px(48, dpi) && editor.Height >= HostChrome.Px(48, dpi) &&
+            editor.Top - body.Top <= dpi && (rowBottom == body.Top || editor.Top < rowBottom) &&
+            TryUseLandmark(workspace, editor, true, dpi);
+    }
 
     internal Rectangle Reserve(bool waitForEditor = false, bool? atBottom = null)
     {
-        if (!Alive || !IsWindowEnabled(Frame) || !IsWindowVisible(Ribbon) || !IsWindowVisible(navigation))
+        if (!Alive || !IsWindowEnabled(Frame) || !IsWindowVisible(Ribbon) || !IsWindowVisible(Document))
             return Unavailable(waitForEditor, "OneNote replaced, disabled or hid a required layout window.");
         Rectangle body = DocumentBounds, ribbon = RibbonBounds;
         if (body.Top != ribbon.Bottom && (applied.IsEmpty || body.Top != applied.Top))
             return Unavailable(waitForEditor, "Unrecognized host layout. Cannot reserve a row.");
-        Rectangle nav = NavigationBounds;
-        if (ribbon.Left > body.Left || ribbon.Right < body.Right || nav.Top != body.Top || nav.Left != body.Left || nav.Width != body.Width)
-            return Unavailable(waitForEditor, "Native controls no longer align with the document.");
-        var middle = new Point(nav.Left + nav.Width / 2, nav.Top + nav.Height / 2);
-        if (ChildWindowFromPointEx(Frame, middle, 7) != Document)
-            return Unavailable(waitForEditor, "OneNote is covering the editor navigation.");
-        MapWindowPoints(Frame, Document, ref middle, 1);
-        if (ChildWindowFromPointEx(Document, middle, 7) != navigation)
-            return Unavailable(waitForEditor, "OneNote is covering the navigation row in the document.");
+        if (ribbon.Left > body.Left || ribbon.Right < body.Right || !SelectLandmark(body))
+            return Unavailable(waitForEditor, "OneNote's navigation row or vertical page editor is hidden, covered or no longer aligned with the ribbon.");
         bool bottom = atBottom ?? AtBottom;
         var client = ClientBounds;
         // When the host has already laid out the full document, use its new edge. When our
@@ -167,8 +210,9 @@ internal sealed class NativeLayout : IDisposable
         original = full;
         applied = next;
         AtBottom = bottom;
-        if (DocumentBounds != next || NavigationBounds.Top != next.Top || RibbonBounds != ribbon)
+        if (DocumentBounds != next || !SelectLandmark(next) || RibbonBounds != ribbon)
             return Unavailable(waitForEditor, "OneNote did not preserve the reserved row.");
+        WaitReason = null;
         return slot;
     }
     private int FreeBottom(Rectangle band)
@@ -183,8 +227,9 @@ internal sealed class NativeLayout : IDisposable
         }
         return limit;
     }
-    private static Rectangle Unavailable(bool waitForEditor, string reason)
+    private Rectangle Unavailable(bool waitForEditor, string reason)
     {
+        WaitReason = reason;
         if (waitForEditor) return Rectangle.Empty;
         throw new InvalidOperationException(reason);
     }
@@ -230,7 +275,10 @@ internal sealed class NativeLayout : IDisposable
     internal static void Move(IntPtr handle, Rectangle box)
     {
         if (!SetWindowPos(handle, IntPtr.Zero, box.X, box.Y, box.Width, box.Height, 0x0014))
-            throw new Win32Exception(Marshal.GetLastWin32Error());
+        {
+            var error = new Win32Exception(Marshal.GetLastWin32Error());
+            throw new Win32Exception(error.NativeErrorCode, "Could not move window " + handle + " to " + box + ". " + error.Message);
+        }
     }
 
     private static IEnumerable<IntPtr> Children(IntPtr parent, string className)

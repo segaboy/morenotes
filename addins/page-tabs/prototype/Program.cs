@@ -59,8 +59,9 @@ internal static class Program
         foreach (var candidate in layouts)
         {
             NativeLayout.MatchDpi(candidate.Frame);
-            Console.WriteLine("Frame {0}, DPI {1}; ribbon {2}; navigation {3}; document {4}", candidate.Frame,
-                candidate.Dpi, candidate.RibbonBounds, candidate.NavigationBounds, candidate.DocumentBounds);
+            Console.WriteLine("Frame {0}, DPI {1}; ribbon {2}; {3} {4}; document {5}", candidate.Frame,
+                candidate.Dpi, candidate.RibbonBounds, candidate.VerticalTabs ? "vertical page editor" : "horizontal navigation",
+                candidate.LandmarkBounds, candidate.DocumentBounds);
             if (mode == "measure")
             {
                 var chrome = candidate.Appearance();
@@ -71,7 +72,8 @@ internal static class Program
                 try
                 {
                     candidate.CheckHitTargets(IntPtr.Zero, Rectangle.Empty);
-                    Console.WriteLine("Native hit test matched ribbon and navigation at left, center and right.");
+                    Console.WriteLine("Native hit test matched the ribbon and {0} at left, center and right.",
+                        candidate.VerticalTabs ? "page editor" : "navigation row");
                 }
                 catch (InvalidOperationException error) { Console.WriteLine(error.Message); }
             }
@@ -122,10 +124,26 @@ internal static class Program
             {
                 layout.ShowCaptions = strip.WantsCaptionRow;
                 Rectangle slot = layout.Reserve(mode == "run");
-                if (slot.IsEmpty) return WaitForEditor;
+                if (slot.IsEmpty)
+                {
+                    // Keep the COM binding during a temporary layout change. Only rebind when the window is replaced.
+                    string reported = null;
+                    while (slot.IsEmpty && layout.Alive)
+                    {
+                        if (reported != layout.WaitReason)
+                        {
+                            reported = layout.WaitReason;
+                            Console.WriteLine("Waiting for the editor: " + reported);
+                        }
+                        layout.ReleaseForDialog();
+                        System.Threading.Thread.Sleep(500);
+                        if (!NativeLayout.IsIconic(layout.Frame)) slot = layout.Reserve(true);
+                    }
+                    if (slot.IsEmpty) return WaitForEditor;
+                }
                 strip.Attach(slot, layout);
                 layout.CheckHitTargets(strip.Host.Handle, slot);
-                Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);
+                Console.WriteLine("Child strip {0}; document now starts at {1}", slot, layout.DocumentBounds.Top);
                 if (mode == "placement" || mode == "verify" || mode == "handson")
                 {
                     strip.Host.Enabled = false;

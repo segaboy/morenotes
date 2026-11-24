@@ -12,7 +12,7 @@ From the repository root in Windows PowerShell, run:
 & .\addins\page-tabs\tools\Start-MoreTabsPrototype.ps1 -Mode Measure
 ```
 
-The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 interop assembly. It builds a local executable under `artifacts/`. Open OneNote in normal editing view with horizontal tabs and the Quick Access Toolbar below the ribbon.
+The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 interop assembly. It builds a local executable under `artifacts/`. Open OneNote in normal editing view with the Quick Access Toolbar below the ribbon. MoreTabs detects both **Horizontal Tabs** and **Vertical Tabs**.
 
 | Mode | What it tests |
 | --- | --- |
@@ -32,7 +32,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far right to move the whole strip to the bottom edge of the OneNote window. Click the up arrow to put it back. Both positions use the same tabs, active page and bookmarks. At the bottom, the tabs have rounded upper corners and a section-color stripe along the lower edge. The bookmarks menu opens upward. The move arrow stays visible when tabs overflow.
 
-In either position, the star lines up horizontally with the native notebook icon. The strip samples the navigation row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence.
+With horizontal tabs, the star lines up with the native notebook icon. MoreTabs samples the navigation row for its background color and icon position and keeps the last measurement while the icon is covered. With vertical tabs, MoreTabs uses the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence.
 
 ![MoreTabs docked at the top, with two pinned pages and unpinned notebook groups](appearance.png)
 
@@ -149,7 +149,9 @@ Start by identifying whether OneNote can reserve vertical space at the target lo
 | The application interface provides hierarchy, linking and navigation methods and describes navigation events. | Evaluate native navigation events against Back and section changes. Check the window identity again when handling an event. [Microsoft application interface](https://learn.microsoft.com/en-us/office/client-developer/onenote/application-interface-onenote) |
 | Microsoft's archived desktop sample demonstrates a OneNote COM add-in and setup. The Office.js OneNote overview targets the web. The VSTO application matrix lists the supported hosts. | The COM sample is a starting point. An extension point for this exact row is still unverified. Neither Office.js nor a standard VSTO custom task pane establishes that placement. [COM sample](https://github.com/OneNoteDev/VanillaAddIn) · [Office.js overview](https://learn.microsoft.com/en-us/office/dev/add-ins/onenote/onenote-add-ins-programming-overview) · [VSTO host matrix](https://learn.microsoft.com/en-us/visualstudio/vsto/features-available-by-office-application-and-project-type?view=visualstudio) |
 
-The prototype recognizes a native ribbon dock adjacent to a document window and identifies its horizontal navigation child by class and geometry. It requests space by moving and shortening the document window, then checks the new bounds before adding a child control. These window classes are observations from the tested build. Microsoft does not document them as a MoreTabs extension point. An unrecognized layout stops the experiment. The prototype registers no add-in and does not read or write notebook content in `Measure` or `Placement`.
+The prototype recognizes a native ribbon dock adjacent to the document. It checks which window actually receives input across the horizontal navigation row or, in vertical view, across the page workspace. It reserves space by shortening the whole document, including its side panes, and checks the new bounds before showing the strip. The native window classes are observations from the tested build. `Measure` and `Placement` work without reading or writing notebook content.
+
+On November 24, 2026, live measurement in Vertical Tabs on OneNote `16.0.20715.20004` (x64, 96 DPI) found a 36-pixel navigation row behind the notebook panes and page workspace. The old startup check hit the workspace at the center of that row and retried indefinitely. The updated probe found the workspace at X=432, Y=226 and passed all three hit tests. The development session received Win32 error 5 during live placement. Controlled Windows tests cover startup, both docking positions, expanded and collapsed vertical panes, switching between layouts, and restoring the original document bounds.
 
 Bottom placement requires a document that reaches both sides and the bottom of the frame's client area. MoreTabs shortens that document from below, including its native footer. A separate frame control occupying the proposed row prevents the move. On November 24, 2026 the live 96-DPI window measured 1345 × 1170 client pixels, with the document filling the width and reaching the bottom. Live repositioning from the development session was blocked by Win32 error 5. The placement round trip, footer hit area, resize, modal resume, overflow and mirrored rendering have been checked in a controlled Windows window.
 

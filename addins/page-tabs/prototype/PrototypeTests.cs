@@ -56,6 +56,7 @@ internal static class PrototypeTests
     }
     internal static void ControlledWindow()
     {
+        CheckVerticalTabs();
         using (var frame = new Form { Text = "MoreTabs layout test", ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
             Location = new Point(-16000, -16000), ClientSize = new Size(730, 420) })
         using (var ribbon = new Panel())
@@ -106,7 +107,7 @@ internal static class PrototypeTests
                             strip.Attach(slot, layout);
                             layout.CheckHitTargets(strip.Host.Handle, slot);
                             Check(slot == layout.Reserve(), "A repeated tick consumed another row.");
-                            Check(slot.Top == height && slot.Bottom == layout.NavigationBounds.Top && slot.Width == expected.Width &&
+                            Check(slot.Top == height && slot.Bottom == layout.LandmarkBounds.Top && slot.Width == expected.Width &&
                                 layout.DocumentBounds.Bottom == expected.Bottom, "The test strip overlaps native controls.");
                         }
                         using (var cover = new Panel { Bounds = new Rectangle(0, 0, document.Width / 3, navigation.Height) })
@@ -262,6 +263,70 @@ internal static class PrototypeTests
             }
             finally { frame.Close(); }
         }
+    }
+
+    private static void CheckVerticalTabs()
+    {
+        using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
+            Location = new Point(-16000, -16000), ClientSize = new Size(800, 500) })
+        using (var ribbon = new Panel { Bounds = new Rectangle(0, 0, 800, 80) })
+        using (var body = new Panel { Bounds = new Rectangle(0, 80, 800, 420) })
+        using (var row = new Panel { Dock = DockStyle.Top, Height = 36 })
+        using (var books = new Panel { Bounds = new Rectangle(0, 36, 124, 384) })
+        using (var pages = new Panel { Bounds = new Rectangle(124, 12, 120, 408) })
+        using (var editor = new Panel { Bounds = new Rectangle(244, 12, 556, 408) })
+        {
+            frame.Controls.AddRange(new Control[] { ribbon, body });
+            body.Controls.AddRange(new Control[] { books, pages, editor, row });
+            row.SendToBack();
+            frame.Show();
+            var original = body.Bounds;
+            using (var layout = new NativeLayout(frame.Handle, body.Handle, ribbon.Handle, row.Handle, editor.Handle))
+            using (var strip = new PageStrip(frame.Handle, null, delegate {}, e => { throw e; }))
+            {
+                foreach (bool bottom in new[] { false, true })
+                {
+                    Rectangle slot = layout.Reserve(false, bottom);
+                    strip.Attach(slot, layout);
+                    layout.CheckHitTargets(strip.Host.Handle, slot);
+                    Check(layout.VerticalTabs && layout.StillReserved(slot) && slot.Width == original.Width &&
+                        body.Height + slot.Height == original.Height && (bottom ? body.Bottom == slot.Top : body.Top == slot.Bottom),
+                        "Vertical layout failed to reserve the strip outside the editor and notebook panes.");
+                    foreach (var pane in new[] { books, pages, editor })
+                        Check(body.GetChildAtPoint(new Point(pane.Left + pane.Width / 2, 70)) == pane,
+                            "A vertical notebook pane or the page editor lost its click target.");
+                }
+                var vertical = editor.Bounds;
+                editor.Top = row.Height;
+                row.BringToFront();
+                strip.Attach(layout.Reserve(), layout);
+                Check(!layout.VerticalTabs && layout.AtBottom, "Switching to horizontal tabs lost the dock or used the vertical editor.");
+                row.Hide();
+                books.Hide();
+                pages.Hide();
+                editor.Bounds = new Rectangle(0, 0, body.Width, body.Height);
+                strip.Attach(layout.Reserve(false, false), layout);
+                Check(layout.VerticalTabs && layout.StillReserved(strip.Host.Bounds), "A collapsed sidebar or hidden row prevented attachment.");
+                using (var cover = new Panel { Dock = DockStyle.Fill })
+                {
+                    body.Controls.Add(cover);
+                    cover.BringToFront();
+                    Check(layout.Reserve(true).IsEmpty, "A covered vertical editor was accepted.");
+                }
+                strip.PauseForDialog();
+                layout.ReleaseForDialog();
+                Check(body.Bounds == original, "Pausing vertical tabs left a gap.");
+                row.Show();
+                row.SendToBack();
+                books.Show();
+                pages.Show();
+                editor.Bounds = vertical;
+                strip.Attach(layout.Reserve(), layout);
+                Check(layout.VerticalTabs, "The vertical layout did not resume after releasing the strip.");
+            }
+            Check(body.Bounds == original, "Closing vertical tabs did not restore the document.");
+        }
+        Console.WriteLine("PASS vertical tabs with overlapping navigation, expanded and collapsed panes, both docks, orientation changes and cleanup.");
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
