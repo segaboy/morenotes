@@ -61,6 +61,7 @@ internal static class AppearanceTests
                 foreach (var selected in new[] { schedule, original })
                 {
                     selected.PerformClick();
+                    CheckLongTitleSpacing(strip, schedule, original);
                     using (var bitmap = CheckStrip(strip, expected))
                     {
                         if (contrast) continue;
@@ -71,6 +72,7 @@ internal static class AppearanceTests
                             bitmap.GetPixel(xSample, FlatEdgeY(selected, strip.AtBottom, HostChrome.Px(4, dpi))).ToArgb() == selected.SectionColor.ToArgb(),
                             "The active tab must pair the native stripe with its original muted fill.");
                         var title = Rectangle.Inflate(selected.Bounds, -HostChrome.Px(10, dpi), -HostChrome.Px(7, dpi));
+                        title.Width = selected.Bounds.Right - selected.CloseWidth - title.Left;
                         bool foundText = false;
                         for (int y = title.Top; y < title.Bottom && !foundText; y++)
                             for (int x = title.Left; x < title.Right && !foundText; x++)
@@ -95,9 +97,38 @@ internal static class AppearanceTests
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
         CheckOptions(strip, layout);
+        Console.WriteLine("PASS long regular and bold titles leave clear space around the close icon at all four scales.");
         Console.WriteLine("PASS equal native-color tab stripes, muted selected fills and angled two-color bookmark rows at 96, 120, 144 and 192 DPI.");
         Console.WriteLine("PASS compact notebook captions span the visible tabs in each group and use the notebook color at all four scales.");
         Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
+    }
+
+    private static void CheckLongTitleSpacing(PageStrip strip, params PageTabButton[] tabs)
+    {
+        var titles = tabs.Select(tab => tab.Text).ToArray();
+        try
+        {
+            // Both titles exceed the width limit, in regular and bold type.
+            foreach (var tab in tabs) tab.Text = "Weekly planning and follow-up for the next review meeting";
+            strip.PerformLayout();
+            using (var image = new Bitmap(strip.Width, strip.Height))
+            {
+                strip.DrawToBitmap(image, strip.ClientRectangle);
+                var palette = (TabRenderer)strip.Renderer;
+                foreach (var tab in tabs)
+                {
+                    int fill = (tab.Checked ? palette.MutedSection(tab.SectionColor) : tab.Selected ? palette.Hover : palette.Tab).ToArgb();
+                    int cy = tab.Bounds.Top + tab.Height / 2, right = tab.Bounds.Right;
+                    int cx = right - (tab.CloseBounds.Width + 1) / 2;
+                    // Check both sides of the actual painted cross, including the baseline of the ellipsis.
+                    for (int y = cy - HostChrome.Px(5, tab.Dpi); y <= cy + HostChrome.Px(5, tab.Dpi); y++)
+                        for (int dx = HostChrome.Px(6, tab.Dpi); dx <= HostChrome.Px(12, tab.Dpi); dx++)
+                            Check(image.GetPixel(cx - dx, y).ToArgb() == fill && image.GetPixel(cx + dx, y).ToArgb() == fill,
+                                "The long title or tab edge crowds the close icon at " + tab.Dpi + " DPI.");
+                }
+            }
+        }
+        finally { for (int i = 0; i < tabs.Length; i++) tabs[i].Text = titles[i]; }
     }
 
     private static void CheckOptions(PageStrip strip, NativeLayout layout)

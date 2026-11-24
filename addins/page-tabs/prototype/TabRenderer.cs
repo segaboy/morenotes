@@ -35,7 +35,7 @@ internal sealed class PageTabButton : ToolStripButton
     internal Color SectionColor { get; set; }
     internal DateTime NextColorCheck { get; set; }
     internal uint Dpi = 96;
-    internal int CloseWidth { get { return HostChrome.Px(22, Dpi); } }
+    internal int CloseWidth { get { return HostChrome.Px(28, Dpi); } }
     internal Rectangle CloseBounds { get { return Rectangle.FromLTRB(Math.Max(0, Width - CloseWidth), 0, Width, Height); } }
     internal bool CloseHovered { get; private set; }
     protected override void OnMouseMove(MouseEventArgs e)
@@ -197,7 +197,13 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         {
             if (e.ToolStrip is ToolStripDropDown && tab.Group != null) e.Text = tab.OverflowText;
             if (!tab.Checked) e.TextFont = e.ToolStrip.Font;
-            e.TextFormat |= TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
+            // A ToolStripButton can supply a text rectangle wider than a capped tab.
+            // Truncate against the visible title area, keeping the close target entirely clear.
+            int left = tab.Padding.Left;
+            e.TextRectangle = new Rectangle(left, 0, Math.Max(0, tab.CloseBounds.Left - left), tab.Height);
+            e.TextFormat = (e.TextFormat & TextFormatFlags.RightToLeft) | TextFormatFlags.SingleLine |
+                TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter |
+                TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
         }
         base.OnRenderItemText(e);
         DrawFocus(e, e.TextColor);
