@@ -41,9 +41,12 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
 {
     internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker;
     private readonly bool contrast;
+    internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
-    internal TabRenderer(Color surface, uint dpi, bool highContrast)
+    internal readonly bool DarkSections;
+    internal TabRenderer(Color surface, uint dpi, bool highContrast, bool darkSections)
     {
+        DarkSections = darkSections;
         Dpi = dpi;
         contrast = highContrast;
         Surface = highContrast ? SystemColors.Window : surface;
@@ -75,7 +78,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     private Color Background(ToolStripItem item)
     {
         var page = item as PageTabButton;
-        if (page != null && page.Checked) return MarkerFor(page);
+        if (page != null && page.Checked) return MutedSection(page.SectionColor);
         var button = item as ToolStripButton;
         if (item.Pressed || (button != null && button.Checked)) return Active;
         if (item.Selected) return Hover;
@@ -102,6 +105,15 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal Color NotebookInk(Color fill)
     {
         return contrast ? SystemColors.HighlightText : Luminance(fill) > 0.179 ? Color.Black : Color.White;
+    }
+    internal Color SectionFill(Color stored)
+    {
+        return contrast ? SystemColors.Highlight : stored.IsEmpty ? ActiveMarker : SectionPalette.Native(stored, DarkSections);
+    }
+    internal Color MutedSection(Color stored)
+    {
+        if (contrast || stored.IsEmpty) return Active;
+        return SectionFill(stored).ToArgb() == stored.ToArgb() ? Blend(stored, Surface, 25) : stored;
     }
     private static double Linear(byte component)
     {
@@ -149,8 +161,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     internal Color MarkerFor(PageTabButton tab)
     {
-        if (contrast) return tab.Checked ? Active : Highlighted(tab) ? SystemColors.HighlightText : Ink;
-        return tab.SectionColor.IsEmpty ? ActiveMarker : tab.SectionColor;
+        if (contrast) return Highlighted(tab) ? SystemColors.HighlightText : Ink;
+        return SectionFill(tab.SectionColor);
     }
     private void PaintTab(ToolStripItemRenderEventArgs e, PageTabButton page)
     {

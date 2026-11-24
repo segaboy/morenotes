@@ -13,6 +13,9 @@ internal sealed class HostChrome
     internal uint Dpi;
     internal int Inset;
     internal Color Surface;
+    internal Color SectionBand;
+    private bool? nativeDark;
+    internal bool DarkSections { get { return nativeDark ?? (Surface.GetBrightness() < 0.5f); } }
     internal bool Measured, HighContrast;
     private DateTime nextRead;
 
@@ -31,13 +34,17 @@ internal sealed class HostChrome
         }
         Dpi = dpi;
         HighContrast = contrast;
-        Color background;
+        Color background, band;
         int left;
-        if (navigation != IntPtr.Zero && TryRead(navigation, dpi, out background, out left))
+        SectionBand = Color.Empty;
+        if (navigation != IntPtr.Zero && TryRead(navigation, dpi, out background, out left, out band))
         {
+            if (Surface.ToArgb() != background.ToArgb()) nativeDark = null;
             Surface = background;
             Inset = left;
             Measured = true;
+            SectionBand = band;
+            nativeDark = SectionPalette.DarkPalette(band) ?? nativeDark;
         }
         else if (!Measured) Surface = FallbackSurface();
         if (contrast) Surface = SystemColors.Window;
@@ -60,9 +67,10 @@ internal sealed class HostChrome
         return SystemColors.Control;
     }
 
-    private static bool TryRead(IntPtr navigation, uint dpi, out Color surface, out int left)
+    private static bool TryRead(IntPtr navigation, uint dpi, out Color surface, out int left, out Color band)
     {
         surface = Color.Empty;
+        band = Color.Empty;
         left = 0;
         Point origin = Point.Empty;
         RECT client;
@@ -82,8 +90,23 @@ internal sealed class HostChrome
         {
             try { graphics.CopyFromScreen(origin, Point.Empty, size); }
             catch (Win32Exception) { return false; }
-            return FindIcon(image, dpi, out surface, out left);
+            if (!FindIcon(image, dpi, out surface, out left)) return false;
+            if (size.Height == client.Bottom) band = ReadSectionBand(image, dpi, surface);
+            return true;
         }
+    }
+
+    internal static Color ReadSectionBand(Bitmap image, uint dpi, Color surface)
+    {
+        // The native selected section continues as a solid rule below the notebook icon.
+        int left = Px(13, dpi), right = image.Width - Px(5, dpi);
+        if (left >= right || image.Height < 2) return Color.Empty;
+        Color band = image.GetPixel(left, image.Height - 1);
+        if (band.ToArgb() == surface.ToArgb()) return Color.Empty;
+        for (int x = left; x < right; x++)
+            for (int y = image.Height - 2; y < image.Height; y++)
+                if (image.GetPixel(x, y).ToArgb() != band.ToArgb()) return Color.Empty;
+        return band;
     }
 
     internal static bool FindIcon(Bitmap image, uint dpi, out Color surface, out int left)

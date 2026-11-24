@@ -66,6 +66,8 @@ internal static class Program
                 var chrome = candidate.Appearance();
                 Console.WriteLine("Strip appearance: surface #{0:X6}, bookmark icon inset {1}px ({2}).",
                     chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, chrome.Measured ? "measured notebook icon" : "fallback");
+                if (!chrome.SectionBand.IsEmpty)
+                    Console.WriteLine("Native navigation section band: #{0:X6}.", chrome.SectionBand.ToArgb() & 0xffffff);
                 try
                 {
                     candidate.CheckHitTargets(IntPtr.Zero, Rectangle.Empty);

@@ -14,6 +14,12 @@ internal static class AppearanceTests
 
     internal static void Controlled(PageStrip strip, NativeLayout layout, Rectangle slot)
     {
+        var custom = Color.FromArgb(255, 0, 0);
+        var customDark = SectionPalette.Native(custom, true);
+        Check(customDark.R >= 63 && customDark.R <= 64 && customDark.G == 0 && customDark.B == 0 &&
+            SectionPalette.Native(custom, false).ToArgb() == custom.ToArgb() &&
+            SectionPalette.DarkPalette(Color.FromArgb(142, 228, 234)) == false,
+            "Custom section RGB or the light native palette was not recognized.");
         var labels = strip.Items.OfType<PageTabButton>().Select(tab => tab.Text).ToArray();
         Check(labels.SequenceEqual(new[] { "Dashboard / A", "Schedule", "Dashboard / B" }),
             "Tab labels must distinguish duplicate page titles.");
@@ -38,7 +44,11 @@ internal static class AppearanceTests
                     int left;
                     Check(HostChrome.FindIcon(row, dpi, out measured, out left) && left == inset && measured.ToArgb() == surface.ToArgb(),
                         "Did not measure the notebook glyph or the row color.");
+                    using (var band = new SolidBrush(Color.FromArgb(0, 97, 104)))
+                        g.FillRectangle(band, 0, row.Height - 3, row.Width, 3);
+                    Check(SectionPalette.DarkPalette(HostChrome.ReadSectionBand(row, dpi, surface)) == true, "Native dark band was missed.");
                     g.Clear(surface);
+                    Check(HostChrome.ReadSectionBand(row, dpi, surface).IsEmpty, "A blank navigation row produced a section color.");
                     Check(!HostChrome.FindIcon(row, dpi, out measured, out left), "An empty row produced a false icon anchor.");
                 }
                 strip.Size = new Size(HostChrome.Px(950, dpi), HostChrome.Px(32, dpi));
@@ -49,15 +59,19 @@ internal static class AppearanceTests
                     using (var bitmap = CheckStrip(strip, expected))
                     {
                         if (contrast) continue;
+                        int stripe = selected == schedule ? (expected.DarkSections ? 0x006168 : 0x8EE4EA) :
+                            (expected.DarkSections ? 0xC44A01 : 0xFFC39F);
+                        int xSample = selected.Bounds.Left + HostChrome.Px(6, dpi);
+                        Check((bitmap.GetPixel(xSample, selected.Bounds.Top + 1).ToArgb() & 0xffffff) == stripe &&
+                            bitmap.GetPixel(xSample, selected.Bounds.Top + HostChrome.Px(4, dpi)).ToArgb() == selected.SectionColor.ToArgb(),
+                            "The active tab must pair the native stripe with its original muted fill.");
                         var title = Rectangle.Inflate(selected.Bounds, -HostChrome.Px(10, dpi), -HostChrome.Px(7, dpi));
-                        bool lightText = selected == schedule; // Teal needs light text; orange needs dark text.
                         bool foundText = false;
                         for (int y = title.Top; y < title.Bottom && !foundText; y++)
                             for (int x = title.Left; x < title.Right && !foundText; x++)
                             {
                                 Color ink = bitmap.GetPixel(x, y);
-                                foundText = lightText ? Math.Min(ink.R, Math.Min(ink.G, ink.B)) >= 225 :
-                                    Math.Max(ink.R, Math.Max(ink.G, ink.B)) <= 45;
+                                foundText = Math.Max(ink.R, Math.Max(ink.G, ink.B)) <= 45;
                             }
                         Check(foundText, "The selected tab title did not contrast against its section color.");
                     }
@@ -75,7 +89,7 @@ internal static class AppearanceTests
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
-        Console.WriteLine("PASS section stripes on every page tab and a full section-color fill on the selected tab, across themes and 96, 120, 144 and 192 DPI.");
+        Console.WriteLine("PASS equal native-color tab stripes, muted selected fills and angled two-color bookmark rows at 96, 120, 144 and 192 DPI.");
         Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
     }
 
@@ -106,11 +120,17 @@ internal static class AppearanceTests
                 foreach (var row in rows)
                 {
                     int x = row.Bounds.Left + row.SectionWidth, y = row.Bounds.Top + 1;
-                    var fill = chrome.HighContrast ? SystemColors.Highlight : row.SectionColor;
+                    int index = Array.IndexOf(rows, row);
+                    int native = chrome.DarkSections ? new[] { 0x006168, 0x653A98, 0x2A7931 }[index] :
+                        new[] { 0x8EE4EA, 0xD6BEF2, 0x8FE497 }[index];
+                    var fill = chrome.HighContrast ? SystemColors.Highlight : Color.FromArgb(255, Color.FromArgb(native));
+                    var titleFill = chrome.HighContrast ? (row.Selected ? SystemColors.Highlight : SystemColors.Window) : row.SectionColor;
+                    int cut = x - HostChrome.Px(4, chrome.Dpi);
                     Check(image.GetPixel(row.Bounds.Left + 2, y).ToArgb() == fill.ToArgb() &&
-                        image.GetPixel(x - 1, y).ToArgb() == fill.ToArgb() &&
-                        image.GetPixel(x + 1, y).ToArgb() == (row.Selected ? ((TabRenderer)strip.Renderer).Hover : chrome.Surface).ToArgb(),
-                        "The section color must stop at the page-title column.");
+                        image.GetPixel(cut, y).ToArgb() == fill.ToArgb() &&
+                        image.GetPixel(cut, row.Bounds.Bottom - 2).ToArgb() == titleFill.ToArgb() &&
+                        image.GetPixel(x + 3, y + 1).ToArgb() == titleFill.ToArgb(),
+                        "The bookmark must have a native section color, a forward-slanted edge and a muted page fill.");
                     int titleWidth = TextRenderer.MeasureText(row.Text, row.Font, Size.Empty,
                         TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Width;
                     int visibleWidth = Rectangle.Intersect(menu.ClientRectangle, row.Bounds).Width;
@@ -215,13 +235,14 @@ internal static class AppearanceTests
             }
             foreach (var tab in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main))
             {
-                Color marker = tab.SectionColor.IsEmpty ? palette.ActiveMarker : tab.SectionColor;
-                if (chrome.HighContrast)
-                    marker = tab.Checked ? SystemColors.Highlight : tab.Selected ? SystemColors.HighlightText : SystemColors.WindowText;
+                Color marker = palette.MarkerFor(tab);
                 for (int x = tab.Bounds.Left; x < tab.Bounds.Right; x++)
-                    Check(bitmap.GetPixel(x, tab.Bounds.Top + edge).ToArgb() == marker.ToArgb(),
-                        "Missing full-width section color on " + (tab.Checked ? "active" : "inactive") + " tab.");
-                Color fill = tab.Checked ? marker : tab.Selected ? palette.Hover : palette.Tab;
+                    for (int y = 0; y < HostChrome.Px(3, chrome.Dpi); y++)
+                        Check(bitmap.GetPixel(x, tab.Bounds.Top + y).ToArgb() == marker.ToArgb(),
+                            "Missing full-width section color on " + (tab.Checked ? "active" : "inactive") + " tab.");
+                Color fill = tab.Checked ? palette.MutedSection(tab.SectionColor) : tab.Selected ? palette.Hover : palette.Tab;
+                Check(fill.ToArgb() != marker.ToArgb() && bitmap.GetPixel(tab.Bounds.Left + 2 * edge,
+                    tab.Bounds.Top + HostChrome.Px(3, chrome.Dpi)).ToArgb() == fill.ToArgb(), "Incorrect section stripe thickness.");
                 Check(bitmap.GetPixel(tab.Bounds.Left + 2 * edge, tab.Bounds.Top + HostChrome.Px(3, chrome.Dpi) + edge).ToArgb() == fill.ToArgb() &&
                     bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, tab.Bounds.Bottom - 3 * edge).ToArgb() == fill.ToArgb(),
                     "Tab body fill does not match its selection state.");
@@ -240,6 +261,9 @@ internal static class AppearanceTests
         strip.ApplyAppearance(chrome);
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
         var active = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+        if (!chrome.HighContrast && !chrome.SectionBand.IsEmpty && !active.SectionColor.IsEmpty)
+            Check(((TabRenderer)strip.Renderer).MarkerFor(active).ToArgb() == chrome.SectionBand.ToArgb(),
+                "The selected tab stripe differs from OneNote's visible section band.");
         TogglePin(strip, schedule, true);
         using (var bitmap = CheckStrip(strip, chrome))
             bitmap.Save(Path.Combine(fixtureDirectory, "MoreTabs-strip.png"), ImageFormat.Png);

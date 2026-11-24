@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Forms;
@@ -127,6 +128,7 @@ internal sealed class BookmarkRow : ToolStripMenuItem
     internal Color SectionColor { get; private set; }
     private readonly string title;
     private readonly int padding;
+    private readonly int slant;
 
     internal BookmarkRow(SavedPage page, BookmarkLocation location, int width, uint dpi, EventHandler click)
         : base(page.BookmarkTitle.Replace("&", "&&"), null, click)
@@ -136,6 +138,7 @@ internal sealed class BookmarkRow : ToolStripMenuItem
         SectionColor = location == null ? Color.Empty : location.SectionColor;
         SectionWidth = width;
         padding = HostChrome.Px(7, dpi);
+        slant = HostChrome.Px(9, dpi);
         AccessibleName = title + ", " + SectionName;
         ToolTipText = SectionName + " — " + title;
     }
@@ -147,7 +150,7 @@ internal sealed class BookmarkRow : ToolStripMenuItem
     {
         int text = locations.Select(NameOfSection).Distinct().Max(name =>
             TextRenderer.MeasureText(name, font, Size.Empty, MeasureFlags).Width);
-        return Math.Min(text + 2 * HostChrome.Px(7, dpi), availableWidth / 2);
+        return Math.Min(text + 2 * HostChrome.Px(7, dpi) + HostChrome.Px(9, dpi), availableWidth / 2);
     }
     internal int ContentWidth
     {
@@ -156,15 +159,30 @@ internal sealed class BookmarkRow : ToolStripMenuItem
     protected override void OnPaint(PaintEventArgs e)
     {
         var palette = (TabRenderer)Owner.Renderer;
-        e.Graphics.Clear(palette.Surface);
-        palette.DrawMenuItemBackground(new ToolStripItemRenderEventArgs(e.Graphics, this));
-        Color fill = palette.NotebookFill(SectionColor);
-        using (var brush = new SolidBrush(fill))
-            e.Graphics.FillRectangle(brush, 0, 0, SectionWidth, Height);
-        TextRenderer.DrawText(e.Graphics, SectionName, Font, new Rectangle(padding, 0, Math.Max(0, SectionWidth - 2 * padding), Height),
+        Color fill = palette.SectionFill(SectionColor);
+        Color titleFill = palette.MutedSection(SectionColor);
+        Color titleInk = palette.NotebookInk(titleFill);
+        if (palette.HighContrast && !Selected)
+        {
+            titleFill = palette.Surface;
+            titleInk = palette.Ink;
+        }
+        e.Graphics.Clear(titleFill);
+        var state = e.Graphics.Save();
+        try
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var brush = new SolidBrush(fill))
+                e.Graphics.FillPolygon(brush, new[] { Point.Empty, new Point(SectionWidth, 0),
+                    new Point(SectionWidth - slant, Height), new Point(0, Height) });
+        }
+        finally { e.Graphics.Restore(state); }
+        TextRenderer.DrawText(e.Graphics, SectionName, Font, new Rectangle(padding, 0, Math.Max(0, SectionWidth - 2 * padding - slant), Height),
             palette.NotebookInk(fill), DrawFlags);
         int left = SectionWidth + padding;
         TextRenderer.DrawText(e.Graphics, title, Font, new Rectangle(left, 0, Math.Max(0, Width - left - padding), Height),
-            palette.TextColor(this), DrawFlags);
+            titleInk, DrawFlags);
+        if (Selected) ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(left - padding, 1,
+            Math.Max(1, Width - left + padding - 2), Math.Max(1, Height - 2)), titleInk, titleFill);
     }
 }

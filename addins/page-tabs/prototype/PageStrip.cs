@@ -361,10 +361,11 @@ internal sealed class PageStrip : ToolStrip
     internal void ApplyAppearance(HostChrome chrome)
     {
         bool metrics = appearance == null || appearance.Dpi != chrome.Dpi;
-        if (metrics || appearance.Surface.ToArgb() != chrome.Surface.ToArgb() || highContrast != chrome.HighContrast)
+        if (metrics || appearance.Surface.ToArgb() != chrome.Surface.ToArgb() || highContrast != chrome.HighContrast ||
+            appearance.DarkSections != chrome.DarkSections)
         {
             highContrast = chrome.HighContrast;
-            appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast);
+            appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast, chrome.DarkSections);
             Renderer = appearance;
             tabMenu.Renderer = bookmarks.DropDown.Renderer = add.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
             BackColor = appearance.Surface;

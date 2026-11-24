@@ -20,15 +20,15 @@ internal static class PrototypeTests
         internal bool LocationUnavailable, FailNextNavigation, DelayNextNavigation;
         internal string PendingPage;
         public string Current { get; private set; }
-        internal Color BookBColor = Color.DarkOrange;
-        public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.Teal : BookBColor; }
+        internal Color BookBColor = Color.FromArgb(246,176,120);
+        public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
         public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> ids)
         {
             var a = new BookmarkNotebook("a", "Atlas", Color.SteelBlue);
             var b = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
-            return ids.ToDictionary(id => id, id => id.StartsWith("a/") ? new BookmarkLocation(a, "Route plans", Color.Teal) :
-                id == "b/parts" ? new BookmarkLocation(b, "Materials & tools", Color.FromArgb(177, 205, 145)) :
-                new BookmarkLocation(b, "Sketches", Color.FromArgb(222, 174, 184)));
+            return ids.ToDictionary(id => id, id => id.StartsWith("a/") ? new BookmarkLocation(a, "Route plans", SectionColor(id)) :
+                id == "b/parts" ? new BookmarkLocation(b, "Materials & tools", Color.FromArgb(183, 201, 151)) :
+                new BookmarkLocation(b, "Sketches", Color.FromArgb(171, 156, 183)));
         }
         internal readonly Dictionary<string, string> Renamed = new Dictionary<string, string>();
         public string Caption(string id)
@@ -170,7 +170,7 @@ internal static class PrototypeTests
                         }
                         var renderer = (TabRenderer)strip.Renderer;
                         Check(selected.Checked && selected.SectionColor.IsEmpty && inactive.SectionColor.IsEmpty &&
-                            renderer.MarkerFor(selected) == (SystemInformation.HighContrast ? renderer.Active : renderer.ActiveMarker),
+                            renderer.MarkerFor(selected) == (SystemInformation.HighContrast ? SystemColors.HighlightText : renderer.ActiveMarker),
                             "Changing the current section to automatic color did not restore the theme accent.");
                         Console.WriteLine("PASS active and inactive tabs follow section recoloring across notebooks without navigation.");
                         using (var editor = new TextBox { Location = new Point(6, navigation.Bottom + 6) })
