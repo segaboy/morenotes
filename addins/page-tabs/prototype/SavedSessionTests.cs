@@ -197,7 +197,7 @@ internal static class SavedSessionTests
         using (var strip = new PageStrip(frame.Handle, source, delegate { }, e => { throw e; }, store))
         {
             frame.Show();
-            strip.Attach(new Rectangle(0, 0, 650, 32));
+            strip.Attach(new Rectangle(0, 0, 650, HostChrome.StripHeight(96)));
             strip.RestoreOrSeed();
             switch (phase)
             {

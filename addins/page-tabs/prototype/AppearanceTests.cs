@@ -22,7 +22,6 @@ internal static class AppearanceTests
             "Custom section RGB or the light native palette was not recognized.");
         var labels = strip.Items.OfType<PageTabButton>().Select(tab => tab.Text).ToArray();
         Check(labels.SequenceEqual(new[] { "Dashboard", "Schedule", "Dashboard" }) &&
-            strip.Items.OfType<NotebookTabLabel>().Select(l => l.Text).SequenceEqual(new[] { "Atlas", "Workshop" }) &&
             strip.Items.OfType<PageTabButton>().Select(t => t.Group.Text).SequenceEqual(new[] { "Atlas", "Atlas", "Workshop" }),
             "Interleaved pages must form notebook groups that distinguish duplicate page titles.");
         Check(strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1, "An empty pinned group has two dividers.");
@@ -53,7 +52,7 @@ internal static class AppearanceTests
                     Check(HostChrome.ReadSectionBand(row, dpi, surface).IsEmpty, "A blank navigation row produced a section color.");
                     Check(!HostChrome.FindIcon(row, dpi, out measured, out left), "An empty row produced a false icon anchor.");
                 }
-                strip.Host.Size = new Size(HostChrome.Px(950, dpi), HostChrome.Px(32, dpi));
+                strip.Host.Size = new Size(HostChrome.Px(950, dpi), HostChrome.StripHeight(dpi));
                 strip.ApplyAppearance(expected);
                 foreach (var selected in new[] { schedule, original })
                 {
@@ -92,6 +91,7 @@ internal static class AppearanceTests
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
         Console.WriteLine("PASS equal native-color tab stripes, muted selected fills and angled two-color bookmark rows at 96, 120, 144 and 192 DPI.");
+        Console.WriteLine("PASS compact notebook captions span the visible tabs in each group and use the notebook color at all four scales.");
         Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
     }
 
@@ -201,20 +201,28 @@ internal static class AppearanceTests
             strip.DrawToBitmap(bitmap, strip.ClientRectangle);
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
-            foreach (var label in strip.Items.OfType<NotebookTabLabel>().Where(l => l.Placement == ToolStripItemPlacement.Main))
+            var band = strip.Host.Captions;
+            Check(band.Left == strip.Left && (bottom ? strip.Bottom == band.Top : band.Bottom == strip.Top),
+                "The notebook captions did not mirror with the dock.");
+            using (var captions = new Bitmap(band.Width, band.Height))
             {
-                var groupTabs = strip.Items.OfType<PageTabButton>().Where(t => t.Group == label && t.Placement == ToolStripItemPlacement.Main);
-                Check(groupTabs.Any() && groupTabs.All(t => t.Bounds.Left >= label.Bounds.Right) && !label.CanSelect &&
-                    label.Font.Bold && label.AccessibleName == label.Text, "A notebook heading is missing, misplaced or selectable.");
-                Color ink = chrome.HighContrast || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;
-                var box = label.Bounds;
-                Check(bitmap.GetPixel(box.Left + 1, box.Top + box.Height / 2).ToArgb() == palette.Surface.ToArgb(),
-                    "Notebook labels should use the strip background.");
-                bool found = false;
-                for (int x = box.Left; x < box.Right && !found; x++)
-                    for (int y = box.Top; y < box.Bottom && !found; y++)
-                        found = bitmap.GetPixel(x, y).ToArgb() == ink.ToArgb();
-                Check(found, "The notebook label did not render in its notebook color.");
+                band.DrawToBitmap(captions, band.ClientRectangle);
+                foreach (var group in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).GroupBy(t => t.Group))
+                {
+                    var label = group.Key;
+                    var box = label.Bounds;
+                    Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Bold &&
+                        label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left && box.Right == group.Last().Bounds.Right &&
+                        box.Height == label.Font.Height, "A notebook caption did not fit its tabs on one compact line.");
+                    Color ink = chrome.HighContrast || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;
+                    Check(captions.GetPixel(box.Right - 1, box.Top).ToArgb() == palette.Surface.ToArgb(),
+                        "Notebook labels should use the strip background.");
+                    bool found = false;
+                    for (int x = box.Left; x < box.Right && !found; x++)
+                        for (int y = box.Top; y < box.Bottom && !found; y++)
+                            found = captions.GetPixel(x, y).ToArgb() == ink.ToArgb();
+                    Check(found, "The notebook caption did not render in its notebook color.");
+                }
             }
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
             int starCenter = star.Bounds.Left + star.Width / 2;
@@ -288,8 +296,12 @@ internal static class AppearanceTests
             Check(((TabRenderer)strip.Renderer).MarkerFor(active).ToArgb() == chrome.SectionBand.ToArgb(),
                 "The selected tab stripe differs from OneNote's visible section band.");
         TogglePin(strip, schedule, true);
-        using (var bitmap = CheckStrip(strip, chrome))
+        using (CheckStrip(strip, chrome)) { }
+        using (var bitmap = new Bitmap(strip.Host.Width, strip.Host.Height))
+        {
+            strip.Host.DrawToBitmap(bitmap, strip.Host.ClientRectangle);
             bitmap.Save(Path.Combine(fixtureDirectory, "MoreTabs-strip.png"), ImageFormat.Png);
+        }
         TogglePin(strip, schedule, false);
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning switched the active tab or left an empty pinned group.");

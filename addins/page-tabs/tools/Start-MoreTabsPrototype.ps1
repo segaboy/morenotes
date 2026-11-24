@@ -18,11 +18,18 @@ try {
     & $compiler /nologo /target:exe /platform:x64 /warnaserror+ "/out:$exe" "/reference:$pia" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.Linq.dll $sources
     if ($LASTEXITCODE -ne 0) { throw "MoreTabs build failed with exit code $LASTEXITCODE" }
     if ($Mode -eq 'Build') {
-        $standalone = Join-Path $output 'MoreTabsPrototype.exe'
-        Copy-Item -LiteralPath $exe -Destination $standalone -Force
-        @('@echo off', '"%~dp0MoreTabsPrototype.exe" Run', 'if errorlevel 1 pause') |
+        $binaryName = 'MoreTabsPrototype.exe'
+        try {
+            [IO.File]::Copy($exe, (Join-Path $output $binaryName), $true)
+        } catch [IO.IOException] {
+            if (($_.Exception.HResult -band 0xffff) -ne 32) { throw }
+            # Let the running prototype release its OneNote row when the user closes it.
+            $binaryName = 'MoreTabsPrototype-next.exe'
+            [IO.File]::Copy($exe, (Join-Path $output $binaryName), $true)
+        }
+        @('@echo off', ('"%~dp0{0}" Run' -f $binaryName), 'if errorlevel 1 pause') |
             Set-Content -LiteralPath (Join-Path $output 'Run-MoreTabs.cmd') -Encoding Ascii
-        Write-Output $standalone
+        Write-Output (Join-Path $output $binaryName)
         return
     }
     if ($PSBoundParameters.ContainsKey('WindowHandle')) {

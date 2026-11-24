@@ -130,10 +130,19 @@ internal static class PrototypeTests
                         source.BookB = new BookmarkNotebook("b", "Atlas", Color.Orchid);
                         foreach (var tab in strip.Items.OfType<PageTabButton>()) tab.NextColorCheck = DateTime.MinValue;
                         strip.RefreshActive();
-                        var renamed = strip.Items.OfType<NotebookTabLabel>().ToArray();
+                        var renamed = strip.Items.OfType<PageTabButton>().Select(t => t.Group).Distinct().ToArray();
                         Check(renamed.Length == 2 && renamed.All(label => label.Text == "Atlas") &&
                             renamed[0].Notebook.Id != renamed[1].Notebook.Id && renamed[1].Notebook.Color == Color.Orchid,
                             "Renaming or recoloring a notebook merged distinct notebooks with the same name.");
+                        var beforeRename = strip.Items.OfType<PageTabButton>().Select(t => t.Bounds).ToArray();
+                        source.BookB = new BookmarkNotebook("b", "Workshop projects and reference material", Color.Goldenrod);
+                        foreach (var tab in strip.Items.OfType<PageTabButton>()) tab.NextColorCheck = DateTime.MinValue;
+                        strip.RefreshActive();
+                        var singlePageCaption = renamed[1];
+                        Check(TextRenderer.MeasureText(singlePageCaption.Text, singlePageCaption.Font).Width > singlePageCaption.Width &&
+                            singlePageCaption.AccessibleName == source.BookB.Name && singlePageCaption.Visible &&
+                            beforeRename.SequenceEqual(strip.Items.OfType<PageTabButton>().Select(t => t.Bounds)),
+                            "A long notebook caption moved the tabs or lost its full accessible name.");
                         source.BookB = previousBook;
                         foreach (var tab in strip.Items.OfType<PageTabButton>()) tab.NextColorCheck = DateTime.MinValue;
                         strip.RefreshActive();
@@ -261,8 +270,8 @@ internal static class PrototypeTests
             Check(strip.OverflowButton.Visible && arrow.Right == strip.Host.ClientSize.Width && strip.Right == arrow.Left,
                 "Tab overflow displaced the far-right move button.");
             var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToArray();
-            var headers = strip.Items.OfType<NotebookTabLabel>().Where(l => l.Placement == ToolStripItemPlacement.Main).ToArray();
-            Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Bounds.Right <= t.Bounds.Left) &&
+            var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible).ToArray();
+            Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left && t.Group.Right >= t.Bounds.Right) &&
                 headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
             full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);

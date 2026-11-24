@@ -52,31 +52,21 @@ internal sealed class PageTabButton : ToolStripButton
     }
 }
 
-internal sealed class NotebookTabLabel : ToolStripLabel
+internal sealed class NotebookTabLabel : Label
 {
     internal BookmarkNotebook Notebook;
-    internal int WidthLimit;
-    internal uint Dpi = 96;
     private const TextFormatFlags Flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
     internal NotebookTabLabel()
     {
         AccessibleRole = AccessibleRole.StaticText;
-        Overflow = ToolStripItemOverflow.Never;
-    }
-    public override bool CanSelect { get { return false; } }
-    public override Size GetPreferredSize(Size constrainingSize)
-    {
-        var size = TextRenderer.MeasureText(Text, Font, Size.Empty, Flags);
-        size.Width = Math.Min(HostChrome.Px(150, Dpi), size.Width + 2 * HostChrome.Px(5, Dpi));
-        if (WidthLimit > 0) size.Width = Math.Min(WidthLimit, size.Width);
-        return size;
+        TabStop = false;
+        UseMnemonic = false;
+        SetStyle(ControlStyles.Selectable, false);
     }
     protected override void OnPaint(PaintEventArgs e)
     {
-        var palette = (TabRenderer)Owner.Renderer;
-        Color ink = palette.HighContrast || Notebook.Color.IsEmpty ? palette.Ink : Notebook.Color;
-        var bounds = Rectangle.Inflate(new Rectangle(Point.Empty, Size), -HostChrome.Px(5, Dpi), 0);
-        TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ink, Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ForeColor,
+            Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }
 

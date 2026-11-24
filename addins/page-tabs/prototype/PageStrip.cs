@@ -194,7 +194,7 @@ internal sealed class PageStrip : ToolStrip
     private NativeLayout attachedLayout;
     internal bool AtBottom { get; private set; }
     private bool highContrast;
-    private Font tabFont, selectedTabFont;
+    private Font tabFont, selectedTabFont, captionFont;
     private readonly SessionStore store;
     private WorkingSet state;
     private string displayedRevision;
@@ -253,6 +253,7 @@ internal sealed class PageStrip : ToolStrip
         {
             if (tabFont != null) tabFont.Dispose();
             if (selectedTabFont != null) selectedTabFont.Dispose();
+            if (captionFont != null) captionFont.Dispose();
         }
     }
 
@@ -401,6 +402,7 @@ internal sealed class PageStrip : ToolStrip
     private void SetDirection(bool bottom)
     {
         AtBottom = bottom;
+        Host.Captions.Dock = bottom ? DockStyle.Bottom : DockStyle.Top;
         DefaultDropDownDirection = bottom ? ToolStripDropDownDirection.AboveRight : ToolStripDropDownDirection.BelowRight;
         Host.MoveButton.PointsUp = bottom;
         Host.MoveButton.Invalidate();
@@ -411,7 +413,6 @@ internal sealed class PageStrip : ToolStrip
             var margin = TabMargin(appearance.Dpi);
             bookmarks.Margin = new Padding(0, margin.Top, margin.Right, margin.Bottom);
             foreach (var tab in buttons.Values) tab.Margin = margin;
-            foreach (var label in labels.Values) label.Margin = margin;
             Invalidate();
         }
     }
@@ -434,6 +435,7 @@ internal sealed class PageStrip : ToolStrip
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
             Host.Style(appearance);
+            foreach (var label in labels.Values) StyleCaption(label);
         }
         // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
         int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), chrome.Inset);
@@ -446,26 +448,28 @@ internal sealed class PageStrip : ToolStrip
         {
             var tabMargin = TabMargin(chrome.Dpi);
             bookmarks.Margin = new Padding(0, tabMargin.Top, tabMargin.Right, tabMargin.Bottom);
-            Font oldRegular = tabFont, oldSelected = selectedTabFont;
+            Font oldRegular = tabFont, oldSelected = selectedTabFont, oldCaption = captionFont;
             var menuFont = SystemFonts.MenuFont;
             tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
             selectedTabFont = new Font(tabFont, FontStyle.Bold);
+            captionFont = HostChrome.CaptionFont(chrome.Dpi);
             Font = tabMenu.Font = tabFont;
             var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
             foreach (ToolStripItem item in Items)
-                if (!(item is PageTabButton) && !(item is NotebookTabLabel) && !(item is ToolStripSeparator) && item != bookmarks) item.Padding = commandPadding;
+                if (!(item is PageTabButton) && !(item is ToolStripSeparator) && item != bookmarks) item.Padding = commandPadding;
             foreach (var divider in new[] { bookmarkDivider, pinDivider })
             {
                 divider.AutoSize = false;
                 divider.Margin = Padding.Empty;
                 // One painted pixel with the same number of empty pixels on either side.
-                divider.Size = new Size(2 * HostChrome.Px(4, chrome.Dpi) + 1, HostChrome.Px(30, chrome.Dpi));
+                divider.Size = new Size(2 * HostChrome.Px(4, chrome.Dpi) + 1, HostChrome.Px(25, chrome.Dpi));
                 divider.Overflow = ToolStripItemOverflow.Never;
             }
             foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);
-            foreach (var label in labels.Values) SizeLabel(label);
+            foreach (var label in labels.Values) label.Font = captionFont;
             if (oldRegular != null) oldRegular.Dispose();
             if (oldSelected != null) oldSelected.Dispose();
+            if (oldCaption != null) oldCaption.Dispose();
         }
     }
     private Padding TabMargin(uint dpi)
@@ -483,11 +487,9 @@ internal sealed class PageStrip : ToolStrip
         tab.Margin = TabMargin(dpi);
         tab.Padding = new Padding(HostChrome.Px(10, dpi), 0, HostChrome.Px(10, dpi), 0);
     }
-    private void SizeLabel(NotebookTabLabel label)
+    private void StyleCaption(NotebookTabLabel label)
     {
-        label.Dpi = appearance.Dpi;
-        label.Font = selectedTabFont;
-        label.Margin = TabMargin(appearance.Dpi);
+        label.ForeColor = appearance.HighContrast || label.Notebook.Color.IsEmpty ? appearance.Ink : label.Notebook.Color;
     }
     internal void AddCurrent()
     {
@@ -650,13 +652,16 @@ internal sealed class PageStrip : ToolStrip
                 NotebookTabLabel label;
                 if (!labels.TryGetValue(key, out label))
                 {
-                    labels.Add(key, label = new NotebookTabLabel());
-                    SizeLabel(label);
+                    labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false });
+                    Host.Captions.Controls.Add(label);
                 }
                 label.Notebook = group.First().Book;
-                label.Text = label.AccessibleName = label.ToolTipText = label.Notebook.Name;
-                label.Invalidate();
-                PlaceItem(label, position++);
+                if (label.Text != label.Notebook.Name)
+                {
+                    label.Text = label.AccessibleName = label.Notebook.Name;
+                    notice.SetToolTip(label, label.Text);
+                }
+                StyleCaption(label);
                 foreach (var entry in group)
                 {
                     var button = buttons[entry.Tab.Key];
@@ -681,6 +686,20 @@ internal sealed class PageStrip : ToolStrip
     {
         if (appearance != null && stop != null) FitNotebookGroups();
         base.OnLayout(e);
+        if (appearance != null && Host != null) AlignNotebookCaptions();
+    }
+    private void AlignNotebookCaptions()
+    {
+        // Use the final main-row item bounds. Overflow pages and notebook names consume no caption width.
+        var visible = Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
+        foreach (var label in labels.Values)
+        {
+            var tabs = visible[label];
+            var first = tabs.FirstOrDefault();
+            if (first == null) { label.Hide(); continue; }
+            label.Bounds = Rectangle.FromLTRB(first.Bounds.Left, 0, tabs.Last().Bounds.Right, Host.Captions.Height);
+            label.Show();
+        }
     }
     private static int ItemWidth(ToolStripItem item)
     {
@@ -690,35 +709,27 @@ internal sealed class PageStrip : ToolStrip
     }
     private void FitNotebookGroups()
     {
-        // A label and at least one of its tabs must fit together. Native overflow can split them independently.
         var tabs = Items.OfType<PageTabButton>().Where(t => t.Group != null).ToList();
-        foreach (var label in labels.Values) label.WidthLimit = 0;
         foreach (var tab in tabs) tab.WidthLimit = 0;
         var visible = new HashSet<ToolStripItem>();
         int space = DisplayRectangle.Width - ItemWidth(bookmarks) - ItemWidth(bookmarkDivider) - ItemWidth(add);
         if (pinDivider.Available) space -= ItemWidth(pinDivider);
-        bool overflow = labels.Values.Sum(label => ItemWidth(label)) + tabs.Sum(tab => ItemWidth(tab)) + ItemWidth(stop) > space;
+        bool overflow = tabs.Sum(tab => ItemWidth(tab)) + ItemWidth(stop) > space;
         if (overflow) space -= Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
         PageTabButton active;
         if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null)
         {
-            int content = space - active.Margin.Horizontal - active.Group.Margin.Horizontal;
-            if (content >= HostChrome.Px(48, appearance.Dpi) && ItemWidth(active) + ItemWidth(active.Group) > space)
-            {
-                active.Group.WidthLimit = Math.Min(active.Group.GetPreferredSize(Size.Empty).Width, content / 3);
-                active.WidthLimit = content - active.Group.WidthLimit;
-            }
+            int content = space - active.Margin.Horizontal;
+            if (content >= HostChrome.Px(48, appearance.Dpi)) active.WidthLimit = content;
         }
         // Reserve the selected page first, then fit other pages in the order they appear on the strip.
         foreach (var tab in tabs.OrderByDescending(t => ((SavedTab)t.Tag).Key == activeKey))
         {
-            int cost = ItemWidth(tab) + (visible.Contains(tab.Group) ? 0 : ItemWidth(tab.Group));
+            int cost = ItemWidth(tab);
             if (cost > space) continue;
-            visible.Add(tab.Group);
             visible.Add(tab);
             space -= cost;
         }
-        foreach (var label in labels.Values) label.Available = visible.Contains(label);
         foreach (var tab in tabs) tab.Overflow = visible.Contains(tab) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
         stop.Overflow = space >= ItemWidth(stop) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
     }

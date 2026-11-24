@@ -154,7 +154,7 @@ internal sealed class NativeLayout : IDisposable
         int fullBottom = AtBottom && !applied.IsEmpty && body.Bottom == applied.Bottom ?
             FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, client.Bottom)) : body.Bottom;
         var full = Rectangle.FromLTRB(body.Left, ribbon.Bottom, body.Right, fullBottom);
-        int height = HostChrome.Px(32, Dpi);
+        int height = HostChrome.StripHeight(Dpi);
         if (height <= 0 || body.Width < 120 || full.Height < height * 3)
             return Unavailable(waitForEditor, "Insufficient usable document space.");
         var slot = new Rectangle(full.Left, bottom ? full.Bottom - height : full.Top, full.Width, height);

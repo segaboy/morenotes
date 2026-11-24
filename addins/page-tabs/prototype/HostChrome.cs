@@ -21,6 +21,24 @@ internal sealed class HostChrome
 
     internal static int Px(int logical, uint dpi) { return (int)Math.Round(logical * dpi / 96.0); }
 
+    internal static Font CaptionFont(uint dpi)
+    {
+        using (var menu = SystemFonts.MenuFont)
+            return new Font(menu.FontFamily, menu.SizeInPoints * dpi / 72f * 0.84f, FontStyle.Bold, GraphicsUnit.Pixel);
+    }
+    private static uint captionDpi;
+    private static int captionHeight;
+    internal static int CaptionHeight(uint dpi)
+    {
+        if (captionDpi != dpi)
+        {
+            using (var font = CaptionFont(dpi)) captionHeight = font.Height;
+            captionDpi = dpi;
+        }
+        return captionHeight;
+    }
+    internal static int StripHeight(uint dpi) { return Px(27, dpi) + CaptionHeight(dpi); }
+
     internal void Update(IntPtr navigation, uint dpi, bool force = false)
     {
         bool contrast = SystemInformation.HighContrast;

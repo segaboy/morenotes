@@ -7,6 +7,7 @@ using System.Windows.Forms;
 internal sealed class StripHost : Panel
 {
     private readonly IntPtr frame;
+    internal readonly Panel Captions = new Panel { Dock = DockStyle.Top, TabStop = false };
     internal readonly DockArrow MoveButton = new DockArrow {
         Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, UseMnemonic = false
     };
@@ -17,6 +18,7 @@ internal sealed class StripHost : Panel
         MoveButton.FlatAppearance.BorderSize = 0;
         strip.Dock = DockStyle.Fill;
         Controls.Add(strip);
+        Controls.Add(Captions);
         Controls.Add(MoveButton);
     }
     protected override CreateParams CreateParams
@@ -26,6 +28,8 @@ internal sealed class StripHost : Panel
     internal void Style(TabRenderer palette)
     {
         BackColor = MoveButton.BackColor = palette.Surface;
+        Captions.BackColor = palette.Surface;
+        Captions.Height = HostChrome.CaptionHeight(palette.Dpi);
         MoveButton.ForeColor = palette.Ink;
         MoveButton.FlatAppearance.MouseOverBackColor = palette.Hover;
         MoveButton.FlatAppearance.MouseDownBackColor = palette.Active;
