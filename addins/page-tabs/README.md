@@ -27,13 +27,25 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 `Bind`, `Verify` and `Run` enumerate the visible layouts, then compare each COM window's top-level ancestor to the measured frames. They prefer the current COM window when it matches. If it cannot identify an editor, a single matching COM window is sufficient. With several candidates, supply `-WindowHandle` with the decimal frame number from the current measurement. A closed or ambiguous target stops the test before it changes OneNote.
 
-### Initial test results
+### Live desktop verification
 
-On 2026-11-24, the probe measured three OneNote frames on Windows, Office x64 build `16.0.20715.20004`, at 96 DPI. In each, the top ribbon dock ended at client Y=216 and a 48-pixel native navigation window began at Y=216. Its geometry makes it a candidate for the horizontal section row. A visual placement check still needs to identify the QAT above and the section controls below. In one frame an open side pane left 985 pixels for the document in a 1,410-pixel client width. This is why the strip follows the document width.
+On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. The COM window handle belonged to a child of the measured editor frame. Matching its top-level ancestor selected the correct editor.
 
-From the Work shell, the attempt to reposition the live document returned Win32 error 5 (access denied). The before/after document bounds were identical. Desktop COM activation separately returned `0x80070005`. These results establish the boundary and the permissions of that process. They leave live placement, three-page navigation, keyboard focus, mixed-DPI behavior and before/after visual evidence open.
+| Check | Observed result |
+| --- | --- |
+| Reserved row | The 1,345-pixel-wide strip occupied Y=216–247 below the ribbon and Quick Access Toolbar. The native section row moved from Y=216 to Y=248. The strip held its space during the 1.2-second idle test and through page switches. Win32 hit tests reached each row at left, center and right. |
+| Page switching | The verifier exercised the add and tab click handlers on three disposable pages from two notebooks, including two pages titled Dashboard. All five tab selections reached the expected page ID in the same window. |
+| Return and close | Returning to the original untracked page through COM cleared the active tab highlight. The verifier closed the test notebooks, released the row and exited with code 0. A separate measurement confirmed the original document bounds and section row at Y=216. |
 
-In a subsequent live check on the same build at 96 DPI, the desktop accessibility tree exposed the expanded ribbon, Quick Access Toolbar and Sections tab control. Native discovery measured one editor with a 1,345-pixel-wide ribbon dock ending at Y=216 and a navigation row spanning Y=216 through Y=263. The original verifier could report a missing layout even with those controls visible because it filtered native frames by the exact handle of the current COM window before measuring. The revised verifier prints the measured frames before requesting COM access. In this shell, that measurement succeeded and COM activation returned access denied. Matching to the live COM window still requires a desktop process with COM access.
+The next live checks cover physical mouse and keyboard input, native page-list and Back navigation, resizing, ribbon collapse, and movement between displays with different scale settings. Before-and-after screenshots of test content are still pending.
+
+### Earlier measurements and controlled tests
+
+The probe initially measured three OneNote frames on the same Office build at 96 DPI. In each, the top ribbon dock ended at client Y=216 and a 48-pixel native navigation window began there. In one frame an open side pane left 985 pixels for the document in a 1,410-pixel client width. The strip therefore follows the document width.
+
+The Work shell could measure the editor. Moving its document returned Win32 error 5, and COM activation returned `0x80070005`. The successful verification above ran under the signed-in Windows desktop account.
+
+The desktop accessibility tree exposed the expanded ribbon, Quick Access Toolbar and Sections tab control. The original verifier required an exact match between the COM handle and the editor frame and could report a missing layout even when these controls were visible.
 
 The controlled-window test passed child attachment, three ribbon/size configurations, preservation of the document's bottom edge, repeated layout passes without cumulative resizing, and restoration on close. Page tests passed with separate IDs for two pages titled Dashboard, repeated add, switching tabs, and navigating to an untracked page. Use `Run` for the remaining manual acceptance checks, including clicks on native controls, Back, keyboard focus, and a move between displays at different scale settings. Capture test content only.
 
