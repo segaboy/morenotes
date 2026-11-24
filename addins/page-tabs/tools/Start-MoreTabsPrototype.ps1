@@ -28,7 +28,7 @@ try {
             $binaryName = 'MoreTabsPrototype-next.exe'
             [IO.File]::Copy($exe, (Join-Path $output $binaryName), $true)
         }
-        @('@echo off', ('start "" /wait "%~dp0{0}" --register' -f $pageMenu.Substring($output.Length + 1)),
+        @('@echo off', ('"%~dp0{0}" --register' -f $pageMenu.Substring($output.Length + 1)),
             'if errorlevel 1 echo MoreTabs could not register the OneNote page menu for this user.',
             ('"%~dp0{0}" Run' -f $binaryName), 'if errorlevel 1 pause') |
             Set-Content -LiteralPath (Join-Path $output 'Run-MoreTabs.cmd') -Encoding Ascii

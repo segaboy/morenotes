@@ -68,6 +68,7 @@ internal sealed class WorkingSet
     internal readonly List<SavedTab> Tabs = new List<SavedTab>();
     internal readonly List<SavedPage> Bookmarks = new List<SavedPage>();
     internal string Revision;
+    internal bool ColorNotebookLabels = true, ShowNotebookLabels = true, GroupByNotebook = true;
 
     internal bool KeepTab(SavedPage page, string preferred, out string key)
     {
@@ -173,6 +174,13 @@ internal sealed class SessionStore
             String.IsNullOrEmpty((string)root.Attribute("revision")))
             throw new InvalidDataException("Unrecognized MoreTabs file: " + path);
         var state = new WorkingSet { Revision = (string)root.Attribute("revision") };
+        var options = root.Element("options");
+        if (options != null)
+        {
+            state.ColorNotebookLabels = (bool?)options.Attribute("coloredLabels") ?? true;
+            state.ShowNotebookLabels = (bool?)options.Attribute("showLabels") ?? true;
+            state.GroupByNotebook = (bool?)options.Attribute("groupByNotebook") ?? true;
+        }
         foreach (var element in Pages(root.Element("tabs")))
         {
             var page = ReadPage(element);
@@ -212,6 +220,8 @@ internal sealed class SessionStore
             if (!edit(state)) return state;
             state.Revision = Guid.NewGuid().ToString("N");
             var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
+                new XElement("options", new XAttribute("coloredLabels", state.ColorNotebookLabels),
+                    new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook)),
                 new XElement("tabs", state.Tabs.Select(tab => {
                     var xml = tab.Page.ToXml();
                     xml.SetAttributeValue("tabId", tab.Key);

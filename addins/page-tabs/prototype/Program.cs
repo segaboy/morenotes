@@ -113,8 +113,6 @@ internal static class Program
                 return 0;
             }
             var initial = layout.DocumentBounds;
-            Rectangle slot = layout.Reserve(mode == "run");
-            if (slot.IsEmpty) return WaitForEditor;
             Exception failure = null;
             Action<Exception> stop = delegate(Exception e) { failure = e; Application.ExitThread(); };
             bool closeRequested = false;
@@ -122,6 +120,9 @@ internal static class Program
             var store = mode == "run" ? SessionStore.ForUser() : null;
             using (var strip = new PageStrip(layout.Frame, source, close, stop, store))
             {
+                layout.ShowCaptions = strip.WantsCaptionRow;
+                Rectangle slot = layout.Reserve(mode == "run");
+                if (slot.IsEmpty) return WaitForEditor;
                 strip.Attach(slot, layout);
                 layout.CheckHitTargets(strip.Host.Handle, slot);
                 Console.WriteLine("Child strip {0}; navigation now starts at {1}", slot, layout.NavigationBounds.Top);

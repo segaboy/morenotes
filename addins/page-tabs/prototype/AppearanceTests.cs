@@ -94,9 +94,51 @@ internal static class AppearanceTests
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
+        CheckOptions(strip, layout);
         Console.WriteLine("PASS equal native-color tab stripes, muted selected fills and angled two-color bookmark rows at 96, 120, 144 and 192 DPI.");
         Console.WriteLine("PASS compact notebook captions span the visible tabs in each group and use the notebook color at all four scales.");
         Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
+    }
+
+    private static void CheckOptions(PageStrip strip, NativeLayout layout)
+    {
+        var gear = (ToolStripDropDownButton)strip.Items[1];
+        Check(gear.AccessibleName == "MoreTabs options" && gear.Bounds.Left >= strip.Items[0].Bounds.Right,
+            "The options gear must follow the bookmark star.");
+        gear.ShowDropDown();
+        var settings = gear.DropDownItems.Cast<ToolStripMenuItem>().ToArray();
+        Check(settings.Length == 3 && settings.All(s => s.Checked), "All three options should default to enabled.");
+        gear.HideDropDown();
+        var selected = strip.ActiveTabKey;
+        var grouped = strip.Items.OfType<PageTabButton>().ToArray();
+        settings[2].PerformClick();
+        var ungrouped = strip.Items.OfType<PageTabButton>().ToArray();
+        Check(ungrouped.SequenceEqual(new[] { grouped[0], grouped[2], grouped[1] }) &&
+            ungrouped.Select(t => t.Group).Distinct().Count() == 3 && strip.ActiveTabKey == selected,
+            "Ungrouping must restore opening order, individual notebook captions and the selected tab.");
+        settings[0].PerformClick();
+        foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
+        {
+            strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = surface });
+            Check(ungrouped.All(t => t.Group.ForeColor == ((TabRenderer)strip.Renderer).Ink), "Default caption ink ignored the theme.");
+        }
+        settings[1].PerformClick();
+        Check(!strip.Host.Captions.Visible && strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false) &&
+            layout.StillReserved(strip.Host.Bounds), "Hidden notebook captions left a blank row.");
+        TogglePin(strip, grouped[2], true);
+        strip.Attach(layout.Reserve(), layout);
+        Check(grouped[2].Group.Text == "Pinned" && grouped[2].Group.Visible && !grouped[0].Group.Visible &&
+            strip.Items.OfType<PageTabButton>().First() == grouped[2], "Hiding notebooks or disabling grouping lost the pinned group.");
+        TogglePin(strip, grouped[2], false);
+        settings[2].PerformClick();
+        Check(strip.Items.OfType<PageTabButton>().SequenceEqual(grouped) && !strip.Host.Captions.Visible,
+            "Grouping must also work with captions hidden.");
+        settings[1].PerformClick();
+        settings[0].PerformClick();
+        strip.Attach(layout.Reserve(), layout);
+        Check(strip.ActiveTabKey == selected && strip.Host.Captions.Visible && settings.All(s => s.Checked),
+            "Options changed the selected page or did not restore the captions.");
+        Console.WriteLine("PASS gear settings independently control theme ink, caption height and saved tab order.");
     }
 
     internal static Bitmap CheckBookmarkMenu(PageStrip strip, HostChrome chrome)

@@ -205,7 +205,7 @@ internal static class SavedSessionTests
                     source.Navigate("a2"); strip.ClickKeepCurrent();
                     AppearanceTests.TogglePin(strip, strip.Items.OfType<PageTabButton>().Single(t => t.Checked), true);
                     source.Navigate("b1"); strip.ClickKeepCurrent(); strip.ClickKeepCurrent();
-                    var menu = strip.Items.OfType<ToolStripDropDownButton>().Single();
+                    var menu = strip.Items.OfType<BookmarkButton>().Single();
                     menu.ShowDropDown();
                     menu.DropDownItems[0].PerformClick();
                     menu.HideDropDown();
@@ -213,9 +213,13 @@ internal static class SavedSessionTests
                     Check(b.Id == "b1" && b.Link == PageLink, "Bookmark menu did not capture the displayed page.");
                     strip.CloseTab(store.Read().Tabs.Single(t => t.Page.Matches(b)));
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
+                    foreach (ToolStripMenuItem setting in ((ToolStripDropDownButton)strip.Items[1]).DropDownItems) setting.PerformClick();
                     break;
                 case "restore":
                     var stored = store.Read();
+                    Check(!stored.ColorNotebookLabels && !stored.ShowNotebookLabels && !stored.GroupByNotebook &&
+                        ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripMenuItem>().All(i => !i.Checked),
+                        "The gear settings did not survive a fresh process.");
                     var pinned = strip.Items.OfType<PageTabButton>().First();
                     Check(((SavedTab)pinned.Tag).Pinned && ((SavedTab)pinned.Tag).Page.Id == "a2" &&
                         strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 2, "Pinned group did not survive restart.");
@@ -225,7 +229,7 @@ internal static class SavedSessionTests
                         "An inactive tab was restored without its section stripe.");
                     var saved = stored.Bookmarks.Single();
                     Check(saved.Caption == "Dashboard / B & C", "Bookmark caption did not round trip.");
-                    var dropdown = strip.Items.OfType<ToolStripDropDownButton>().Single();
+                    var dropdown = strip.Items.OfType<BookmarkButton>().Single();
                     dropdown.ShowDropDown();
                     var offline = dropdown.DropDownItems.OfType<BookmarkHeader>().Single();
                     Check(offline.Text == "B & C" && offline.Notebook.Color.ToArgb() == Color.Teal.ToArgb(),

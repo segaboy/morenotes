@@ -37,7 +37,7 @@ internal sealed class HostChrome
         }
         return captionHeight;
     }
-    internal static int StripHeight(uint dpi) { return Px(27, dpi) + CaptionHeight(dpi); }
+    internal static int StripHeight(uint dpi, bool captions = true) { return Px(27, dpi) + (captions ? CaptionHeight(dpi) : 0); }
 
     internal void Update(IntPtr navigation, uint dpi, bool force = false)
     {
