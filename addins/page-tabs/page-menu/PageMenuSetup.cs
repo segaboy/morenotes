@@ -63,11 +63,11 @@ internal static class PageMenuSetup
             try
             {
                 using (EventWaitHandle.OpenExisting(NativePageMenu.RibbonSignal))
-                    Console.WriteLine("OneNote requested the menu from this build.");
+                    Console.WriteLine("OneNote initialized this build's ribbon customization.");
             }
             catch (WaitHandleCannotBeOpenedException)
             {
-                Console.WriteLine("Registered. Fully close and reopen OneNote to load this build's page menu.");
+                Console.WriteLine("Registered. Ribbon initialization has not been observed for this build. Start MoreTabs to connect the page menu.");
             }
             return 0;
         }

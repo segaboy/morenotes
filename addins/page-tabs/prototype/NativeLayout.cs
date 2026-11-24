@@ -17,7 +17,7 @@ internal sealed class NativeLayout : IDisposable
     internal string WaitReason { get; private set; }
     internal HostChrome Appearance(bool force = false)
     {
-        chrome.Update(VerticalTabs ? IntPtr.Zero : landmark, Dpi, force);
+        chrome.Update(VerticalTabs ? IntPtr.Zero : landmark, Dpi, force, VerticalTabs ? Ribbon : IntPtr.Zero);
         return chrome;
     }
     private Rectangle original, applied;

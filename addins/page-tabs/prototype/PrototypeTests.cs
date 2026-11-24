@@ -253,6 +253,17 @@ internal static class PrototypeTests
                         strip.OpenPageInNewTab(target);
                         Check(strip.TabCount == count + 2, "Failed navigation created an empty tab.");
                         Console.WriteLine("PASS page-list command resolves a selected ID, preserves the pinned source, and opens distinct focused tabs.");
+                        var originalActive = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                        var sourceTab = (SavedTab)moving.Tag;
+                        strip.TabMenuFor(sourceTab).Items.Cast<ToolStripItem>().Single(i => i.Text == "Open in new tab").PerformClick();
+                        var opened = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                        Check(strip.TabCount == count + 3 && ((SavedTab)opened.Tag).Key != sourceTab.Key &&
+                            !((SavedTab)opened.Tag).Pinned && ((SavedTab)moving.Tag).Pinned && source.Current == sourceTab.Page.Id &&
+                            ((SavedTab)originalActive.Tag).Page.Id == target &&
+                            strip.HasTabFocus(source.Current) && source.NotesCreated == notes, "Right-clicking an inactive tab opened the wrong page or replaced its source.");
+                        strip.CloseTab((SavedTab)opened.Tag);
+                        originalActive.PerformClick();
+                        Console.WriteLine("PASS MoreTabs right-click opens the clicked page in an independent focused tab.");
                         CheckCloseIcons(strip, source);
                         if (failure != null) throw failure;
                     }
@@ -267,6 +278,16 @@ internal static class PrototypeTests
 
     private static void CheckVerticalTabs()
     {
+        foreach (var surface in new[] { Color.FromArgb(250,250,250), Color.FromArgb(42,38,36), Color.FromArgb(65,65,65) })
+        {
+            int rgb = ColorTranslator.ToWin32(surface);
+            Color measured;
+            Check(HostChrome.RibbonSurface(new List<int> { rgb, rgb, 0x3254ab, rgb, 0x1146ff }, out measured) &&
+                measured.ToArgb() == surface.ToArgb(), "Ribbon background lost its Office theme or picked an icon.");
+        }
+        Color unknown;
+        Check(!HostChrome.RibbonSurface(new List<int>(), out unknown) &&
+            !HostChrome.RibbonSurface(new List<int> { 1, 2, 3, 4, 5 }, out unknown), "An obscured or ambiguous ribbon produced a theme.");
         using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
             Location = new Point(-16000, -16000), ClientSize = new Size(800, 500) })
         using (var ribbon = new Panel { Bounds = new Rectangle(0, 0, 800, 80) })

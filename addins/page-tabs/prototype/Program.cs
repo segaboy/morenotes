@@ -66,7 +66,8 @@ internal static class Program
             {
                 var chrome = candidate.Appearance();
                 Console.WriteLine("Strip appearance: surface #{0:X6}, bookmark icon inset {1}px ({2}).",
-                    chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, chrome.Measured ? "measured notebook icon" : "fallback");
+                    chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, !chrome.Measured ? "fallback" :
+                    candidate.VerticalTabs ? "measured ribbon, default inset" : "measured notebook icon");
                 if (!chrome.SectionBand.IsEmpty)
                     Console.WriteLine("Native navigation section band: #{0:X6}.", chrome.SectionBand.ToArgb() & 0xffffff);
                 try
@@ -184,6 +185,7 @@ internal static class Program
                 else if (mode == "run")
                 {
                     strip.RestoreOrSeed(previousFrame == frame ? previousTab : null);
+                    strip.ConnectNativePageMenu(source.App);
                     previousFrame = frame;
                     Console.WriteLine("Tabs restored. + creates a new Quick Note. Its arrow keeps the current page in a tab.");
                     bool detached = RunInteractive(layout, strip, null);

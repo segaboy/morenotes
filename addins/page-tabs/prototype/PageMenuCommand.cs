@@ -7,6 +7,7 @@ using System.Xml.Linq;
 // Shared with the OneNote page-list menu. The receiving window belongs to one editor frame.
 internal static class PageMenuCommand
 {
+    internal const string ProgId = "MoreNotes.MoreTabs.PageMenu";
     internal const string HostName = "MoreTabs page menu target";
     internal const int CopyData = 0x004A;
     private const int OpenPage = 0x4D540001;

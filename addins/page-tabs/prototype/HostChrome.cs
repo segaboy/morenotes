@@ -6,8 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-// Read only the leading edge of OneNote's native navigation row. The bitmap is
-// discarded after measuring the icon and surface. Never sample the page editor.
+// Sample OneNote chrome only. Never sample the page editor.
 internal sealed class HostChrome
 {
     internal uint Dpi;
@@ -39,7 +38,7 @@ internal sealed class HostChrome
     }
     internal static int StripHeight(uint dpi, bool captions = true) { return Px(27, dpi) + (captions ? CaptionHeight(dpi) : 0); }
 
-    internal void Update(IntPtr navigation, uint dpi, bool force = false)
+    internal void Update(IntPtr navigation, uint dpi, bool force = false, IntPtr ribbon = default(IntPtr))
     {
         bool contrast = SystemInformation.HighContrast;
         if (!force && Dpi == dpi && HighContrast == contrast && DateTime.UtcNow < nextRead) return;
@@ -64,8 +63,54 @@ internal sealed class HostChrome
             SectionBand = band;
             nativeDark = SectionPalette.DarkPalette(band) ?? nativeDark;
         }
+        else if (ribbon != IntPtr.Zero && TryReadRibbon(ribbon, dpi, out background))
+        {
+            Surface = background;
+            nativeDark = null;
+            Measured = true;
+        }
         else if (!Measured) Surface = FallbackSurface();
         if (contrast) Surface = SystemColors.Window;
+    }
+
+    private static bool TryReadRibbon(IntPtr ribbon, uint dpi, out Color surface)
+    {
+        surface = Color.Empty;
+        Point origin = Point.Empty;
+        RECT client;
+        if (!ClientToScreen(ribbon, ref origin) || !GetClientRect(ribbon, out client) ||
+            client.Right < Px(40, dpi) || client.Bottom < Px(10, dpi)) return false;
+        var dc = GetDC(IntPtr.Zero);
+        if (dc == IntPtr.Zero) return false;
+        var colors = new List<int>();
+        try
+        {
+            // Widely spaced points along the lower ribbon avoid relying on a particular command or icon.
+            for (int i = 1; i <= 15; i++)
+            {
+                var p = new Point(origin.X + i * client.Right / 16, origin.Y + client.Bottom - Px(5 + i % 3, dpi));
+                var hit = WindowFromPoint(p);
+                if (hit != ribbon && !IsChild(ribbon, hit)) continue;
+                int rgb = GetPixel(dc, p.X, p.Y);
+                if (rgb != -1) colors.Add(rgb);
+            }
+        }
+        finally { ReleaseDC(IntPtr.Zero, dc); }
+        return RibbonSurface(colors, out surface);
+    }
+    internal static bool RibbonSurface(List<int> colors, out Color surface)
+    {
+        var counts = new Dictionary<int, int>();
+        int best = 0, peak = 0;
+        foreach (int rgb in colors)
+        {
+            int count;
+            counts.TryGetValue(rgb, out count);
+            counts[rgb] = ++count;
+            if (count > peak) { best = rgb; peak = count; }
+        }
+        surface = ColorTranslator.FromWin32(best);
+        return peak >= 3 && peak * 2 > colors.Count;
     }
 
     private static Color FallbackSurface()
@@ -166,4 +211,7 @@ internal sealed class HostChrome
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr h, ref Point p);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point p);
     [DllImport("user32.dll")] private static extern bool IsChild(IntPtr parent, IntPtr child);
+    [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr window);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+    [DllImport("gdi32.dll")] private static extern int GetPixel(IntPtr dc, int x, int y);
 }

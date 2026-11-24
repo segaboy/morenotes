@@ -602,12 +602,17 @@ internal sealed class PageStrip : ToolStrip
             notice.Show("OneNote could not open that page.", this, 4, Height, 4000);
             return;
         }
+        AddOpenedTab(page);
+    }
+    private bool AddOpenedTab(SavedPage page)
+    {
         var tab = new SavedTab(Guid.NewGuid().ToString("N"), page);
         try { ApplyState(store.Change(s => { s.Tabs.Add(tab); return true; })); }
-        catch (System.IO.IOException) { ExplainUnsavedTab(); return; }
-        catch (UnauthorizedAccessException) { ExplainUnsavedTab(); return; }
+        catch (System.IO.IOException) { ExplainUnsavedTab(); return false; }
+        catch (UnauthorizedAccessException) { ExplainUnsavedTab(); return false; }
         ExpectNavigation(tab, true);
         RefreshActive();
+        return true;
     }
     private void ExplainUnsavedTab()
     {
@@ -647,6 +652,14 @@ internal sealed class PageStrip : ToolStrip
         RefreshActive();
     }
     internal string ActiveTabKey { get { return activeKey; } }
+    internal void ConnectNativePageMenu(One.Application app)
+    {
+        options.DropDownItems.Add(new ToolStripSeparator());
+        options.DropDownItems.Add("Connect OneNote page menu", null, delegate {
+            MessageBox.Show(Host, PageMenuConnection.Connect(app, true), "MoreTabs");
+        });
+        Console.WriteLine(PageMenuConnection.Connect(app, false));
+    }
     internal void RestoreOrSeed(string preferredKey = null)
     {
         activeKey = preferredKey;
@@ -854,6 +867,7 @@ internal sealed class PageStrip : ToolStrip
     internal ContextMenuStrip TabMenuFor(SavedTab tab)
     {
         ClearMenu(tabMenu.Items);
+        tabMenu.Items.Add("Open in new tab", null, delegate { Perform(delegate { OpenSaved(tab.Page, newTab: true); }); });
         tabMenu.Items.Add(tab.Pinned ? "Unpin tab" : "Pin tab", null, delegate { Perform(delegate { SetPinned(tab.Key, !tab.Pinned); }); });
         tabMenu.Items.Add("Bookmark this tab", null, delegate { Perform(delegate { SaveBookmark(tab.Page); }); });
         tabMenu.Items.Add("Close tab", null, delegate { Perform(delegate { CloseTab(tab); }); });
@@ -952,7 +966,7 @@ internal sealed class PageStrip : ToolStrip
         }
         menu.MinimumSize = new Size(width + border, 0);
     }
-    internal bool OpenSaved(SavedPage page, SavedTab target = null)
+    internal bool OpenSaved(SavedPage page, SavedTab target = null, bool newTab = false)
     {
         pendingTab = null;
         focusPending = false;
@@ -971,6 +985,7 @@ internal sealed class PageStrip : ToolStrip
                 return false;
             }
         }
+        if (newTab) return AddOpenedTab(page);
         ExpectNavigation(target ?? KeepTab(page), false);
         RefreshActive();
         return true;
