@@ -30,7 +30,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 ### Saved tabs and bookmarks
 
-Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and their lower corners use an eight-logical-pixel radius. The strip samples the background and notebook icon from the visible leading edge of the native navigation row. It uses that color and aligns the first tab to the icon, refreshing the measurement when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence. The active page has a distinct fill, and keyboard focus adds an outline.
+Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and their lower corners use an eight-logical-pixel radius. The bookmark star's visible left edge lines up with the left edge of the current notebook icon in the row below. The strip samples that row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence. The active page has a distinct fill, and keyboard focus adds an outline.
 
 ![MoreTabs in dark mode with the bookmark star on the left, Schedule pinned, and two regular tabs](appearance.png)
 
@@ -63,7 +63,7 @@ Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for t
 
 ### Live desktop verification
 
-On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. The tab kept its position and selection throughout. The strip aligned with the notebook icon 25 pixels into the navigation row and used the measured `#110C08` background. The preview above is a controlled render using those measurements. Controlled tests checked the bookmark star, dividers, pinned group and active marker in dark, light and high-contrast palettes at 96 and 144 DPI.
+On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. A subsequent live run also pinned and unpinned a tab while preserving the selection. The notebook icon started 25 pixels into the navigation row on a `#110C08` background. The preview above is a controlled render using those measurements. Controlled tests checked that the star's visible edge matches the notebook icon in dark, light and high-contrast palettes at 96, 120, 144 and 192 DPI.
 
 On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. The COM window handle belonged to a child of the measured editor frame. Matching its top-level ancestor selected the correct editor.
 

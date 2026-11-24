@@ -159,9 +159,12 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         PaintCommand(e);
         if (!(e.Item is BookmarkButton)) return;
-        float cx = e.Item.Width / 2f, cy = e.Item.Height / 2f;
-        float radius = Math.Min(HostChrome.Px(8, Dpi), Math.Min(cx, cy) - 1);
+        float cy = e.Item.Height / 2f;
+        float radius = Math.Min(HostChrome.Px(8, Dpi), cy - 1);
         if (radius < 1) return;
+        float stroke = 1.5f * Dpi / 96f;
+        // The left point is 18 degrees above horizontal. Include the outline's half-width.
+        float cx = e.Item.Padding.Left + radius * (float)Math.Cos(Math.PI / 10) + stroke / 2;
         var points = new PointF[10];
         for (int i = 0; i < points.Length; i++)
         {
@@ -173,7 +176,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         try
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var pen = new Pen(TextColor(e.Item), 1.5f * Dpi / 96f) { LineJoin = LineJoin.Round })
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
+            using (var pen = new Pen(TextColor(e.Item), stroke) { LineJoin = LineJoin.Round })
                 e.Graphics.DrawPolygon(pen, points);
         }
         finally { e.Graphics.Restore(saved); }

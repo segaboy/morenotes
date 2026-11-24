@@ -61,7 +61,7 @@ internal static class Program
             if (mode == "measure")
             {
                 var chrome = candidate.Appearance();
-                Console.WriteLine("Strip appearance: surface #{0:X6}, first tab inset {1}px ({2}).",
+                Console.WriteLine("Strip appearance: surface #{0:X6}, bookmark icon inset {1}px ({2}).",
                     chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, chrome.Measured ? "measured notebook icon" : "fallback");
                 try
                 {

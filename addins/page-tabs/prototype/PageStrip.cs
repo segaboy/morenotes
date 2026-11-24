@@ -332,15 +332,14 @@ internal sealed class PageStrip : ToolStrip
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
         }
-        // Fit the star and its divider inside the existing notebook-icon inset where possible.
-        int dividerWidth = HostChrome.Px(5, chrome.Dpi);
-        int gutter = Math.Max(HostChrome.Px(22, chrome.Dpi), chrome.Inset);
-        int starWidth = Math.Min(HostChrome.Px(26, chrome.Dpi), gutter - dividerWidth);
-        var inset = new Padding(Math.Max(0, chrome.Inset - starWidth - dividerWidth), 0, HostChrome.Px(2, chrome.Dpi), 0);
+        // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
+        int iconPadding = Math.Min(HostChrome.Px(5, chrome.Dpi), chrome.Inset);
+        var inset = new Padding(chrome.Inset - iconPadding, 0, HostChrome.Px(2, chrome.Dpi), 0);
         if (Padding != inset) Padding = inset;
-        if (bookmarks.Width != starWidth) bookmarks.Width = starWidth;
+        if (bookmarks.Padding.Left != iconPadding) bookmarks.Padding = new Padding(iconPadding, 0, 0, 0);
         if (metrics)
         {
+            bookmarks.Width = HostChrome.Px(26, chrome.Dpi);
             Font oldRegular = tabFont, oldSelected = selectedTabFont;
             var menuFont = SystemFonts.MenuFont;
             tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -353,7 +352,7 @@ internal sealed class PageStrip : ToolStrip
             {
                 divider.AutoSize = false;
                 divider.Margin = Padding.Empty;
-                divider.Size = new Size(dividerWidth, HostChrome.Px(30, chrome.Dpi));
+                divider.Size = new Size(HostChrome.Px(5, chrome.Dpi), HostChrome.Px(30, chrome.Dpi));
                 divider.Overflow = ToolStripItemOverflow.Never;
             }
             foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);

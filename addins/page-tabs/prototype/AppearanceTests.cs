@@ -21,11 +21,11 @@ internal static class AppearanceTests
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
         TogglePin(strip, schedule, true);
         var dark = Color.FromArgb(17, 12, 8);
-        foreach (uint dpi in new uint[] { 96, 144 })
+        foreach (uint dpi in new uint[] { 96, 120, 144, 192 })
             foreach (var surface in new[] { dark, Color.FromArgb(247, 247, 247), SystemColors.Window })
             {
                 bool contrast = surface.IsSystemColor;
-                int inset = HostChrome.Px(22, dpi);
+                int inset = HostChrome.Px(contrast ? 4 : surface == dark ? 25 : 18, dpi);
                 var expected = new HostChrome { Dpi = dpi, Surface = surface, Inset = inset, HighContrast = contrast };
                 using (var row = new Bitmap(HostChrome.Px(48, dpi), HostChrome.Px(43, dpi)))
                 using (var g = Graphics.FromImage(row))
@@ -55,7 +55,7 @@ internal static class AppearanceTests
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
-        Console.WriteLine("PASS rendered dark, light and high-contrast tabs at 96 and 144 DPI: bookmark star, dividers, pinned group, active tab, lower corners and icon alignment.");
+        Console.WriteLine("PASS rendered dark, light and high-contrast tabs at 96, 120, 144 and 192 DPI: bookmark star aligned with the notebook icon, dividers, pinned group, active tab and lower corners.");
     }
 
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)
@@ -74,19 +74,27 @@ internal static class AppearanceTests
                 "A tab appeared in the wrong group.");
         var active = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
         var palette = (TabRenderer)strip.Renderer;
-        Check(first.Bounds.Left == chrome.Inset && first.Bounds.Top == 0 && active.Bounds.Top == 0,
-            "Tabs are not flush with the toolbar or notebook icon: tab " + first.Bounds + ", icon X=" + chrome.Inset);
+        Check(first.Bounds.Top == 0 && active.Bounds.Top == 0, "Tabs are not flush with the toolbar.");
         var bitmap = new Bitmap(strip.Width, strip.Height);
         try
         {
             strip.DrawToBitmap(bitmap, strip.ClientRectangle);
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
-            int ink = 0;
-            for (int dx = 0; dx < star.Width; dx++)
-                for (int dy = 0; dy < star.Height; dy++)
-                    if (bitmap.GetPixel(star.Bounds.Left + dx, star.Bounds.Top + dy).ToArgb() != palette.Surface.ToArgb()) ink++;
-            Check(ink >= HostChrome.Px(20, chrome.Dpi), "The bookmark star was not drawn.");
+            Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Surface;
+            // Read through the two side points, ignoring very faint antialiasing pixels.
+            int armY = star.Bounds.Top + star.Height / 2 - HostChrome.Px(2, chrome.Dpi);
+            int starLeft = -1;
+            for (int x = star.Bounds.Left; x < star.Bounds.Right && starLeft < 0; x++)
+                for (int y = armY - edge; y <= armY + edge; y++)
+                {
+                    Color c = bitmap.GetPixel(x, y);
+                    if (Math.Max(Math.Abs(c.R - starBackground.R), Math.Max(Math.Abs(c.G - starBackground.G),
+                        Math.Abs(c.B - starBackground.B))) < 38) continue;
+                    starLeft = x;
+                    break;
+                }
+            Check(starLeft == chrome.Inset, "Bookmark glyph starts at X=" + starLeft + ", expected notebook icon X=" + chrome.Inset);
             foreach (var divider in dividers)
             {
                 int x = divider.Bounds.Left + divider.Width / 2;
@@ -126,7 +134,7 @@ internal static class AppearanceTests
         Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
             "Unpinning switched the active tab or left an empty pinned group.");
         Console.WriteLine("PASS bookmark star, subtle vertical dividers and pin/unpin via the tab menu with the active tab preserved.");
-        Console.WriteLine("PASS tab rendering in OneNote: surface #{0:X6}, first tab X={1}px ({2}), DPI {3}; square top and rounded lower corners.",
+        Console.WriteLine("PASS tab rendering in OneNote: surface #{0:X6}, bookmark star X={1}px ({2}), DPI {3}; square top and rounded lower corners.",
             chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, chrome.Measured ? "measured notebook icon" : "fallback inset", chrome.Dpi);
     }
     internal static void TogglePin(PageStrip strip, PageTabButton button, bool pin)
