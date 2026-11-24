@@ -95,6 +95,14 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         return 0.2126 * Linear(c.R) + 0.7152 * Linear(c.G) + 0.0722 * Linear(c.B);
     }
+    internal Color NotebookFill(Color notebookColor)
+    {
+        return contrast ? SystemColors.Highlight : notebookColor.IsEmpty ? Active : notebookColor;
+    }
+    internal Color NotebookInk(Color fill)
+    {
+        return contrast ? SystemColors.HighlightText : Luminance(fill) > 0.179 ? Color.Black : Color.White;
+    }
     private static double Linear(byte component)
     {
         double value = component / 255.0;

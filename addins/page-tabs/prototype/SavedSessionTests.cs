@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -16,6 +17,12 @@ internal static class SavedSessionTests
         internal bool reopened;
         public string Current { get; private set; }
         public Color SectionColor(string id) { return id == "a2" ? Color.Gold : Color.Indigo; }
+        public Dictionary<string, BookmarkNotebook> BookmarkOwners(IEnumerable<string> ids)
+        {
+            var a = new BookmarkNotebook("a", "A", Color.Coral);
+            var b = new BookmarkNotebook("b", "B & C", Color.Teal);
+            return ids.Where(id => id != "missing" && !(reopened && id == "b1")).ToDictionary(id => id, id => id.StartsWith("b") ? b : a);
+        }
         public string Caption(string id) { return id.StartsWith("b") ? "Dashboard / B & C" : "Dashboard / A"; }
         public string LinkFor(string id) { return id.StartsWith("b") ? PageLink : ""; }
         public string CreateQuickNote() { return "quick-" + Guid.NewGuid().ToString("N"); }
@@ -79,6 +86,12 @@ internal static class SavedSessionTests
 
     private static void ExerciseLegacyTabs(string path)
     {
+        var sections = BookmarkNotebook.IndexSections(System.Xml.Linq.XElement.Parse(
+            "<Notebooks xmlns='urn:test'><Notebook ID='a' name='Shared' nickname='Field book' color='#2468AC'>" +
+            "<SectionGroup><SectionGroup><Section ID='s1' color='#FFFFFF'/></SectionGroup></SectionGroup></Notebook>" +
+            "<Notebook ID='b' name='Shared' color='automatic'><Section ID='s2'/></Notebook></Notebooks>"));
+        Check(sections["s1"].Name == "Field book" && sections["s1"].Color.ToArgb() == Color.FromArgb(36,104,172).ToArgb() &&
+            sections["s2"].Id == "b" && sections["s2"].Color.IsEmpty, "Nested sections must resolve to their owning notebook and its color.");
         File.WriteAllText(path, "<workingSet version='1' revision='old'><tabs><page id='a' caption='First'/>" +
             "<page id='b' caption='Second'/></tabs><bookmarks><page id='a' caption='First'/></bookmarks></workingSet>");
         var store = new SessionStore(path);
@@ -202,7 +215,10 @@ internal static class SavedSessionTests
                     Check(saved.Caption == "Dashboard / B & C", "Bookmark caption did not round trip.");
                     var dropdown = strip.Items.OfType<ToolStripDropDownButton>().Single();
                     dropdown.ShowDropDown();
-                    dropdown.DropDownItems[2].PerformClick();
+                    var offline = dropdown.DropDownItems.OfType<BookmarkHeader>().Single();
+                    Check(offline.Text == "B & C" && offline.Notebook.Color.ToArgb() == Color.Teal.ToArgb(),
+                        "An unavailable bookmark lost its notebook name or color after a restart.");
+                    dropdown.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Dashboard").PerformClick();
                     dropdown.HideDropDown();
                     Check(source.Current == "b2" && strip.TabCount == 3 && strip.IsSelected("b1"), "Bookmark link did not restore the renamed ID.");
                     strip.ClickKeepCurrent();
@@ -210,7 +226,12 @@ internal static class SavedSessionTests
                     var gone = new SavedPage("missing", "Unavailable page", "onenote:missing");
                     strip.SaveBookmark(gone);
                     Check(!strip.OpenSaved(gone) && strip.TabCount == 3 && store.Read().Bookmarks.Count == 2, "Failed navigation lost a bookmark.");
-                    strip.RemoveBookmark(gone);
+                    dropdown.ShowDropDown();
+                    var remove = dropdown.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Remove bookmark");
+                    Check(remove.DropDownItems.OfType<BookmarkHeader>().Any(i => i.Text == "Unknown notebook"),
+                        "An unresolvable bookmark should remain available in the removal menu.");
+                    remove.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Unavailable page").PerformClick();
+                    dropdown.HideDropDown();
                     strip.RemoveBookmark(saved);
                     Check(strip.TabCount == 3 && store.Read().Bookmarks.Count == 0, "Removing a bookmark closed a tab.");
                     foreach (var tab in store.Read().Tabs) strip.CloseTab(tab);

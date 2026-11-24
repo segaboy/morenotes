@@ -22,6 +22,12 @@ internal static class PrototypeTests
         public string Current { get; private set; }
         internal Color BookBColor = Color.DarkOrange;
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.Teal : BookBColor; }
+        public Dictionary<string, BookmarkNotebook> BookmarkOwners(IEnumerable<string> ids)
+        {
+            var a = new BookmarkNotebook("a", "Atlas", Color.SteelBlue);
+            var b = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
+            return ids.ToDictionary(id => id, id => id.StartsWith("a/") ? a : b);
+        }
         internal readonly Dictionary<string, string> Renamed = new Dictionary<string, string>();
         public string Caption(string id)
         {
@@ -353,6 +359,7 @@ internal static class PrototypeTests
     private static void VerifySavedTabs(NotebookPages source, List<string> pages, NativeLayout layout, Rectangle slot, string path)
     {
         var store = new SessionStore(path);
+        string targetBook;
         using (var first = new PageStrip(layout.Frame, source, delegate { }, e => { throw e; }, store))
         {
             first.Attach(slot, layout);
@@ -361,7 +368,9 @@ internal static class PrototypeTests
                 source.Navigate(id); WaitForPage(source, id); first.ClickKeepCurrent();
             }
             var saved = store.Read().Tabs[2];
+            targetBook = source.Window.CurrentNotebookId;
             first.SaveBookmark(saved.Page);
+            first.SaveBookmark(store.Read().Tabs[0].Page);
             first.CloseTab(saved);
         }
         source.Navigate(pages[0]); WaitForPage(source, pages[0]);
@@ -370,13 +379,20 @@ internal static class PrototypeTests
             restored.Attach(slot, layout);
             restored.RestoreOrSeed();
             Check(restored.TabCount == 2 && restored.IsSelected(pages[0]), "Reopening MoreTabs did not restore the two remaining tabs.");
-            Check(restored.OpenSaved(store.Read().Bookmarks.Single()), "Could not reopen bookmarked page.");
+            var star = restored.Items.OfType<BookmarkButton>().Single();
+            star.ShowDropDown();
+            var headings = star.DropDownItems.OfType<BookmarkHeader>().ToArray();
+            Check(headings.Length == 2 && StringComparer.CurrentCultureIgnoreCase.Compare(headings[0].Text, headings[1].Text) <= 0,
+                "The two disposable notebooks were not grouped alphabetically.");
+            var target = headings.Single(h => h.Notebook.Id == targetBook);
+            star.DropDownItems[star.DropDownItems.IndexOf(target) + 1].PerformClick();
+            star.HideDropDown();
             WaitForPage(source, pages[2]); restored.RefreshActive();
             Check(restored.IsSelected(pages[2]) && restored.TabCount == 3 && source.Frame == layout.Frame,
                 "Opening a saved bookmark did not restore its tab in the same editor.");
             layout.CheckHitTargets(restored.Handle, slot);
         }
-        Console.WriteLine("PASS disk restore in OneNote: kept two tabs, reopened closed tab from bookmark in the other notebook, same editor.");
+        Console.WriteLine("PASS disk restore in OneNote: two notebook headings in alphabetical order, reopened the bookmarked page under the second notebook in the same editor.");
     }
 
     private static void ObserveHandsOn(NotebookPages source, PageStrip strip, NativeLayout layout, List<string> pages)

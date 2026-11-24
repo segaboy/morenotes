@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -8,12 +9,14 @@ using System.Xml.Linq;
 internal sealed class SavedPage
 {
     internal readonly string Id, Caption, Link;
+    internal readonly BookmarkNotebook Notebook;
     private readonly Guid pageGuid;
 
-    internal SavedPage(string id, string caption, string link)
+    internal SavedPage(string id, string caption, string link, BookmarkNotebook notebook = null)
     {
         Id = id;
         Caption = caption;
+        Notebook = notebook;
         Link = !String.IsNullOrEmpty(link) && link.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase) ? link : "";
         // OneNote desktop hyperlinks carry a page-id in the fragment after the section path.
         foreach (var part in Link.Split('#', '&', '?'))
@@ -27,9 +30,20 @@ internal sealed class SavedPage
     {
         return other != null && (Id == other.Id || (pageGuid != Guid.Empty && pageGuid == other.pageGuid));
     }
-    internal XElement ToXml()
+    internal string BookmarkTitle
     {
-        return new XElement("page", new XAttribute("id", Id), new XAttribute("caption", Caption), new XAttribute("link", Link));
+        get { int split = Caption.LastIndexOf(" / ", StringComparison.Ordinal); return split > 0 ? Caption.Substring(0, split) : Caption; }
+    }
+    internal BookmarkNotebook NotebookForMenu()
+    {
+        if (Notebook != null) return Notebook;
+        int split = Caption.LastIndexOf(" / ", StringComparison.Ordinal);
+        return new BookmarkNotebook("", split > 0 ? Caption.Substring(split + 3) : "Unknown notebook", Color.Empty);
+    }
+    internal XElement ToXml(bool bookmark = false)
+    {
+        return new XElement("page", new XAttribute("id", Id), new XAttribute("caption", Caption), new XAttribute("link", Link),
+            bookmark && Notebook != null ? Notebook.ToXml() : null);
     }
 }
 
@@ -76,13 +90,28 @@ internal sealed class WorkingSet
         return true;
     }
 
+    internal bool UpdateBookmarkOwners(Dictionary<string, BookmarkNotebook> owners)
+    {
+        bool changed = false;
+        for (int i = 0; i < Bookmarks.Count; i++)
+        {
+            var page = Bookmarks[i];
+            BookmarkNotebook owner;
+            if (!owners.TryGetValue(page.Id, out owner) || owner.SameAs(page.Notebook)) continue;
+            Bookmarks[i] = new SavedPage(page.Id, page.Caption, page.Link, owner);
+            changed = true;
+        }
+        return changed;
+    }
+
     internal static bool Keep(List<SavedPage> list, SavedPage page)
     {
         int index = list.FindIndex(page.Matches);
         if (index < 0) { list.Add(page); return true; }
         var old = list[index];
-        if (page.Link.Length == 0 && old.Link.Length != 0) page = new SavedPage(page.Id, page.Caption, old.Link);
-        if (old.Id == page.Id && old.Caption == page.Caption && old.Link == page.Link) return false;
+        page = new SavedPage(page.Id, page.Caption, page.Link.Length == 0 ? old.Link : page.Link, page.Notebook ?? old.Notebook);
+        if (old.Id == page.Id && old.Caption == page.Caption && old.Link == page.Link &&
+            (old.Notebook == page.Notebook || (old.Notebook != null && old.Notebook.SameAs(page.Notebook)))) return false;
         list[index] = page;
         return true;
     }
@@ -142,7 +171,7 @@ internal sealed class SessionStore
     {
         string id = (string)element.Attribute("id"), caption = (string)element.Attribute("caption");
         if (String.IsNullOrEmpty(id) || caption == null) throw new InvalidDataException("Invalid saved page reference.");
-        return new SavedPage(id, caption, (string)element.Attribute("link"));
+        return new SavedPage(id, caption, (string)element.Attribute("link"), BookmarkNotebook.FromXml(element.Element("notebook")));
     }
 
     internal WorkingSet Change(Func<WorkingSet, bool> edit)
@@ -165,7 +194,7 @@ internal sealed class SessionStore
                     if (tab.Pinned) xml.SetAttributeValue("pinned", true);
                     return xml;
                 })),
-                new XElement("bookmarks", state.Bookmarks.Select(page => page.ToXml())));
+                new XElement("bookmarks", state.Bookmarks.Select(page => page.ToXml(true))));
             string temporary = path + "." + state.Revision + ".tmp";
             try
             {

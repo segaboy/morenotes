@@ -62,6 +62,7 @@ internal static class AppearanceTests
                         Check(foundText, "The selected tab title did not contrast against its section color.");
                     }
                 }
+                using (var menuImage = CheckBookmarkMenu(strip, expected)) { }
             }
         TogglePin(strip, schedule, false);
         Check(labels.SequenceEqual(strip.Items.OfType<PageTabButton>().Select(t => t.Text)),
@@ -75,6 +76,54 @@ internal static class AppearanceTests
             "Unpinning the active tab lost its selection or left an extra divider.");
         strip.Attach(slot, layout);
         Console.WriteLine("PASS section stripes on every page tab and a full section-color fill on the selected tab, across themes and 96, 120, 144 and 192 DPI.");
+        Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and draw labeled full-width notebook color headers.");
+    }
+
+    internal static Bitmap CheckBookmarkMenu(PageStrip strip, HostChrome chrome)
+    {
+        var pages = new[] { new SavedPage("b/design", "Design notes / B", ""), new SavedPage("a/maps", "Maps / Summer / A", ""),
+            new SavedPage("b/parts", "Parts list / B", "") };
+        foreach (var page in pages) strip.SaveBookmark(page);
+        var star = strip.Items.OfType<BookmarkButton>().Single();
+        try
+        {
+            star.ShowDropDown();
+            var menu = star.DropDown;
+            var labels = menu.Items.Cast<ToolStripItem>().Select(i => i.Text).ToArray();
+            Check(labels.SequenceEqual(new[] { "Bookmark current page", "Atlas", "Maps / Summer", "Workshop", "Design notes", "Parts list", "", "Remove bookmark" }),
+                "Bookmark group order, page order or titles were incorrect.");
+            var image = new Bitmap(menu.Width, menu.Height);
+            try
+            {
+                menu.DrawToBitmap(image, menu.ClientRectangle);
+                foreach (var header in menu.Items.OfType<BookmarkHeader>())
+                {
+                    var bounds = header.Bounds;
+                    Color fill = chrome.HighContrast ? SystemColors.Highlight : header.Notebook.Color;
+                    int y = bounds.Top + bounds.Height / 2;
+                    Check(!header.CanSelect && header.AccessibleName == header.Text &&
+                        image.GetPixel(2, y).ToArgb() == fill.ToArgb() && image.GetPixel(menu.Width - 3, y).ToArgb() == fill.ToArgb(),
+                        "The notebook heading must be nonselectable and fill the menu width.");
+                    for (int part = 0; part <= 1; part++)
+                    {
+                        int left = bounds.Left + HostChrome.Px(part == 0 ? 6 : 30, chrome.Dpi);
+                        int right = part == 0 ? left + HostChrome.Px(18, chrome.Dpi) : bounds.Right - 3;
+                        bool ink = false;
+                        for (int x = left; x < right && !ink; x++)
+                            for (int py = bounds.Top + 2; py < bounds.Bottom - 2 && !ink; py++)
+                                ink = image.GetPixel(x, py).ToArgb() != fill.ToArgb();
+                        Check(ink, part == 0 ? "Notebook heading icon missing." : "Notebook heading text missing.");
+                    }
+                }
+                return image;
+            }
+            catch { image.Dispose(); throw; }
+        }
+        finally
+        {
+            star.HideDropDown();
+            foreach (var page in pages) strip.RemoveBookmark(page);
+        }
     }
 
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)

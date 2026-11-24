@@ -36,6 +36,10 @@ Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and th
 
 The solid yellow star at the far left opens bookmarks. Its compact tab has the same fill, height and rounded lower corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
+The bookmarks menu lists notebooks alphabetically. Each heading shows a notebook icon and name on a solid band in the notebook's color. Under it, pages show their titles in the order they were bookmarked. The removal menu uses the same groups. MoreTabs looks up existing bookmarks when the menu opens and remembers notebook names and colors for offline use. If it has never seen the notebook color, it uses a theme color until the notebook is available.
+
+![Bookmarks grouped under two colored notebook headings](bookmarks.png)
+
 Every open page tab has a full-width stripe in its section's color. Selecting a tab fills its whole rounded shape with that color and adjusts the title color for readability. Pinned and regular tabs both follow this rule. MoreTabs reads section colors for restored tabs without opening their pages and refreshes them when sections are recolored. Automatic or unavailable colors use a theme accent. Windows high contrast uses the system palette. Naming or renaming the displayed page updates its tab title. If two pages in different notebooks share a title, the labels also show the notebook.
 
 MoreTabs pauses while File or Options hides the editor row or opens a modal dialog. When you return to the editor, it measures the theme again and resumes automatically. The November 24 desktop test confirmed that the strip reappeared after changing the Office theme and leaving Options, without relaunching MoreTabs.
