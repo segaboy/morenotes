@@ -17,6 +17,7 @@ internal sealed class HostChrome
     internal bool DarkSections { get { return nativeDark ?? (Surface.GetBrightness() < 0.5f); } }
     internal bool Measured, HighContrast;
     private DateTime nextRead;
+    private bool verticalTabs;
 
     internal static int Px(int logical, uint dpi) { return (int)Math.Round(logical * dpi / 96.0); }
 
@@ -38,23 +39,25 @@ internal sealed class HostChrome
     }
     internal static int StripHeight(uint dpi, bool captions = true) { return Px(27, dpi) + (captions ? CaptionHeight(dpi) : 0); }
 
-    internal void Update(IntPtr navigation, uint dpi, bool force = false, IntPtr ribbon = default(IntPtr))
+    internal void Update(IntPtr navigation, uint dpi, bool force = false, bool vertical = false)
     {
         bool contrast = SystemInformation.HighContrast;
-        if (!force && Dpi == dpi && HighContrast == contrast && DateTime.UtcNow < nextRead) return;
+        if (!force && Dpi == dpi && HighContrast == contrast && verticalTabs == vertical && DateTime.UtcNow < nextRead) return;
         nextRead = DateTime.UtcNow.AddSeconds(2);
         if (Dpi != dpi || HighContrast != contrast)
         {
             // Retain the measured logical inset when moving a covered window between monitors.
             Inset = Dpi == 0 ? Px(25, dpi) : (int)Math.Round(Inset * (double)dpi / Dpi);
-            Measured = false;
+            if (HighContrast != contrast) Measured = false;
         }
+        if (verticalTabs != vertical) Inset = Px(25, dpi);
+        verticalTabs = vertical;
         Dpi = dpi;
         HighContrast = contrast;
         Color background, band;
         int left;
         SectionBand = Color.Empty;
-        if (navigation != IntPtr.Zero && TryRead(navigation, dpi, out background, out left, out band))
+        if (!vertical && navigation != IntPtr.Zero && TryRead(navigation, dpi, out background, out left, out band))
         {
             if (Surface.ToArgb() != background.ToArgb()) nativeDark = null;
             Surface = background;
@@ -63,7 +66,7 @@ internal sealed class HostChrome
             SectionBand = band;
             nativeDark = SectionPalette.DarkPalette(band) ?? nativeDark;
         }
-        else if (ribbon != IntPtr.Zero && TryReadRibbon(ribbon, dpi, out background))
+        else if (vertical && navigation != IntPtr.Zero && TryReadNavigationSurface(navigation, dpi, out background))
         {
             Surface = background;
             nativeDark = null;
@@ -73,32 +76,32 @@ internal sealed class HostChrome
         if (contrast) Surface = SystemColors.Window;
     }
 
-    private static bool TryReadRibbon(IntPtr ribbon, uint dpi, out Color surface)
+    private static bool TryReadNavigationSurface(IntPtr header, uint dpi, out Color surface)
     {
         surface = Color.Empty;
         Point origin = Point.Empty;
         RECT client;
-        if (!ClientToScreen(ribbon, ref origin) || !GetClientRect(ribbon, out client) ||
-            client.Right < Px(40, dpi) || client.Bottom < Px(10, dpi)) return false;
+        if (!ClientToScreen(header, ref origin) || !GetClientRect(header, out client)) return false;
         var dc = GetDC(IntPtr.Zero);
         if (dc == IntPtr.Zero) return false;
         var colors = new List<int>();
         try
         {
-            // Widely spaced points along the lower ribbon avoid relying on a particular command or icon.
-            for (int i = 1; i <= 15; i++)
-            {
-                var p = new Point(origin.X + i * client.Right / 16, origin.Y + client.Bottom - Px(5 + i % 3, dpi));
-                var hit = WindowFromPoint(p);
-                if (hit != ribbon && !IsChild(ribbon, hit)) continue;
-                int rgb = GetPixel(dc, p.X, p.Y);
-                if (rgb != -1) colors.Add(rgb);
-            }
+            // Stay in the notebook end of the header. Page-list and editor windows can overlap its bounds.
+            for (int y = 4; y < 32 && Px(y, dpi) < client.Bottom; y += 8)
+                for (int x = 6; x < 64 && Px(x, dpi) < client.Right; x += 12)
+                {
+                    var p = new Point(origin.X + Px(x, dpi), origin.Y + Px(y, dpi));
+                    var hit = WindowFromPoint(p);
+                    if (hit != header && !IsChild(header, hit)) continue;
+                    int rgb = GetPixel(dc, p.X, p.Y);
+                    if (rgb != -1) colors.Add(rgb);
+                }
         }
         finally { ReleaseDC(IntPtr.Zero, dc); }
-        return RibbonSurface(colors, out surface);
+        return NavigationSurface(colors, out surface);
     }
-    internal static bool RibbonSurface(List<int> colors, out Color surface)
+    internal static bool NavigationSurface(List<int> colors, out Color surface)
     {
         var counts = new Dictionary<int, int>();
         int best = 0, peak = 0;

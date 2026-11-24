@@ -32,7 +32,7 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far right to move the whole strip to the bottom edge of the OneNote window. Click the up arrow to put it back. Both positions use the same tabs, active page and bookmarks. At the bottom, the tabs have rounded upper corners and a section-color stripe along the lower edge. The bookmarks menu opens upward. The move arrow stays visible when tabs overflow.
 
-With horizontal tabs, the star lines up with the native notebook icon. MoreTabs samples the navigation row for its background color and icon position. With vertical tabs, it samples the lower edge of the OneNote ribbon and uses a DPI-scaled inset. The strip refreshes as the theme changes. If another window covers the ribbon, MoreTabs keeps the last measured color. At startup the Office or Windows setting supplies a fallback. Windows high-contrast colors take precedence.
+MoreTabs uses OneNote's notebook navigation background in both tab views. In horizontal view it also aligns the star with the native notebook icon. In vertical view it samples the upper-left notebook navigation header and uses a DPI-scaled inset. The strip refreshes as the theme changes. While the header is hidden or covered, it keeps the last measured color. Until the first measurement it uses the Office or Windows theme setting. Windows high-contrast colors take precedence.
 
 ![MoreTabs docked at the top, with two pinned pages and unpinned notebook groups](appearance.png)
 

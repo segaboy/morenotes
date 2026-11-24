@@ -411,7 +411,7 @@ internal static class AppearanceTests
             "Unpinning switched the active tab or left an empty pinned group.");
         Console.WriteLine("PASS bookmark star, subtle vertical dividers and pin/unpin via the tab menu with the active tab preserved.");
         Console.WriteLine("PASS tab rendering in OneNote: surface #{0:X6}, bookmark star X={1}px ({2}), DPI {3}; square top and rounded lower corners.",
-            chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, chrome.Measured ? "measured notebook icon" : "fallback inset", chrome.Dpi);
+            chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, !layout.VerticalTabs && chrome.Measured ? "measured notebook icon" : "default inset", chrome.Dpi);
     }
     internal static void TogglePin(PageStrip strip, PageTabButton button, bool pin)
     {

@@ -67,7 +67,7 @@ internal static class Program
                 var chrome = candidate.Appearance();
                 Console.WriteLine("Strip appearance: surface #{0:X6}, bookmark icon inset {1}px ({2}).",
                     chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, !chrome.Measured ? "fallback" :
-                    candidate.VerticalTabs ? "measured ribbon, default inset" : "measured notebook icon");
+                    candidate.VerticalTabs ? "measured notebook navigation, default inset" : "measured notebook icon");
                 if (!chrome.SectionBand.IsEmpty)
                     Console.WriteLine("Native navigation section band: #{0:X6}.", chrome.SectionBand.ToArgb() & 0xffffff);
                 try

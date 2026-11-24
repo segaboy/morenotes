@@ -278,16 +278,16 @@ internal static class PrototypeTests
 
     private static void CheckVerticalTabs()
     {
-        foreach (var surface in new[] { Color.FromArgb(250,250,250), Color.FromArgb(42,38,36), Color.FromArgb(65,65,65) })
+        foreach (var surface in new[] { Color.FromArgb(250,250,250), Color.FromArgb(42,38,36), Color.FromArgb(0x52,0x4f,0x4c) })
         {
             int rgb = ColorTranslator.ToWin32(surface);
             Color measured;
-            Check(HostChrome.RibbonSurface(new List<int> { rgb, rgb, 0x3254ab, rgb, 0x1146ff }, out measured) &&
-                measured.ToArgb() == surface.ToArgb(), "Ribbon background lost its Office theme or picked an icon.");
+            Check(HostChrome.NavigationSurface(new List<int> { rgb, rgb, 0x3254ab, rgb, 0x1146ff }, out measured) &&
+                measured.ToArgb() == surface.ToArgb(), "Navigation background lost its Office theme or picked an icon.");
         }
         Color unknown;
-        Check(!HostChrome.RibbonSurface(new List<int>(), out unknown) &&
-            !HostChrome.RibbonSurface(new List<int> { 1, 2, 3, 4, 5 }, out unknown), "An obscured or ambiguous ribbon produced a theme.");
+        Check(!HostChrome.NavigationSurface(new List<int>(), out unknown) &&
+            !HostChrome.NavigationSurface(new List<int> { 1, 2, 3, 4, 5 }, out unknown), "An obscured or ambiguous navigation header produced a theme.");
         using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
             Location = new Point(-16000, -16000), ClientSize = new Size(800, 500) })
         using (var ribbon = new Panel { Bounds = new Rectangle(0, 0, 800, 80) })
@@ -310,6 +310,7 @@ internal static class PrototypeTests
                     Rectangle slot = layout.Reserve(false, bottom);
                     strip.Attach(slot, layout);
                     layout.CheckHitTargets(strip.Host.Handle, slot);
+                    Check(layout.NavigationHeader == row.Handle, "Vertical tabs lost the notebook header behind the overlapping panes.");
                     Check(layout.VerticalTabs && layout.StillReserved(slot) && slot.Width == original.Width &&
                         body.Height + slot.Height == original.Height && (bottom ? body.Bottom == slot.Top : body.Top == slot.Bottom),
                         "Vertical layout failed to reserve the strip outside the editor and notebook panes.");
@@ -321,13 +322,21 @@ internal static class PrototypeTests
                 editor.Top = row.Height;
                 row.BringToFront();
                 strip.Attach(layout.Reserve(), layout);
-                Check(!layout.VerticalTabs && layout.AtBottom, "Switching to horizontal tabs lost the dock or used the vertical editor.");
+                Check(!layout.VerticalTabs && layout.AtBottom && layout.NavigationHeader == row.Handle,
+                    "Switching to horizontal tabs lost the dock or the native navigation row.");
+                // This fixture is off-screen. Seed the last horizontal reading before hiding its header.
+                var chrome = layout.Appearance();
+                var previousColor = chrome.HighContrast ? SystemColors.Window : Color.FromArgb(0x52, 0x4f, 0x4c);
+                chrome.Surface = previousColor;
+                chrome.Measured = true;
                 row.Hide();
                 books.Hide();
                 pages.Hide();
                 editor.Bounds = new Rectangle(0, 0, body.Width, body.Height);
                 strip.Attach(layout.Reserve(false, false), layout);
                 Check(layout.VerticalTabs && layout.StillReserved(strip.Host.Bounds), "A collapsed sidebar or hidden row prevented attachment.");
+                Check(layout.NavigationHeader == IntPtr.Zero && strip.BackColor.ToArgb() == previousColor.ToArgb(),
+                    "With its header hidden, the vertical strip lost the last navigation color.");
                 using (var cover = new Panel { Dock = DockStyle.Fill })
                 {
                     body.Controls.Add(cover);

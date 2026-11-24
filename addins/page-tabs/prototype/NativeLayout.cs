@@ -12,12 +12,13 @@ internal sealed class NativeLayout : IDisposable
     internal readonly IntPtr Ribbon;
     private readonly IntPtr knownRow, knownWorkspace;
     private IntPtr landmark;
-    private HostChrome chrome = new HostChrome();
+    private readonly HostChrome chrome = new HostChrome();
+    internal IntPtr NavigationHeader { get; private set; }
     internal bool VerticalTabs { get; private set; }
     internal string WaitReason { get; private set; }
     internal HostChrome Appearance(bool force = false)
     {
-        chrome.Update(VerticalTabs ? IntPtr.Zero : landmark, Dpi, force, VerticalTabs ? Ribbon : IntPtr.Zero);
+        chrome.Update(NavigationHeader, Dpi, force, VerticalTabs);
         return chrome;
     }
     private Rectangle original, applied;
@@ -151,7 +152,6 @@ internal sealed class NativeLayout : IDisposable
             MapWindowPoints(Frame, Document, ref local, 1);
             if (ChildWindowFromPointEx(Document, local, 7) != child) return false;
         }
-        if (VerticalTabs != editor) chrome = new HostChrome();
         VerticalTabs = editor;
         landmark = child;
         return true;
@@ -162,14 +162,23 @@ internal sealed class NativeLayout : IDisposable
         uint dpi = Dpi;
         var rows = knownRow == IntPtr.Zero ? Children(Document, "OneNote::NavigationUI") : new[] { knownRow };
         int rowBottom = body.Top;
+        NavigationHeader = IntPtr.Zero;
         foreach (var row in rows)
         {
             if (!IsWindowVisible(row) || GetParent(row) != Document) continue;
             var area = Bounds(row, Frame);
-            if (area.Top != body.Top || area.Left != body.Left || area.Width != body.Width ||
+            if (area.Top != body.Top || area.Left != body.Left ||
                 area.Height < 12 || area.Height > dpi || area.Height >= body.Height) continue;
+            // In vertical view the editor can cover most of this row, leaving its notebook header at the left.
+            if (ChildWindowFromPointEx(Document, new Point(HostChrome.Px(6, dpi), HostChrome.Px(6, dpi)), 7) == row)
+                NavigationHeader = row;
+            if (area.Width != body.Width) continue;
             rowBottom = Math.Max(rowBottom, area.Bottom);
-            if (TryUseLandmark(row, area, false, dpi)) return true;
+            if (TryUseLandmark(row, area, false, dpi))
+            {
+                NavigationHeader = row;
+                return true;
+            }
         }
         // Vertical Tabs can leave a full-width navigation HWND behind the actual panes.
         // Only use the page workspace when it occupies that upper band and receives the hits.
