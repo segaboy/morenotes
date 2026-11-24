@@ -37,7 +37,8 @@ internal sealed class SavedTab
 {
     internal readonly string Key;
     internal readonly SavedPage Page;
-    internal SavedTab(string key, SavedPage page) { Key = key; Page = page; }
+    internal readonly bool Pinned;
+    internal SavedTab(string key, SavedPage page, bool pinned = false) { Key = key; Page = page; Pinned = pinned; }
 }
 
 internal sealed class WorkingSet
@@ -63,7 +64,15 @@ internal sealed class WorkingSet
         if (page.Matches(old) && page.Link.Length == 0 && old.Link.Length != 0)
             page = new SavedPage(page.Id, page.Caption, old.Link);
         if (page.Id == old.Id && page.Caption == old.Caption && page.Link == old.Link) return false;
-        Tabs[index] = new SavedTab(expected.Key, page);
+        Tabs[index] = new SavedTab(expected.Key, page, Tabs[index].Pinned);
+        return true;
+    }
+
+    internal bool SetPinned(string key, bool pinned)
+    {
+        int index = Tabs.FindIndex(t => t.Key == key);
+        if (index < 0 || Tabs[index].Pinned == pinned) return false;
+        Tabs[index] = new SavedTab(key, Tabs[index].Page, pinned);
         return true;
     }
 
@@ -107,7 +116,7 @@ internal sealed class SessionStore
         catch (DirectoryNotFoundException) { return new WorkingSet(); }
         catch (System.Xml.XmlException ex) { throw new InvalidDataException("Cannot read the saved MoreTabs file: " + path, ex); }
         string version = (string)root.Attribute("version");
-        if (root.Name != "workingSet" || (version != "1" && version != "2") ||
+        if (root.Name != "workingSet" || (version != "1" && version != "2" && version != "3") ||
             String.IsNullOrEmpty((string)root.Attribute("revision")))
             throw new InvalidDataException("Unrecognized MoreTabs file: " + path);
         var state = new WorkingSet { Revision = (string)root.Attribute("revision") };
@@ -117,7 +126,9 @@ internal sealed class SessionStore
             // Two processes reading the same unmigrated file must agree on each slot's identity.
             string key = version == "1" ? "legacy-" + page.Id : (string)element.Attribute("tabId");
             if (String.IsNullOrEmpty(key) || state.Tabs.Exists(t => t.Key == key)) throw new InvalidDataException("Invalid saved tab identity.");
-            state.Tabs.Add(new SavedTab(key, page));
+            string pin = version == "3" ? (string)element.Attribute("pinned") : null;
+            if (pin != null && pin != "true" && pin != "false") throw new InvalidDataException("Invalid saved tab pin.");
+            state.Tabs.Add(new SavedTab(key, page, pin == "true"));
         }
         foreach (var element in Pages(root.Element("bookmarks"))) WorkingSet.Keep(state.Bookmarks, ReadPage(element));
         return state;
@@ -147,9 +158,12 @@ internal sealed class SessionStore
             var state = Read();
             if (!edit(state)) return state;
             state.Revision = Guid.NewGuid().ToString("N");
-            var root = new XElement("workingSet", new XAttribute("version", "2"), new XAttribute("revision", state.Revision),
+            var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
                 new XElement("tabs", state.Tabs.Select(tab => {
-                    var xml = tab.Page.ToXml(); xml.SetAttributeValue("tabId", tab.Key); return xml;
+                    var xml = tab.Page.ToXml();
+                    xml.SetAttributeValue("tabId", tab.Key);
+                    if (tab.Pinned) xml.SetAttributeValue("pinned", true);
+                    return xml;
                 })),
                 new XElement("bookmarks", state.Bookmarks.Select(page => page.ToXml())));
             string temporary = path + "." + state.Revision + ".tmp";

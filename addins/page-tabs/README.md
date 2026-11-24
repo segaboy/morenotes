@@ -32,7 +32,9 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and their lower corners use an eight-logical-pixel radius. The strip samples the background and notebook icon from the visible leading edge of the native navigation row. It uses that color and aligns the first tab to the icon, refreshing the measurement when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence. The active page has a distinct fill, and keyboard focus adds an outline.
 
-![MoreTabs rendered with sample pages and the measured dark OneNote theme](appearance.png)
+![MoreTabs in dark mode with the bookmark star on the left, Schedule pinned, and two regular tabs](appearance.png)
+
+The star at the far left opens bookmarks. A short vertical divider separates it from the page tabs. Pinned tabs appear first. A second divider marks the end of that group whenever at least one tab is pinned.
 
 The active tab carries a colored bar along its top edge. It stays visible while you type in OneNote. Naming or renaming the displayed page updates its tab as soon as MoreTabs reads the new title from OneNote. If two pages in different notebooks share a title, the labels also show the notebook.
 
@@ -42,7 +44,8 @@ Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop P
 
 - Click **+** to create a blank page in your configured OneNote Quick Notes section. Each click opens its own tab in the same editor and gives that tab keyboard focus. This follows your personal Quick Notes destination whatever notebook you have open. If you have redirected Quick Notes, MoreTabs uses that setting.
 - To keep an existing page, use the arrow beside **+** and choose **Keep current page in a tab**. Right-click a tab and choose **Close tab**, or middle-click it. Closing a tab leaves the underlying OneNote page intact.
-- Choose **Bookmarks → Bookmark current page**, or right-click a tab and choose **Bookmark this tab**. Select a saved page in **Bookmarks** to open it in the same editor and return it to the tab row. **Remove bookmark** removes only the bookmark.
+- Right-click a tab and choose **Pin tab** to move it into the pinned group. Its pin follows the tab as you navigate and survives a restart. Choose **Unpin tab** to return it to its original order among the regular tabs.
+- Click the star and choose **Bookmark current page**, or right-click a tab and choose **Bookmark this tab**. Choose a saved page from the star menu to reopen it in the same editor. **Remove bookmark** removes only the bookmark.
 - Leave the prototype running when closing OneNote to let it attach when OneNote reopens. After exiting the prototype or restarting Windows, launch it again. The prototype has no installer or sign-in startup entry.
 
 Tabs and bookmarks share one user-local file at `%LOCALAPPDATA%\MoreNotes\MoreTabs\working-set.xml`. Each edit saves the page ID, caption and OneNote desktop hyperlink when available. File updates merge under a short write lock and replace the prior version atomically. Separate attached windows use the same saved working set. The saved file contains notebook metadata and belongs outside public diagnostics.
@@ -60,7 +63,7 @@ Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for t
 
 ### Live desktop verification
 
-On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The preview above shows its three disposable tabs, including the active marker on the first Dashboard. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. The tab kept its position and selection throughout. The strip aligned with the notebook icon 25 pixels into the navigation row and used the measured `#110C08` background. Controlled rendering tests also checked the active marker in dark, light and high-contrast palettes at 96 and 144 DPI.
+On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. The tab kept its position and selection throughout. The strip aligned with the notebook icon 25 pixels into the navigation row and used the measured `#110C08` background. The preview above is a controlled render using those measurements. Controlled tests checked the bookmark star, dividers, pinned group and active marker in dark, light and high-contrast palettes at 96 and 144 DPI.
 
 On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. The COM window handle belonged to a child of the measured editor frame. Matching its top-level ancestor selected the correct editor.
 
@@ -122,7 +125,7 @@ The prototype recognizes a native ribbon dock adjacent to a document window and 
 
 ## Follow-up requirements
 
-- Decide how reordering and pinning affect the working set.
+- Decide how users can reorder tabs within each group.
 - Verify OneNote references after renaming or moving pages, closing and reopening notebooks, and deleting pages. Exercise the resident prototype across a full desktop OneNote restart.
 - Test page restoration separately from caret, selected text and scroll offset. Record what OneNote restores itself and what the add-in can reliably restore.
 - Evaluate whether users need separate working sets per window and folders for organizing bookmarks.

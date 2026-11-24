@@ -143,7 +143,9 @@ internal sealed class PageStrip : ToolStrip
     private readonly IPages pages;
     private readonly Dictionary<string, ToolStripButton> buttons = new Dictionary<string, ToolStripButton>();
     private readonly ToolStripSplitButton add;
-    private readonly ToolStripDropDownButton bookmarks = new ToolStripDropDownButton("Bookmarks");
+    private readonly BookmarkButton bookmarks = new BookmarkButton();
+    private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
+    private readonly ToolStripSeparator pinDivider = new ToolStripSeparator { Available = false };
     private readonly ContextMenuStrip tabMenu = new ContextMenuStrip();
     private readonly ToolTip notice = new ToolTip();
     private TabRenderer appearance;
@@ -180,10 +182,9 @@ internal sealed class PageStrip : ToolStrip
         add = new ToolStripSplitButton("+") { AccessibleName = "New Quick Note", ToolTipText = "Create a new Quick Note", Overflow = ToolStripItemOverflow.Never };
         add.ButtonClick += delegate { Perform(CreateQuickNote); };
         add.DropDownItems.Add("Keep current page in a tab", null, delegate { Perform(AddCurrent); });
-        Items.Add(add);
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
-        Items.Add(bookmarks);
+        Items.AddRange(new ToolStripItem[] { bookmarks, bookmarkDivider, pinDivider, add });
         var stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
@@ -270,7 +271,7 @@ internal sealed class PageStrip : ToolStrip
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (!ContainsFocus) return base.ProcessCmdKey(ref msg, keyData);
-        var choices = Items.Cast<ToolStripItem>().Where(item => (item is ToolStripButton || item == add) && item.Available && item.Enabled).ToList();
+        var choices = Items.Cast<ToolStripItem>().Where(item => (item is ToolStripButton || item == add || item == bookmarks) && item.Available && item.Enabled).ToList();
         int index = choices.FindIndex(item => item.Selected);
         if (choices.Count > 0 && (keyData == Keys.Left || keyData == Keys.Right))
         {
@@ -281,6 +282,7 @@ internal sealed class PageStrip : ToolStrip
         if ((keyData == Keys.Enter || keyData == Keys.Space) && index >= 0)
         {
             if (choices[index] == add) add.PerformButtonClick();
+            else if (choices[index] == bookmarks) bookmarks.ShowDropDown();
             else { choices[index].PerformClick(); ReturnToEditor(); }
             return true;
         }
@@ -330,8 +332,13 @@ internal sealed class PageStrip : ToolStrip
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
         }
-        var inset = new Padding(chrome.Inset, 0, HostChrome.Px(2, chrome.Dpi), 0);
+        // Fit the star and its divider inside the existing notebook-icon inset where possible.
+        int dividerWidth = HostChrome.Px(5, chrome.Dpi);
+        int gutter = Math.Max(HostChrome.Px(22, chrome.Dpi), chrome.Inset);
+        int starWidth = Math.Min(HostChrome.Px(26, chrome.Dpi), gutter - dividerWidth);
+        var inset = new Padding(Math.Max(0, chrome.Inset - starWidth - dividerWidth), 0, HostChrome.Px(2, chrome.Dpi), 0);
         if (Padding != inset) Padding = inset;
+        if (bookmarks.Width != starWidth) bookmarks.Width = starWidth;
         if (metrics)
         {
             Font oldRegular = tabFont, oldSelected = selectedTabFont;
@@ -341,7 +348,14 @@ internal sealed class PageStrip : ToolStrip
             Font = tabMenu.Font = tabFont;
             var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
             foreach (ToolStripItem item in Items)
-                if (!(item is PageTabButton)) item.Padding = commandPadding;
+                if (!(item is PageTabButton) && !(item is ToolStripSeparator) && item != bookmarks) item.Padding = commandPadding;
+            foreach (var divider in new[] { bookmarkDivider, pinDivider })
+            {
+                divider.AutoSize = false;
+                divider.Margin = Padding.Empty;
+                divider.Size = new Size(dividerWidth, HostChrome.Px(30, chrome.Dpi));
+                divider.Overflow = ToolStripItemOverflow.Never;
+            }
             foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);
             if (oldRegular != null) oldRegular.Dispose();
             if (oldSelected != null) oldSelected.Dispose();
@@ -462,9 +476,8 @@ internal sealed class PageStrip : ToolStrip
             obsolete.Dispose();
         }
         var titles = state.Tabs.ToLookup(t => ShortCaption(t.Page), StringComparer.CurrentCultureIgnoreCase);
-        for (int i = 0; i < state.Tabs.Count; i++)
+        foreach (var slot in state.Tabs)
         {
-            var slot = state.Tabs[i];
             SavedPage page = slot.Page;
             ToolStripButton button;
             if (!buttons.TryGetValue(slot.Key, out button))
@@ -476,7 +489,7 @@ internal sealed class PageStrip : ToolStrip
                 tab.Click += delegate { Perform(delegate { var target = (SavedTab)tab.Tag; OpenSaved(target.Page, target); }); };
                 tab.MouseUp += delegate(object sender, MouseEventArgs e)
                 {
-                    if (e.Button == MouseButtons.Right) ShowTabMenu((SavedTab)tab.Tag);
+                    if (e.Button == MouseButtons.Right) TabMenuFor((SavedTab)tab.Tag).Show(Cursor.Position);
                     if (e.Button == MouseButtons.Middle) Perform(delegate { CloseTab((SavedTab)tab.Tag); });
                 };
                 buttons.Add(slot.Key, button);
@@ -484,18 +497,34 @@ internal sealed class PageStrip : ToolStrip
             string title = ShortCaption(page);
             button.Text = titles[title].Any(t => t.Page.Caption != page.Caption) ? page.Caption : title;
             button.AccessibleName = page.Caption;
-            button.ToolTipText = page.Caption + "\nRight-click to bookmark or close this tab.";
+            button.ToolTipText = page.Caption + (slot.Pinned ? "\nPinned tab" : "") + "\nRight-click for tab options.";
             button.Tag = slot;
-            if (Items.IndexOf(button) != i) { Items.Remove(button); Items.Insert(i, button); }
         }
+        int position = 2;
+        foreach (var tab in state.Tabs.Where(t => t.Pinned)) PlaceItem(buttons[tab.Key], position++);
+        pinDivider.Available = position > 2;
+        PlaceItem(pinDivider, position++);
+        foreach (var tab in state.Tabs.Where(t => !t.Pinned)) PlaceItem(buttons[tab.Key], position++);
         displayedRevision = updated.Revision;
     }
-    private void ShowTabMenu(SavedTab tab)
+    private void PlaceItem(ToolStripItem item, int index)
+    {
+        if (Items.IndexOf(item) == index) return;
+        Items.Remove(item);
+        Items.Insert(index, item);
+    }
+    internal ContextMenuStrip TabMenuFor(SavedTab tab)
     {
         ClearMenu(tabMenu.Items);
+        tabMenu.Items.Add(tab.Pinned ? "Unpin tab" : "Pin tab", null, delegate { Perform(delegate { SetPinned(tab.Key, !tab.Pinned); }); });
         tabMenu.Items.Add("Bookmark this tab", null, delegate { Perform(delegate { SaveBookmark(tab.Page); }); });
         tabMenu.Items.Add("Close tab", null, delegate { Perform(delegate { CloseTab(tab); }); });
-        tabMenu.Show(Cursor.Position);
+        return tabMenu;
+    }
+    private void SetPinned(string key, bool pinned)
+    {
+        ApplyState(store.Change(s => s.SetPinned(key, pinned)));
+        RefreshActive();
     }
     private static void ClearMenu(ToolStripItemCollection items)
     {

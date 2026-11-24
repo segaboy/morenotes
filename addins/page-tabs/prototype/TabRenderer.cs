@@ -3,6 +3,20 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
+internal sealed class BookmarkButton : ToolStripDropDownButton
+{
+    internal BookmarkButton()
+    {
+        AccessibleName = ToolTipText = "Bookmarks";
+        AutoToolTip = false;
+        AutoSize = false;
+        ShowDropDownArrow = false;
+        DisplayStyle = ToolStripItemDisplayStyle.None;
+        Overflow = ToolStripItemOverflow.Never;
+        Margin = Padding.Empty;
+    }
+}
+
 internal sealed class PageTabButton : ToolStripButton
 {
     internal uint Dpi = 96;
@@ -92,10 +106,14 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             e.TextFormat |= TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
         }
         base.OnRenderItemText(e);
+        DrawFocus(e, e.TextColor);
+    }
+    private void DrawFocus(ToolStripItemRenderEventArgs e, Color color)
+    {
         if (e.ToolStrip is PageStrip && e.ToolStrip.ContainsFocus && e.Item.Selected)
         {
             int inset = HostChrome.Px(3, Dpi);
-            using (var pen = new Pen(e.TextColor) { DashStyle = DashStyle.Dot })
+            using (var pen = new Pen(color) { DashStyle = DashStyle.Dot })
                 e.Graphics.DrawRectangle(pen, inset, inset, Math.Max(1, e.Item.Width - 2 * inset - 1), Math.Max(1, e.Item.Height - 2 * inset - 1));
         }
     }
@@ -137,7 +155,30 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                 e.Graphics.FillRectangle(brush, 0, 0, e.Item.Width, e.Item.Height);
     }
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) { PaintCommand(e); }
-    protected override void OnRenderDropDownButtonBackground(ToolStripItemRenderEventArgs e) { PaintCommand(e); }
+    protected override void OnRenderDropDownButtonBackground(ToolStripItemRenderEventArgs e)
+    {
+        PaintCommand(e);
+        if (!(e.Item is BookmarkButton)) return;
+        float cx = e.Item.Width / 2f, cy = e.Item.Height / 2f;
+        float radius = Math.Min(HostChrome.Px(8, Dpi), Math.Min(cx, cy) - 1);
+        if (radius < 1) return;
+        var points = new PointF[10];
+        for (int i = 0; i < points.Length; i++)
+        {
+            double angle = (i * Math.PI / 5) - Math.PI / 2;
+            float r = i % 2 == 0 ? radius : radius * 0.46f;
+            points[i] = new PointF(cx + r * (float)Math.Cos(angle), cy + r * (float)Math.Sin(angle));
+        }
+        var saved = e.Graphics.Save();
+        try
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var pen = new Pen(TextColor(e.Item), 1.5f * Dpi / 96f) { LineJoin = LineJoin.Round })
+                e.Graphics.DrawPolygon(pen, points);
+        }
+        finally { e.Graphics.Restore(saved); }
+        DrawFocus(e, TextColor(e.Item));
+    }
     protected override void OnRenderSplitButtonBackground(ToolStripItemRenderEventArgs e)
     {
         PaintCommand(e);
@@ -152,6 +193,13 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {
         using (var pen = new Pen(contrast ? Ink : Active))
-            e.Graphics.DrawLine(pen, 2, e.Item.Height / 2, e.Item.Width - 3, e.Item.Height / 2);
+        {
+            if (e.Vertical)
+            {
+                int inset = HostChrome.Px(7, Dpi);
+                e.Graphics.DrawLine(pen, e.Item.Width / 2, inset, e.Item.Width / 2, e.Item.Height - inset - 1);
+            }
+            else e.Graphics.DrawLine(pen, 2, e.Item.Height / 2, e.Item.Width - 3, e.Item.Height / 2);
+        }
     }
 }

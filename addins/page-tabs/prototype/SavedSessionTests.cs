@@ -84,15 +84,21 @@ internal static class SavedSessionTests
         var legacy = store.Read();
         var first = legacy.Tabs[0];
         var second = legacy.Tabs[1];
+        Check(!legacy.Tabs.Any(t => t.Pinned), "A legacy tab unexpectedly migrated as pinned.");
+        store.Change(s => s.SetPinned(first.Key, true));
         store.Change(s => s.UpdateTab(first, second.Page));
         var migrated = new SessionStore(path).Read();
         Check(migrated.Tabs.Select(t => t.Key).SequenceEqual(new[] { first.Key, second.Key }) &&
-            migrated.Tabs.All(t => t.Page.Id == "b") && migrated.Bookmarks.Single().Id == "a",
+            migrated.Tabs.All(t => t.Page.Id == "b") && migrated.Tabs[0].Pinned && !migrated.Tabs[1].Pinned &&
+            migrated.Bookmarks.Single().Id == "a",
             "Migration or restart merged tabs, reordered them, or retargeted the bookmark.");
         store.Change(s => s.UpdateTab(first, new SavedPage("stale", "Stale window", "")));
         Check(store.Read().Tabs[0].Page.Id == "b", "An outdated window overwrote a newer page.");
         store.Change(s => s.Tabs.RemoveAll(t => t.Key == first.Key) > 0);
         Check(store.Read().Tabs.Single().Key == second.Key, "Closing one duplicate closed the other tab.");
+        File.WriteAllText(path, "<workingSet version='2' revision='old'><tabs><page tabId='slot' id='x' caption='X'/></tabs><bookmarks/></workingSet>");
+        var v2 = store.Read().Tabs.Single();
+        Check(v2.Key == "slot" && !v2.Pinned, "Version 2 lost the existing tab identity or invented a pin.");
         Console.WriteLine("PASS migrated saved tabs, independent same-page slots, persistent order, bookmarks and stale-window protection.");
     }
 
@@ -143,6 +149,7 @@ internal static class SavedSessionTests
             {
                 case "save":
                     source.Navigate("a2"); strip.ClickKeepCurrent();
+                    AppearanceTests.TogglePin(strip, strip.Items.OfType<PageTabButton>().Single(t => t.Checked), true);
                     source.Navigate("b1"); strip.ClickKeepCurrent(); strip.ClickKeepCurrent();
                     var menu = strip.Items.OfType<ToolStripDropDownButton>().Single();
                     menu.ShowDropDown();
@@ -155,6 +162,9 @@ internal static class SavedSessionTests
                     break;
                 case "restore":
                     var stored = store.Read();
+                    var pinned = strip.Items.OfType<PageTabButton>().First();
+                    Check(((SavedTab)pinned.Tag).Pinned && ((SavedTab)pinned.Tag).Page.Id == "a2" &&
+                        strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 2, "Pinned group did not survive restart.");
                     Check(strip.TabCount == 2 && stored.Tabs.Select(t => t.Page.Id).SequenceEqual(new[] { "a1", "a2" }) &&
                         source.Current == "untracked" && !strip.IsSelected("a1"), "Restoration changed the page or lost the tab order.");
                     var saved = stored.Bookmarks.Single();
