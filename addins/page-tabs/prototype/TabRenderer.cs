@@ -16,7 +16,7 @@ internal sealed class PageTabButton : ToolStripButton
 
 internal sealed class TabRenderer : ToolStripProfessionalRenderer
 {
-    internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover;
+    internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker;
     private readonly bool contrast;
     internal readonly uint Dpi;
     internal TabRenderer(Color surface, uint dpi, bool highContrast)
@@ -30,6 +30,11 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         MutedInk = highContrast ? Ink : Blend(Ink, Surface, 13);
         Tab = highContrast ? Surface : Blend(Surface, toward, 9);
         Active = highContrast ? SystemColors.Highlight : Blend(Surface, toward, 22);
+        Color accent = dark ? Color.FromArgb(207, 169, 255) : Color.FromArgb(99, 48, 160);
+        double a = Luminance(accent), b = Luminance(Active);
+        if ((Math.Max(a, b) + .05) / (Math.Min(a, b) + .05) < 3)
+            accent = b > .179 ? Color.Black : Color.White;
+        ActiveMarker = highContrast ? SystemColors.HighlightText : accent;
         Hover = highContrast ? SystemColors.Highlight : Blend(Surface, toward, 15);
         RoundedEdges = false;
     }
@@ -115,6 +120,12 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                 e.Graphics.FillPath(fill, shape);
                 if (contrast)
                     using (var border = new Pen(Ink) { Alignment = PenAlignment.Inset }) e.Graphics.DrawPath(border, shape);
+                if (tab.Checked)
+                {
+                    int inset = HostChrome.Px(8, Dpi);
+                    using (var marker = new SolidBrush(ActiveMarker))
+                        e.Graphics.FillRectangle(marker, inset, 0, Math.Max(1, w - 2 * inset), HostChrome.Px(3, Dpi));
+                }
             }
         }
         finally { e.Graphics.Restore(state); }

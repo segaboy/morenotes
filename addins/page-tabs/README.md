@@ -34,7 +34,9 @@ Page tabs hang from the Quick Access Toolbar. Their tops meet the toolbar and th
 
 ![MoreTabs rendered with sample pages and the measured dark OneNote theme](appearance.png)
 
-Tabs show the page title. If two open pages share a title, their labels also show the notebook. Hovering over a tab shows its full saved caption.
+The active tab carries a colored bar along its top edge. It stays visible while you type in OneNote. Naming or renaming the displayed page updates its tab as soon as MoreTabs reads the new title from OneNote. If two pages in different notebooks share a title, the labels also show the notebook.
+
+Following OneNote's page list, a link, or Back updates the page in the active tab and preserves its position. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
 
 Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
 
@@ -51,14 +53,14 @@ MoreTabs first navigates using the saved page ID. If OneNote rejects it, MoreTab
 
 Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for the three tabs and the console's READY message.
 
-1. From Dashboard in MoreTabs A, click **Schedule** in OneNote's page list, then **Back**. Pause on each page and check that its tab highlights.
+1. From Dashboard in MoreTabs A, click **Schedule** in OneNote's own page list. The same tab should keep its colored bar and become Schedule, alongside the original Schedule tab. Use **Back** and watch the first tab return to Dashboard. Click **+**, name the Quick Note in its title field, and check that its active tab adopts the title.
 2. From **Dashboard / MoreTabs A**, put the caret in the page body and press **Ctrl+Alt+F6** to focus the active page tab. Press **Right** twice and **Enter** to open Dashboard in MoreTabs B. Without clicking, type `MoreTabs focus OK`. Try **Ctrl+Alt+F6** followed by **Escape** to return without navigating. The interactive prototype requests the shortcut while its editor is in the foreground and reports any registration conflict. Left and Right select a strip item, Enter activates it, and Escape exits the strip.
 3. Resize the window, maximize and restore it, then collapse and expand the ribbon. Pause briefly after each change and check the strip and both adjacent rows. If available, move the window to a display with a different scale setting.
 4. Choose **Close prototype**. The output reports displayed test pages, highlighting, sampled layout changes, DPI and whether the B page body contains the marker. The operator supplies the observations about input method and focus. A normal exit alone does not establish that each step was exercised.
 
 ### Live desktop verification
 
-On November 24, 2026, a read-only measurement of OneNote `16.0.20715.20004` (x64) at 96 DPI found the left edge of the notebook icon 25 pixels into the row and its surrounding color was `#110C08`. The preview above shows the prototype rendered with those measurements and two sample pages. The controlled renderer tests checked dark, light and high-contrast palettes at 96 and 144 DPI, including both bottom corners and the position of the tab against the toolbar.
+On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The preview above shows its three disposable tabs, including the active marker on the first Dashboard. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. The tab kept its position and selection throughout. The strip aligned with the notebook icon 25 pixels into the navigation row and used the measured `#110C08` background. Controlled rendering tests also checked the active marker in dark, light and high-contrast palettes at 96 and 144 DPI.
 
 On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. The COM window handle belonged to a child of the measured editor frame. Matching its top-level ancestor selected the correct editor.
 
@@ -102,7 +104,7 @@ Prove same-window navigation and the requested placement on Windows desktop. Use
 | --- | --- |
 | Placement | With the Quick Access Toolbar below the ribbon and horizontal section tabs active, the new strip occupies its own row directly between the toolbar and native notebook/section row. Both native rows and the editor remain fully visible and clickable. Capture before and after views of test content. |
 | New tab and navigation | From another notebook, click **+** twice. Each click creates one page in the configured Quick Notes section, opens it in the same editor and focuses its new tab. Keep existing pages via the arrow beside **+**. Alternate among three pages across two notebooks and verify that the active page matches the selected tab. |
-| Native navigation | Use OneNote's native page list, section navigation and Back to visit tracked pages. The active tab follows. Visiting an untracked page clears the previous highlight or indicates the untracked state without navigating the user back. |
+| Native navigation | Use the page list, section navigation or Back to visit another page. The active tab keeps its position and indicator, shows the new title and remembers that destination. If another tab already shows that page, both remain open and exactly one is active. |
 | Layout | Resize and maximize/restore the window. Collapse/expand the ribbon. Check at 100% and 150% scaling and across monitors with different scaling when available. Verify alignment, click targets, native controls and page content each time. Record unavailable configurations as untested. |
 | Keyboard focus | Navigate and activate tabs with the keyboard, return focus to the page, and type into a test page. Repeat after using native navigation. No stolen keystrokes, unexpected window activation or focus trap. |
 

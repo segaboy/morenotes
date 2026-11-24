@@ -33,10 +33,39 @@ internal sealed class SavedPage
     }
 }
 
+internal sealed class SavedTab
+{
+    internal readonly string Key;
+    internal readonly SavedPage Page;
+    internal SavedTab(string key, SavedPage page) { Key = key; Page = page; }
+}
+
 internal sealed class WorkingSet
 {
-    internal readonly List<SavedPage> Tabs = new List<SavedPage>(), Bookmarks = new List<SavedPage>();
+    internal readonly List<SavedTab> Tabs = new List<SavedTab>();
+    internal readonly List<SavedPage> Bookmarks = new List<SavedPage>();
     internal string Revision;
+
+    internal bool KeepTab(SavedPage page, string preferred, out string key)
+    {
+        var tab = Tabs.Find(t => t.Key == preferred && page.Matches(t.Page)) ?? Tabs.Find(t => page.Matches(t.Page));
+        key = tab == null ? Guid.NewGuid().ToString("N") : tab.Key;
+        if (tab != null) return UpdateTab(tab, page);
+        Tabs.Add(new SavedTab(key, page));
+        return true;
+    }
+
+    internal bool UpdateTab(SavedTab expected, SavedPage page)
+    {
+        int index = Tabs.FindIndex(t => t.Key == expected.Key);
+        if (index < 0 || !expected.Page.Matches(Tabs[index].Page)) return false;
+        var old = Tabs[index].Page;
+        if (page.Matches(old) && page.Link.Length == 0 && old.Link.Length != 0)
+            page = new SavedPage(page.Id, page.Caption, old.Link);
+        if (page.Id == old.Id && page.Caption == old.Caption && page.Link == old.Link) return false;
+        Tabs[index] = new SavedTab(expected.Key, page);
+        return true;
+    }
 
     internal static bool Keep(List<SavedPage> list, SavedPage page)
     {
@@ -77,23 +106,32 @@ internal sealed class SessionStore
         catch (FileNotFoundException) { return new WorkingSet(); }
         catch (DirectoryNotFoundException) { return new WorkingSet(); }
         catch (System.Xml.XmlException ex) { throw new InvalidDataException("Cannot read the saved MoreTabs file: " + path, ex); }
-        if (root.Name != "workingSet" || (string)root.Attribute("version") != "1" ||
+        string version = (string)root.Attribute("version");
+        if (root.Name != "workingSet" || (version != "1" && version != "2") ||
             String.IsNullOrEmpty((string)root.Attribute("revision")))
             throw new InvalidDataException("Unrecognized MoreTabs file: " + path);
         var state = new WorkingSet { Revision = (string)root.Attribute("revision") };
-        ReadList(root.Element("tabs"), state.Tabs);
-        ReadList(root.Element("bookmarks"), state.Bookmarks);
+        foreach (var element in Pages(root.Element("tabs")))
+        {
+            var page = ReadPage(element);
+            // Two processes reading the same unmigrated file must agree on each slot's identity.
+            string key = version == "1" ? "legacy-" + page.Id : (string)element.Attribute("tabId");
+            if (String.IsNullOrEmpty(key) || state.Tabs.Exists(t => t.Key == key)) throw new InvalidDataException("Invalid saved tab identity.");
+            state.Tabs.Add(new SavedTab(key, page));
+        }
+        foreach (var element in Pages(root.Element("bookmarks"))) WorkingSet.Keep(state.Bookmarks, ReadPage(element));
         return state;
     }
-    private static void ReadList(XElement container, List<SavedPage> list)
+    private static IEnumerable<XElement> Pages(XElement container)
     {
         if (container == null) throw new InvalidDataException("Missing MoreTabs page list.");
-        foreach (var element in container.Elements("page"))
-        {
-            string id = (string)element.Attribute("id"), caption = (string)element.Attribute("caption");
-            if (String.IsNullOrEmpty(id) || caption == null) throw new InvalidDataException("Invalid saved page reference.");
-            WorkingSet.Keep(list, new SavedPage(id, caption, (string)element.Attribute("link")));
-        }
+        return container.Elements("page");
+    }
+    private static SavedPage ReadPage(XElement element)
+    {
+        string id = (string)element.Attribute("id"), caption = (string)element.Attribute("caption");
+        if (String.IsNullOrEmpty(id) || caption == null) throw new InvalidDataException("Invalid saved page reference.");
+        return new SavedPage(id, caption, (string)element.Attribute("link"));
     }
 
     internal WorkingSet Change(Func<WorkingSet, bool> edit)
@@ -109,8 +147,10 @@ internal sealed class SessionStore
             var state = Read();
             if (!edit(state)) return state;
             state.Revision = Guid.NewGuid().ToString("N");
-            var root = new XElement("workingSet", new XAttribute("version", "1"), new XAttribute("revision", state.Revision),
-                new XElement("tabs", state.Tabs.Select(page => page.ToXml())),
+            var root = new XElement("workingSet", new XAttribute("version", "2"), new XAttribute("revision", state.Revision),
+                new XElement("tabs", state.Tabs.Select(tab => {
+                    var xml = tab.Page.ToXml(); xml.SetAttributeValue("tabId", tab.Key); return xml;
+                })),
                 new XElement("bookmarks", state.Bookmarks.Select(page => page.ToXml())));
             string temporary = path + "." + state.Revision + ".tmp";
             try

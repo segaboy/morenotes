@@ -154,10 +154,12 @@ internal sealed class PageStrip : ToolStrip
     private WorkingSet state;
     private string displayedRevision;
     private SavedPage displayedPage;
+    private string activeKey;
+    private SavedTab pendingTab;
+    private bool focusPending;
     private DateTime nextRead;
     private DateTime nextCaptionCheck;
-    private string focusWhenDisplayed;
-    private DateTime focusDeadline;
+    private DateTime navigationDeadline;
     private readonly Action<Exception> onError;
     private const int FocusShortcut = 1;
     private bool shortcutRegistered, shortcutAttempted;
@@ -363,12 +365,26 @@ internal sealed class PageStrip : ToolStrip
     internal void AddCurrent()
     {
         SavedPage page = CaptureCurrent();
-        if (page != null) ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page)));
+        if (page != null) ExpectNavigation(KeepTab(page), false);
         RefreshActive();
+    }
+    private SavedTab KeepTab(SavedPage page)
+    {
+        string key = null;
+        ApplyState(store.Change(s => s.KeepTab(page, activeKey, out key)));
+        return state.Tabs.Find(t => t.Key == key);
+    }
+    private void ExpectNavigation(SavedTab tab, bool focus)
+    {
+        pendingTab = tab;
+        focusPending = focus;
+        navigationDeadline = DateTime.UtcNow.AddSeconds(5);
+        nextCaptionCheck = DateTime.MinValue;
     }
     private void CreateQuickNote()
     {
-        focusWhenDisplayed = null;
+        pendingTab = null;
+        focusPending = false;
         string id;
         try { id = pages.CreateQuickNote(); }
         catch (Exception error)
@@ -379,25 +395,20 @@ internal sealed class PageStrip : ToolStrip
             return;
         }
         var page = new SavedPage(id, "Quick Note", pages.LinkFor(id));
-        bool saved = true;
-        try { ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page))); }
-        catch (System.IO.IOException) { saved = false; }
-        catch (UnauthorizedAccessException) { saved = false; }
+        SavedTab saved = null;
+        try { saved = KeepTab(page); }
+        catch (System.IO.IOException) { }
+        catch (UnauthorizedAccessException) { }
         try { pages.Navigate(id); }
         catch (COMException error)
         {
             Console.WriteLine("Opening the newly created Quick Note failed (0x{0:X8}).", error.HResult);
-            notice.Show(saved ? "Quick Note created. Click its tab to try opening it again." :
+            notice.Show(saved != null ? "Quick Note created. Click its tab to try opening it again." :
                 "Quick Note created in OneNote. MoreTabs could not save or open its tab.", this, 4, Height, 6000);
             return;
         }
-        if (saved)
-        {
-            focusWhenDisplayed = id;
-            focusDeadline = DateTime.UtcNow.AddSeconds(5);
-        }
-        else notice.Show("Quick Note opened. MoreTabs could not save its tab.", this, 4, Height, 6000);
-        nextCaptionCheck = DateTime.MinValue;
+        if (saved != null) ExpectNavigation(saved, true);
+        else { activeKey = null; notice.Show("Quick Note opened. MoreTabs could not save its tab.", this, 4, Height, 6000); }
         RefreshActive();
     }
     internal void RestoreOrSeed()
@@ -405,7 +416,7 @@ internal sealed class PageStrip : ToolStrip
         if (state.Revision == null)
         {
             SavedPage page = CaptureCurrent();
-            if (page != null) ApplyState(store.Change(s => s.Revision == null && WorkingSet.Keep(s.Tabs, page)));
+            if (page != null) ApplyState(store.Change(s => { string key; return s.Revision == null && s.KeepTab(page, null, out key); }));
         }
         RefreshActive();
         Console.WriteLine("Working set attached: {0} tab(s), {1} bookmark(s).", state.Tabs.Count, state.Bookmarks.Count);
@@ -413,22 +424,26 @@ internal sealed class PageStrip : ToolStrip
     private SavedPage CaptureCurrent()
     {
         string id = pages.Current;
-        return String.IsNullOrEmpty(id) ? null : new SavedPage(id, pages.Caption(id), pages.LinkFor(id));
+        if (String.IsNullOrEmpty(id)) return null;
+        var captured = new SavedPage(id, pages.Caption(id), pages.LinkFor(id));
+        return pages.Current == id ? captured : null;
     }
-    private void RefreshCaption(string id)
+    private void RefreshCaption(SavedTab active, string id)
     {
-        ToolStripButton current;
-        if (DateTime.UtcNow >= nextCaptionCheck && !String.IsNullOrEmpty(id) && buttons.TryGetValue(id, out current))
+        if (DateTime.UtcNow >= nextCaptionCheck)
         {
-            nextCaptionCheck = DateTime.UtcNow.AddSeconds(5);
+            nextCaptionCheck = DateTime.UtcNow.AddMilliseconds(750);
             try
             {
-                var previous = (SavedPage)current.Tag;
                 var caption = pages.Caption(id);
-                if (caption != previous.Caption && pages.Current == id)
+                if (state.Tabs.Exists(t => t.Page.Matches(active.Page) && t.Page.Caption != caption) && pages.Current == id)
                 {
-                    var renamed = new SavedPage(id, caption, previous.Link);
-                    ApplyState(store.Change(s => s.Tabs.Exists(previous.Matches) && WorkingSet.Keep(s.Tabs, renamed)));
+                    ApplyState(store.Change(s => {
+                        bool changed = false;
+                        foreach (var tab in s.Tabs.FindAll(t => t.Page.Matches(active.Page)))
+                            changed |= s.UpdateTab(tab, new SavedPage(tab.Page.Id, caption, tab.Page.Link));
+                        return changed;
+                    }));
                 }
             }
             catch (COMException) { /* Retry on the next tick if OneNote is busy with an edit. */ }
@@ -438,56 +453,58 @@ internal sealed class PageStrip : ToolStrip
     {
         state = updated;
         if (displayedRevision == updated.Revision) return;
-        displayedPage = null;
-        foreach (var id in buttons.Keys.Where(id => !state.Tabs.Any(p => p.Id == id)).ToArray())
+        foreach (var id in buttons.Keys.Where(id => !state.Tabs.Any(t => t.Key == id)).ToArray())
         {
+            if (id == activeKey) activeKey = null;
             var obsolete = buttons[id];
             buttons.Remove(id);
             Items.Remove(obsolete);
             obsolete.Dispose();
         }
-        var titles = state.Tabs.ToLookup(ShortCaption, StringComparer.CurrentCultureIgnoreCase);
+        var titles = state.Tabs.ToLookup(t => ShortCaption(t.Page), StringComparer.CurrentCultureIgnoreCase);
         for (int i = 0; i < state.Tabs.Count; i++)
         {
-            SavedPage page = state.Tabs[i];
+            var slot = state.Tabs[i];
+            SavedPage page = slot.Page;
             ToolStripButton button;
-            if (!buttons.TryGetValue(page.Id, out button))
+            if (!buttons.TryGetValue(slot.Key, out button))
             {
                 var pageTab = new PageTabButton { DisplayStyle = ToolStripItemDisplayStyle.Text };
                 SizeTab(pageTab);
                 button = pageTab;
                 var tab = button;
-                tab.Click += delegate { Perform(delegate { OpenSaved((SavedPage)tab.Tag, false); }); };
+                tab.Click += delegate { Perform(delegate { var target = (SavedTab)tab.Tag; OpenSaved(target.Page, target); }); };
                 tab.MouseUp += delegate(object sender, MouseEventArgs e)
                 {
-                    if (e.Button == MouseButtons.Right) ShowTabMenu((SavedPage)tab.Tag);
-                    if (e.Button == MouseButtons.Middle) Perform(delegate { CloseTab((SavedPage)tab.Tag); });
+                    if (e.Button == MouseButtons.Right) ShowTabMenu((SavedTab)tab.Tag);
+                    if (e.Button == MouseButtons.Middle) Perform(delegate { CloseTab((SavedTab)tab.Tag); });
                 };
-                buttons.Add(page.Id, button);
+                buttons.Add(slot.Key, button);
             }
             string title = ShortCaption(page);
-            button.Text = titles[title].Count() == 1 ? title : page.Caption;
+            button.Text = titles[title].Any(t => t.Page.Caption != page.Caption) ? page.Caption : title;
             button.AccessibleName = page.Caption;
             button.ToolTipText = page.Caption + "\nRight-click to bookmark or close this tab.";
-            button.Tag = page;
+            button.Tag = slot;
             if (Items.IndexOf(button) != i) { Items.Remove(button); Items.Insert(i, button); }
         }
         displayedRevision = updated.Revision;
     }
-    private void ShowTabMenu(SavedPage page)
+    private void ShowTabMenu(SavedTab tab)
     {
         ClearMenu(tabMenu.Items);
-        tabMenu.Items.Add("Bookmark this tab", null, delegate { Perform(delegate { SaveBookmark(page); }); });
-        tabMenu.Items.Add("Close tab", null, delegate { Perform(delegate { CloseTab(page); }); });
+        tabMenu.Items.Add("Bookmark this tab", null, delegate { Perform(delegate { SaveBookmark(tab.Page); }); });
+        tabMenu.Items.Add("Close tab", null, delegate { Perform(delegate { CloseTab(tab); }); });
         tabMenu.Show(Cursor.Position);
     }
     private static void ClearMenu(ToolStripItemCollection items)
     {
         while (items.Count > 0) { var item = items[0]; items.RemoveAt(0); item.Dispose(); }
     }
-    internal void CloseTab(SavedPage page)
+    internal void CloseTab(SavedTab tab)
     {
-        ApplyState(store.Change(s => s.Tabs.RemoveAll(page.Matches) > 0));
+        if (pendingTab != null && pendingTab.Key == tab.Key) pendingTab = null;
+        ApplyState(store.Change(s => s.Tabs.RemoveAll(t => t.Key == tab.Key) > 0));
         RefreshActive();
     }
     internal void SaveBookmark(SavedPage page)
@@ -511,15 +528,16 @@ internal sealed class PageStrip : ToolStrip
         {
             var page = saved;
             string label = page.Caption.Replace("&", "&&");
-            menu.Add(label, null, delegate { Perform(delegate { OpenSaved(page, true); }); });
+            menu.Add(label, null, delegate { Perform(delegate { OpenSaved(page); }); });
             remove.DropDownItems.Add(label, null, delegate { Perform(delegate { RemoveBookmark(page); }); });
         }
         menu.Add(new ToolStripSeparator());
         menu.Add(remove);
     }
-    internal bool OpenSaved(SavedPage page, bool addTab)
+    internal bool OpenSaved(SavedPage page, SavedTab target = null)
     {
-        focusWhenDisplayed = null;
+        pendingTab = null;
+        focusPending = false;
         try { pages.Navigate(page.Id); }
         catch (COMException)
         {
@@ -535,7 +553,7 @@ internal sealed class PageStrip : ToolStrip
                 return false;
             }
         }
-        if (addTab) ApplyState(store.Change(s => WorkingSet.Keep(s.Tabs, page)));
+        ExpectNavigation(target ?? KeepTab(page), false);
         RefreshActive();
         return true;
     }
@@ -547,29 +565,55 @@ internal sealed class PageStrip : ToolStrip
             nextRead = DateTime.UtcNow.AddSeconds(2);
         }
         string id = pages.Current;
-        RefreshCaption(id);
-        if (displayedPage == null || displayedPage.Id != id)
+        if (String.IsNullOrEmpty(id)) return; // OneNote can clear this briefly while switching notebooks.
+        bool moved = displayedPage == null || displayedPage.Id != id;
+        var visible = moved ? new SavedPage(id, "", pages.LinkFor(id)) : displayedPage;
+        var activeTab = state.Tabs.Find(t => t.Key == activeKey);
+        if (pendingTab != null)
         {
-            string link = !String.IsNullOrEmpty(id) && !buttons.ContainsKey(id) && state.Tabs.Count > 0 ? pages.LinkFor(id) : "";
-            displayedPage = new SavedPage(id, "", link);
+            // A tab click may return before OneNote switches pages. Never copy the outgoing page into the requested tab.
+            if (!pendingTab.Page.Matches(visible) && DateTime.UtcNow < navigationDeadline) return;
+            activeTab = state.Tabs.Find(t => t.Key == pendingTab.Key && t.Page.Matches(visible));
+            if (activeTab == null) focusPending = false;
+            pendingTab = null;
         }
+        else if (moved && activeTab != null && activeTab.Page.Matches(displayedPage) && !activeTab.Page.Matches(visible))
+        {
+            focusPending = false;
+            try
+            {
+                var next = new SavedPage(id, pages.Caption(id), visible.Link);
+                if (pages.Current != id) return;
+                ApplyState(store.Change(s => s.UpdateTab(activeTab, next)));
+                activeTab = state.Tabs.Find(t => t.Key == activeKey);
+            }
+            catch (COMException) { return; } // Retry the same transition once OneNote finishes loading the page.
+        }
+        if (activeTab == null || !activeTab.Page.Matches(visible))
+            activeTab = state.Tabs.Find(t => t.Page.Matches(visible));
+        activeKey = activeTab == null ? null : activeTab.Key;
+        displayedPage = visible;
+        if (moved) nextCaptionCheck = DateTime.MinValue;
+        if (activeTab != null) RefreshCaption(activeTab, id);
         foreach (var entry in buttons)
         {
-            bool active = ((SavedPage)entry.Value.Tag).Matches(displayedPage);
+            bool active = entry.Key == activeKey;
             var overflow = active ? ToolStripItemOverflow.Never : ToolStripItemOverflow.AsNeeded;
             if (entry.Value.Overflow != overflow) entry.Value.Overflow = overflow;
-            if (entry.Value.Checked != active) entry.Value.Checked = active;
+            if (entry.Value.Checked != active)
+            {
+                entry.Value.Checked = active;
+                entry.Value.AccessibleDescription = active ? "Active page tab" : "Page tab";
+                entry.Value.Invalidate();
+            }
         }
-        if (focusWhenDisplayed == null) return;
-        if (DateTime.UtcNow > focusDeadline) { focusWhenDisplayed = null; return; }
-        ToolStripButton target;
-        if (id == focusWhenDisplayed && buttons.TryGetValue(id, out target) && FocusTab(target, ForegroundFocus()))
-            focusWhenDisplayed = null;
+        if (focusPending && (activeKey == null || DateTime.UtcNow > navigationDeadline || FocusTab(buttons[activeKey], ForegroundFocus())))
+            focusPending = false;
     }
     internal void ClickAdd() { add.PerformButtonClick(); }
     internal void ClickKeepCurrent() { add.DropDownItems[0].PerformClick(); }
-    internal void ClickTab(string id) { buttons[id].PerformClick(); }
-    internal bool IsSelected(string id) { return buttons[id].Checked; }
-    internal bool HasTabFocus(string id) { return ContainsFocus && buttons[id].Selected; }
+    internal void ClickTab(string id) { buttons[state.Tabs.First(t => t.Page.Id == id).Key].PerformClick(); }
+    internal bool IsSelected(string id) { return buttons.Values.Any(b => b.Checked && ((SavedTab)b.Tag).Page.Id == id); }
+    internal bool HasTabFocus(string id) { return ContainsFocus && IsSelected(id) && buttons[activeKey].Selected; }
     internal int TabCount { get { return buttons.Count; } }
 }

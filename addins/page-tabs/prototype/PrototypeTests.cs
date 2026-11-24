@@ -20,7 +20,13 @@ internal static class PrototypeTests
         internal bool LocationUnavailable, FailNextNavigation, DelayNextNavigation;
         internal string PendingPage;
         public string Current { get; private set; }
-        public string Caption(string id) { return id == "b/1" ? "Dashboard / B" : id == "a/1" ? "Dashboard / A" : "Schedule / A"; }
+        internal readonly Dictionary<string, string> Renamed = new Dictionary<string, string>();
+        public string Caption(string id)
+        {
+            string caption;
+            return Renamed.TryGetValue(id, out caption) ? caption : id == "b/1" ? "Dashboard / B" : id == "a/1" ? "Dashboard / A" :
+                id.StartsWith("personal/quick/") ? "Untitled / Personal" : "Schedule / A";
+        }
         public string CreateQuickNote()
         {
             if (LocationUnavailable) throw new InvalidOperationException("No configured Quick Notes section.");
@@ -109,6 +115,10 @@ internal static class PrototypeTests
                         Check(source.NotesCreated == 0, "Keeping an existing page created a Quick Note.");
                         strip.ClickAdd();
                         Check(strip.HasTabFocus(source.Current), "The first Quick Note tab did not receive keyboard focus.");
+                        var note = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                        Check(note.Text == "Untitled", "New Quick Note did not adopt OneNote's initial title.");
+                        source.Renamed[source.Current] = "Trip plans / Personal";
+                        WaitForLabel(strip, note, "Trip plans");
                         strip.ClickAdd();
                         Check(source.NotesCreated == 2 && strip.TabCount == 5 && source.Current == "personal/quick/2" &&
                             strip.IsSelected(source.Current) && strip.HasTabFocus(source.Current), "Each click should create, open and focus a distinct Quick Note tab.");
@@ -134,7 +144,8 @@ internal static class PrototypeTests
                         {
                             document.Controls.Add(editor);
                             editor.Focus();
-                            source.Navigate(ids[0]); strip.RefreshActive();
+                            strip.ClickTab(ids[0]);
+                            editor.Focus();
                             strip.FocusPageTabs(editor.Handle);
                             Check(strip.Focused, "Keyboard entry did not focus the strip.");
                             PressStripKey(strip, Keys.Right);
@@ -146,10 +157,19 @@ internal static class PrototypeTests
                             Check(source.Current == ids[1] && editor.Focused, "Escape did not return without navigating.");
                             Console.WriteLine("PASS controlled keyboard entry, arrow selection, Enter and Escape return to editor.");
                         }
+                        var moving = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
+                        var original = strip.Items.OfType<PageTabButton>().First();
+                        int position = strip.Items.IndexOf(moving);
                         source.Navigate("a/1"); strip.RefreshActive();
-                        Check(strip.IsSelected("a/1") && !strip.IsSelected("b/1"), "External navigation left a stale highlight.");
+                        Check(moving.Checked && !original.Checked && moving != original && moving.Text == original.Text &&
+                            strip.IsSelected("a/1"), "Native navigation to an already-open page switched tab slots.");
+                        original.PerformClick();
+                        Check(original.Checked && !moving.Checked, "Clicking a second tab for the same page failed to select that tab.");
+                        moving.PerformClick();
                         source.Navigate("other"); strip.RefreshActive();
-                        foreach (var id in ids) Check(!strip.IsSelected(id), "Untracked page left a highlight.");
+                        Check(moving.Checked && strip.Items.IndexOf(moving) == position && ((SavedTab)moving.Tag).Page.Id == "other" &&
+                            ((SavedTab)original.Tag).Page.Id == "a/1", "Native navigation did not update the active tab in place.");
+                        Console.WriteLine("PASS Quick Note title edits and native navigation preserve the active tab's identity, position and independent selection.");
                         if (failure != null) throw failure;
                     }
                     layout.Dispose();
@@ -187,8 +207,14 @@ internal static class PrototypeTests
 
     private static string CreatePage(One.Application app, string section, string name)
     {
-        string id, xml;
+        string id;
         app.CreateNewPage(section, out id, One.NewPageStyle.npsBlankPageWithTitle);
+        RenameFixturePage(app, id, name);
+        return id;
+    }
+    private static void RenameFixturePage(One.Application app, string id, string name)
+    {
+        string xml;
         app.GetPageContent(id, out xml, One.PageInfo.piBasic, One.XMLSchema.xs2013);
         var page = XElement.Parse(xml);
         XNamespace ns = page.Name.Namespace;
@@ -197,7 +223,17 @@ internal static class PrototypeTests
         if (value == null) throw new InvalidOperationException("Missing title in the disposable page.");
         value.ReplaceNodes(new XCData(name));
         app.UpdatePageContent(page.ToString(), DateTime.MinValue, One.XMLSchema.xs2013, false);
-        return id;
+    }
+    private static void WaitForLabel(PageStrip strip, PageTabButton tab, string expected)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        do
+        {
+            strip.RefreshActive();
+            if (tab.Checked && tab.Text == expected) return;
+            Application.DoEvents(); Thread.Sleep(60);
+        } while (clock.ElapsedMilliseconds < 10000);
+        throw new TimeoutException("The active tab did not adopt the disposable page title.");
     }
 
     internal static void DisposableNotebooks(NotebookPages source, PageStrip strip, NativeLayout layout, Rectangle slot, bool handsOn, string directory)
@@ -246,7 +282,7 @@ internal static class PrototypeTests
                 {
                     strip.ClickAdd();
                     Check(strip.TabCount == 4 + i, "Quick Note click " + (i + 1) + " did not add a new tab.");
-                    string id = ((SavedPage)strip.Items.OfType<ToolStripButton>().Last(b => b.Tag is SavedPage).Tag).Id;
+                    string id = ((SavedTab)strip.Items.OfType<PageTabButton>().Last().Tag).Page.Id;
                     WaitForPage(source, id, "opening Quick Note " + (i + 1)); strip.RefreshActive();
                     string parent;
                     source.App.GetHierarchyParent(id, out parent);
@@ -255,6 +291,18 @@ internal static class PrototypeTests
                         "New Quick Note did not open with its own focused tab in the disposable destination section.");
                 }
                 Console.WriteLine("PASS two + clicks created two Quick Notes in the disposable destination section and focused each new tab in this editor.");
+                var note = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                var samePage = strip.Items.OfType<PageTabButton>().First();
+                int slotIndex = strip.Items.IndexOf(note);
+                string noteId = ((SavedTab)note.Tag).Page.Id;
+                RenameFixturePage(source.App, noteId, "Quick Note title check");
+                WaitForLabel(strip, note, "Quick Note title check");
+                source.Navigate(pages[0]); WaitForPage(source, pages[0]); strip.RefreshActive();
+                Check(note.Checked && !samePage.Checked && note.Text == samePage.Text && strip.Items.IndexOf(note) == slotIndex &&
+                    ((SavedTab)note.Tag).Page.Id == pages[0] && strip.TabCount == 5, "Navigation switched away from the active tab.");
+                source.Navigate(noteId); WaitForPage(source, noteId);
+                WaitForLabel(strip, note, "Quick Note title check");
+                Console.WriteLine("PASS Quick Note rename, same-tab navigation to an already-open page and return; one active tab throughout.");
                 string configured = source.ResolveQuickNotesSection(null), xml;
                 source.App.GetHierarchy(configured, One.HierarchyScope.hsSelf, out xml, One.XMLSchema.xs2013);
                 Check(XElement.Parse(xml).DescendantsAndSelf().Any(e => e.Name.LocalName == "Section" && (string)e.Attribute("ID") == configured),
@@ -286,7 +334,7 @@ internal static class PrototypeTests
                 source.Navigate(id); WaitForPage(source, id); first.ClickKeepCurrent();
             }
             var saved = store.Read().Tabs[2];
-            first.SaveBookmark(saved);
+            first.SaveBookmark(saved.Page);
             first.CloseTab(saved);
         }
         source.Navigate(pages[0]); WaitForPage(source, pages[0]);
@@ -295,7 +343,7 @@ internal static class PrototypeTests
             restored.Attach(slot, layout);
             restored.RestoreOrSeed();
             Check(restored.TabCount == 2 && restored.IsSelected(pages[0]), "Reopening MoreTabs did not restore the two remaining tabs.");
-            Check(restored.OpenSaved(store.Read().Bookmarks.Single(), true), "Could not reopen bookmarked page.");
+            Check(restored.OpenSaved(store.Read().Bookmarks.Single()), "Could not reopen bookmarked page.");
             WaitForPage(source, pages[2]); restored.RefreshActive();
             Check(restored.IsSelected(pages[2]) && restored.TabCount == 3 && source.Frame == layout.Frame,
                 "Opening a saved bookmark did not restore its tab in the same editor.");

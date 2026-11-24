@@ -58,6 +58,7 @@ internal static class SavedSessionTests
                 }
             }
             ExerciseEditorLifetime(Path.Combine(directory, "reattach.xml"));
+            ExerciseLegacyTabs(Path.Combine(directory, "legacy.xml"));
             string path = Path.Combine(directory, "race.xml");
             Parallel.For(0, 8, i => new SessionStore(path).Change(s =>
                 WorkingSet.Keep(s.Bookmarks, new SavedPage(i.ToString(), "Duplicate title", ""))));
@@ -73,6 +74,26 @@ internal static class SavedSessionTests
             foreach (string file in Directory.GetFiles(directory)) File.Delete(file);
             Directory.Delete(directory);
         }
+    }
+
+    private static void ExerciseLegacyTabs(string path)
+    {
+        File.WriteAllText(path, "<workingSet version='1' revision='old'><tabs><page id='a' caption='First'/>" +
+            "<page id='b' caption='Second'/></tabs><bookmarks><page id='a' caption='First'/></bookmarks></workingSet>");
+        var store = new SessionStore(path);
+        var legacy = store.Read();
+        var first = legacy.Tabs[0];
+        var second = legacy.Tabs[1];
+        store.Change(s => s.UpdateTab(first, second.Page));
+        var migrated = new SessionStore(path).Read();
+        Check(migrated.Tabs.Select(t => t.Key).SequenceEqual(new[] { first.Key, second.Key }) &&
+            migrated.Tabs.All(t => t.Page.Id == "b") && migrated.Bookmarks.Single().Id == "a",
+            "Migration or restart merged tabs, reordered them, or retargeted the bookmark.");
+        store.Change(s => s.UpdateTab(first, new SavedPage("stale", "Stale window", "")));
+        Check(store.Read().Tabs[0].Page.Id == "b", "An outdated window overwrote a newer page.");
+        store.Change(s => s.Tabs.RemoveAll(t => t.Key == first.Key) > 0);
+        Check(store.Read().Tabs.Single().Key == second.Key, "Closing one duplicate closed the other tab.");
+        Console.WriteLine("PASS migrated saved tabs, independent same-page slots, persistent order, bookmarks and stale-window protection.");
     }
 
     private static void ExerciseEditorLifetime(string path)
@@ -129,12 +150,12 @@ internal static class SavedSessionTests
                     menu.HideDropDown();
                     var b = store.Read().Bookmarks.Single();
                     Check(b.Id == "b1" && b.Link == PageLink, "Bookmark menu did not capture the displayed page.");
-                    strip.CloseTab(b);
+                    strip.CloseTab(store.Read().Tabs.Single(t => t.Page.Matches(b)));
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
                     break;
                 case "restore":
                     var stored = store.Read();
-                    Check(strip.TabCount == 2 && stored.Tabs.Select(p => p.Id).SequenceEqual(new[] { "a1", "a2" }) &&
+                    Check(strip.TabCount == 2 && stored.Tabs.Select(t => t.Page.Id).SequenceEqual(new[] { "a1", "a2" }) &&
                         source.Current == "untracked" && !strip.IsSelected("a1"), "Restoration changed the page or lost the tab order.");
                     var saved = stored.Bookmarks.Single();
                     Check(saved.Caption == "Dashboard / B & C", "Bookmark caption did not round trip.");
@@ -147,7 +168,7 @@ internal static class SavedSessionTests
                     Check(strip.TabCount == 3 && strip.IsSelected("b2"), "Changed runtime ID created a duplicate tab.");
                     var gone = new SavedPage("missing", "Unavailable page", "onenote:missing");
                     strip.SaveBookmark(gone);
-                    Check(!strip.OpenSaved(gone, true) && strip.TabCount == 3 && store.Read().Bookmarks.Count == 2, "Failed navigation lost a bookmark.");
+                    Check(!strip.OpenSaved(gone) && strip.TabCount == 3 && store.Read().Bookmarks.Count == 2, "Failed navigation lost a bookmark.");
                     strip.RemoveBookmark(gone);
                     strip.RemoveBookmark(saved);
                     Check(strip.TabCount == 3 && store.Read().Bookmarks.Count == 0, "Removing a bookmark closed a tab.");

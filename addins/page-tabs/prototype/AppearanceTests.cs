@@ -59,6 +59,13 @@ internal static class AppearanceTests
             strip.DrawToBitmap(bitmap, strip.ClientRectangle);
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
+            foreach (var tab in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main))
+            {
+                int pixel = bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, tab.Bounds.Top + edge).ToArgb();
+                var expected = tab.Checked ? palette.ActiveMarker : tab.Selected ? palette.Hover : palette.Tab;
+                Check(pixel == expected.ToArgb() && palette.ActiveMarker.ToArgb() != palette.Active.ToArgb(),
+                    "The persistent accent must appear on exactly the active tab.");
+            }
             Check(bitmap.GetPixel(b.Left + 2 * edge, b.Top + 2 * edge).ToArgb() == palette.Active.ToArgb(),
                 "The active tab has a gap or rounding at its upper-left corner.");
             Check(bitmap.GetPixel(b.Left + edge - 1, b.Bottom - 1).ToArgb() == palette.Surface.ToArgb() &&
