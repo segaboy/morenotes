@@ -229,6 +229,29 @@ internal static class PrototypeTests
                             moving.Group.Notebook.Id == "b" && original.Group.Notebook.Id == "a" &&
                             ((SavedTab)original.Tag).Page.Id == "a/1", "Native navigation did not move the same tab to its destination notebook.");
                         Console.WriteLine("PASS native navigation regroups the active tab by notebook and preserves its identity and independent selection.");
+                        var section = XElement.Parse("<Section xmlns='urn:test'><Page ID='a/1' name='Dashboard' isCurrentlyViewed='true'/>" +
+                            "<Page ID='b/1' name='Dashboard' selected='all'/></Section>");
+                        string target = PageMenuCommand.SelectedPage(section);
+                        Check(target == "b/1", "The context menu chose the displayed page over the selected page.");
+                        section.Elements().First().SetAttributeValue("selected", "all");
+                        Check(PageMenuCommand.SelectedPage(section) == null && PageMenuCommand.SelectedPage(new XElement("Section")) == null,
+                            "An ambiguous or empty selection was accepted.");
+                        int count = strip.TabCount, notes = source.NotesCreated;
+                        AppearanceTests.TogglePin(strip, moving, true);
+                        Check(PageMenuCommand.Send(frame.Handle, target), "The native menu could not reach its editor's strip.");
+                        Application.DoEvents();
+                        string firstNew = strip.ActiveTabKey;
+                        Check(strip.TabCount == count + 1 && firstNew != movingKey && strip.IsSelected(target) &&
+                            ((SavedTab)moving.Tag).Pinned && ((SavedTab)moving.Tag).Page.Id == "other", "Opening from the native page list replaced the source tab.");
+                        Check(PageMenuCommand.Send(frame.Handle, target), "Could not reopen the selected page in an independent tab.");
+                        Application.DoEvents();
+                        Check(strip.TabCount == count + 2 && strip.ActiveTabKey != firstNew && strip.HasTabFocus(target) &&
+                            !((SavedTab)strip.Items.OfType<PageTabButton>().Single(t => t.Checked).Tag).Pinned && source.NotesCreated == notes,
+                            "Opening an existing page should create a focused, unpinned tab each time.");
+                        source.FailNextNavigation = true;
+                        strip.OpenPageInNewTab(target);
+                        Check(strip.TabCount == count + 2, "Failed navigation created an empty tab.");
+                        Console.WriteLine("PASS page-list command resolves a selected ID, preserves the pinned source, and opens distinct focused tabs.");
                         if (failure != null) throw failure;
                     }
                     layout.Dispose();
@@ -271,7 +294,7 @@ internal static class PrototypeTests
                 "Tab overflow displaced the far-right move button.");
             var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToArray();
             var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible).ToArray();
-            Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left && t.Group.Right >= t.Bounds.Right) &&
+            Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left + TabRenderer.CornerRadius(t.Dpi) && t.Group.Right >= t.Bounds.Right) &&
                 headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
             full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);

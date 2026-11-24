@@ -7,6 +7,7 @@ using System.Windows.Forms;
 internal sealed class StripHost : Panel
 {
     private readonly IntPtr frame;
+    internal event Action<string> OpenPage;
     internal readonly Panel Captions = new Panel { TabStop = false };
     internal readonly DockArrow MoveButton = new DockArrow {
         Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, UseMnemonic = false
@@ -14,6 +15,7 @@ internal sealed class StripHost : Panel
     internal StripHost(IntPtr frame, ToolStrip strip)
     {
         this.frame = frame;
+        Text = PageMenuCommand.HostName;
         Visible = false;
         MoveButton.FlatAppearance.BorderSize = 0;
         strip.Dock = DockStyle.Fill;
@@ -24,6 +26,21 @@ internal sealed class StripHost : Panel
     protected override CreateParams CreateParams
     {
         get { var cp = base.CreateParams; cp.Parent = frame; cp.Style |= 0x40000000; return cp; }
+    }
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == PageMenuCommand.CopyData && Visible && Enabled && OpenPage != null)
+        {
+            string id = PageMenuCommand.Read(message);
+            if (id != null)
+            {
+                // Return to OneNote before making any COM calls back into its editor.
+                BeginInvoke(OpenPage, id);
+                message.Result = new IntPtr(1);
+                return;
+            }
+        }
+        base.WndProc(ref message);
     }
     internal void Style(TabRenderer palette)
     {

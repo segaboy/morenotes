@@ -232,6 +232,7 @@ internal sealed class PageStrip : ToolStrip
         stop.Click += delegate { close(); };
         Items.Add(stop);
         Host = new StripHost(frame, this);
+        Host.OpenPage += delegate(string id) { Perform(delegate { OpenPageInNewTab(id); }); };
         Host.MoveButton.Click += delegate { Perform(MoveStrip); };
         SetDirection(false);
         defaultChrome.Update(IntPtr.Zero, 96);
@@ -362,6 +363,13 @@ internal sealed class PageStrip : ToolStrip
         return GetGUIThreadInfo(0, ref info) ? info.Focus : IntPtr.Zero;
     }
     [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    internal static bool MenuInputActive(IntPtr frame, uint thread)
+    {
+        var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+        return (thread != 0 && GetGUIThreadInfo(thread, ref info) && (info.Flags & 0x1c) != 0) ||
+            (GetForegroundWindow() == frame && GetAsyncKeyState(2) < 0);
+    }
     [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr window);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr window, int id);
@@ -489,7 +497,7 @@ internal sealed class PageStrip : ToolStrip
     }
     private void StyleCaption(NotebookTabLabel label)
     {
-        label.ForeColor = appearance.HighContrast || label.Notebook.Color.IsEmpty ? appearance.Ink : label.Notebook.Color;
+        label.ForeColor = appearance.HighContrast || label.Notebook == null || label.Notebook.Color.IsEmpty ? appearance.Ink : label.Notebook.Color;
     }
     internal void AddCurrent()
     {
@@ -509,6 +517,37 @@ internal sealed class PageStrip : ToolStrip
         focusPending = focus;
         navigationDeadline = DateTime.UtcNow.AddSeconds(5);
         nextCaptionCheck = DateTime.MinValue;
+    }
+    internal void OpenPageInNewTab(string id)
+    {
+        // Resolve the explicit page before changing the working set. Opening a page here
+        // always creates a new unpinned slot, including when another tab has the same page.
+        SavedPage page;
+        try
+        {
+            BookmarkLocation location;
+            pages.PageLocations(new[] { id }).TryGetValue(id, out location);
+            page = new SavedPage(id, pages.Caption(id), pages.LinkFor(id), location);
+            pages.Navigate(id);
+        }
+        catch (COMException)
+        {
+            notice.Show("OneNote could not open that page.", this, 4, Height, 4000);
+            return;
+        }
+        var tab = new SavedTab(Guid.NewGuid().ToString("N"), page);
+        try { ApplyState(store.Change(s => { s.Tabs.Add(tab); return true; })); }
+        catch (System.IO.IOException) { ExplainUnsavedTab(); return; }
+        catch (UnauthorizedAccessException) { ExplainUnsavedTab(); return; }
+        ExpectNavigation(tab, true);
+        RefreshActive();
+    }
+    private void ExplainUnsavedTab()
+    {
+        activeKey = null;
+        pendingTab = null;
+        focusPending = false;
+        notice.Show("The page opened, but MoreTabs could not save a new tab.", this, 4, Height, 4000);
     }
     private void CreateQuickNote()
     {
@@ -644,7 +683,7 @@ internal sealed class PageStrip : ToolStrip
                 var book = tab.Page.NotebookForMenu();
                 if (book.Id.Length == 0 && known[book.Name].Count() == 1) book = known[book.Name].First();
                 return new { Tab = tab, Book = book };
-            }).GroupBy(entry => entry.Book.GroupKey);
+            }).GroupBy(entry => pinned ? "pinned" : entry.Book.GroupKey);
             foreach (var group in groups)
             {
                 var key = (pinned ? "p:" : "r:") + group.Key;
@@ -655,10 +694,11 @@ internal sealed class PageStrip : ToolStrip
                     labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false });
                     Host.Captions.Controls.Add(label);
                 }
-                label.Notebook = group.First().Book;
-                if (label.Text != label.Notebook.Name)
+                label.Notebook = pinned ? null : group.First().Book;
+                string caption = pinned ? "Pinned" : label.Notebook.Name;
+                if (label.Text != caption)
                 {
-                    label.Text = label.AccessibleName = label.Notebook.Name;
+                    label.Text = label.AccessibleName = caption;
                     notice.SetToolTip(label, label.Text);
                 }
                 StyleCaption(label);
@@ -697,7 +737,8 @@ internal sealed class PageStrip : ToolStrip
             var tabs = visible[label];
             var first = tabs.FirstOrDefault();
             if (first == null) { label.Hide(); continue; }
-            label.Bounds = Rectangle.FromLTRB(first.Bounds.Left, 0, tabs.Last().Bounds.Right, Host.Captions.Height);
+            label.Bounds = Rectangle.FromLTRB(first.Bounds.Left + TabRenderer.CornerRadius(first.Dpi), 0,
+                tabs.Last().Bounds.Right, Host.Captions.Height);
             label.Show();
         }
     }

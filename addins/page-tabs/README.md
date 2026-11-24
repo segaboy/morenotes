@@ -34,13 +34,13 @@ MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far 
 
 In either position, the star lines up horizontally with the native notebook icon. The strip samples the navigation row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence.
 
-![MoreTabs docked at the top, with Atlas below its two tabs and Workshop below its tab](appearance.png)
+![MoreTabs docked at the top, with two pinned pages and unpinned notebook groups](appearance.png)
 
 ![MoreTabs docked at the bottom, with notebook captions above the tabs](appearance-bottom.png)
 
 The solid yellow star at the far left opens bookmarks. Its compact tab has the same height and rounded corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
 
-Within the pinned and regular areas, tabs are grouped by notebook. Each notebook name sits below its tabs when the strip is docked at the top and above them when docked at the bottom. The caption uses smaller, regular-weight type in the notebook's color and spans the width of its visible tabs. Hover over a clipped caption to read the full name. Groups follow the first open tab for each notebook in saved tab order. The pages within a group keep their order. Notebook IDs distinguish notebooks with the same name. MoreTabs remembers the notebook name and color for restored tabs and refreshes both when OneNote is available. Windows high contrast uses system text colors.
+All pinned pages share one **Pinned** caption in the theme's text color. Unpinned pages are grouped by notebook. Captions sit below the tabs when the strip is docked at the top and above them when docked at the bottom. Each caption starts just past its first visible tab's rounded corner. Notebook names use smaller, regular-weight type in the notebook's color. Hover over a clipped caption to read the full name. Groups follow the first open tab for each notebook in saved tab order. The pages within a group keep their order. Notebook IDs distinguish notebooks with the same name. MoreTabs remembers the notebook name and color for restored tabs and refreshes both when OneNote is available. Windows high contrast uses system text colors.
 
 The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 
@@ -54,17 +54,20 @@ The stored section RGB and the painted section tab can differ. MoreTabs maps the
 
 MoreTabs pauses while File or Options hides the editor row or opens a modal dialog. When you return to the editor, it measures the theme again and resumes automatically. The November 24 desktop test confirmed that the strip reappeared after changing the Office theme and leaving Options, without relaunching MoreTabs.
 
-Following OneNote's page list, a link, or Back updates the page in the active tab. If the destination is in another notebook, the tab moves into that notebook's group and stays selected. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
+Following OneNote's page list, a link, or Back updates the page in the active tab. An unpinned tab moves to the destination notebook's group. A pinned tab stays under **Pinned**. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
 
 Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
 
 - Click **+** to create a blank page in your configured OneNote Quick Notes section. Each click opens its own tab in the same editor and gives that tab keyboard focus. This follows your personal Quick Notes destination whatever notebook you have open. If you have redirected Quick Notes, MoreTabs uses that setting.
 - To keep an existing page, use the arrow beside **+** and choose **Keep current page in a tab**. Right-click a tab and choose **Close tab**, or middle-click it. Closing a tab leaves the underlying OneNote page intact.
+- Right-click a single page title in OneNote's own page list and choose **Open in new tab**. MoreTabs opens that existing page in a separate, focused, unpinned tab in the same window. Choosing it again opens another independent tab for the same page.
 - Right-click a tab and choose **Pin tab** to move it into the pinned group. Its pin follows the tab as you navigate and survives a restart. Choose **Unpin tab** to return it to its original order among the regular tabs.
 - Click the star and choose **Bookmark current page**, or right-click a tab and choose **Bookmark this tab**. Choose a saved page from the star menu to reopen it in the same editor. **Remove bookmark** removes only the bookmark.
 - Leave the prototype running when closing OneNote to let it attach when OneNote reopens. After exiting the prototype or restarting Windows, launch it again. The prototype has no installer or sign-in startup entry.
 
 Tabs and bookmarks share one user-local file at `%LOCALAPPDATA%\MoreNotes\MoreTabs\working-set.xml`. Each edit saves the page ID, caption and OneNote desktop hyperlink when available. File updates merge under a short write lock and replace the prior version atomically. Separate attached windows use the same saved working set. The saved file contains notebook metadata and belongs outside public diagnostics.
+
+The launcher registers a small, per-user Windows COM add-in for the native page menu. After the first launch, close and reopen OneNote so it can load the command. The registration points to the compiled helper under this checkout. The helper adds one button to OneNote's `ContextMenuPage` menu and sends the selected page ID to the strip attached to that editor. Ambiguous or empty selections prompt the user to select one page. To remove the registration, run `addins\page-tabs\tools\Set-MoreTabsPageMenu.ps1 -Mode Remove` and restart OneNote. The controlled-window tests exercise selection and delivery. Displaying the command in the installed OneNote build still needs a desktop check.
 
 MoreTabs first navigates using the saved page ID. If OneNote rejects it, MoreTabs tries the saved OneNote link in the same window. An unavailable page stays in the list for retry or removal. Restoring caret position, selection and scroll offset remains unverified.
 

@@ -28,6 +28,10 @@ internal static class AppearanceTests
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
         var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
         TogglePin(strip, schedule, true);
+        TogglePin(strip, original, true);
+        Check(schedule.Group == original.Group && schedule.Group.Text == "Pinned" && schedule.Group.Notebook == null,
+            "Pins from different notebooks must share one Pinned caption.");
+        TogglePin(strip, original, false);
         var dark = Color.FromArgb(17, 12, 8);
         foreach (uint dpi in new uint[] { 96, 120, 144, 192 })
             foreach (var surface in new[] { dark, Color.FromArgb(247, 247, 247), SystemColors.Window })
@@ -212,9 +216,9 @@ internal static class AppearanceTests
                     var label = group.Key;
                     var box = label.Bounds;
                     Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
-                        label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left && box.Right == group.Last().Bounds.Right &&
+                        label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) && box.Right == group.Last().Bounds.Right &&
                         box.Height == label.Font.Height, "A notebook caption did not fit its tabs on one compact line.");
-                    Color ink = chrome.HighContrast || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;
+                    Color ink = chrome.HighContrast || label.Notebook == null || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;
                     Check(captions.GetPixel(box.Right - 1, box.Top).ToArgb() == palette.Surface.ToArgb(),
                         "Notebook labels should use the strip background.");
                     bool found = false;

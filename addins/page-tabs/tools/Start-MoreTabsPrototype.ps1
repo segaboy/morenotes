@@ -18,6 +18,7 @@ try {
     & $compiler /nologo /target:exe /platform:x64 /warnaserror+ "/out:$exe" "/reference:$pia" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.Linq.dll $sources
     if ($LASTEXITCODE -ne 0) { throw "MoreTabs build failed with exit code $LASTEXITCODE" }
     if ($Mode -eq 'Build') {
+        $pageMenu = & (Join-Path $PSScriptRoot 'Set-MoreTabsPageMenu.ps1') -Mode Build
         $binaryName = 'MoreTabsPrototype.exe'
         try {
             [IO.File]::Copy($exe, (Join-Path $output $binaryName), $true)
@@ -27,10 +28,16 @@ try {
             $binaryName = 'MoreTabsPrototype-next.exe'
             [IO.File]::Copy($exe, (Join-Path $output $binaryName), $true)
         }
-        @('@echo off', ('"%~dp0{0}" Run' -f $binaryName), 'if errorlevel 1 pause') |
+        @('@echo off', ('start "" /wait "%~dp0{0}" --register' -f $pageMenu.Substring($output.Length + 1)),
+            'if errorlevel 1 echo MoreTabs could not register the OneNote page menu for this user.',
+            ('"%~dp0{0}" Run' -f $binaryName), 'if errorlevel 1 pause') |
             Set-Content -LiteralPath (Join-Path $output 'Run-MoreTabs.cmd') -Encoding Ascii
         Write-Output (Join-Path $output $binaryName)
         return
+    }
+    if ($Mode -eq 'Run') {
+        try { & (Join-Path $PSScriptRoot 'Set-MoreTabsPageMenu.ps1') -Mode Enable }
+        catch { Write-Warning "The tab strip will start without the native page menu. $($_.Exception.Message)" }
     }
     if ($PSBoundParameters.ContainsKey('WindowHandle')) {
         if ($Mode -notin 'Placement', 'Bind', 'Run', 'Verify', 'HandsOn') { throw 'WindowHandle applies to Placement, Bind, Run, Verify and HandsOn. Use a frame number reported by Measure.' }

@@ -191,6 +191,7 @@ internal static class Program
             e.Cancel = true;
             System.Threading.Interlocked.Exchange(ref cancel, 1);
         };
+        using (var nativeMenu = new NativeMenuActivity(layout.Frame))
         using (var timer = new Timer { Interval = 250 })
         {
             timer.Tick += delegate
@@ -204,7 +205,7 @@ internal static class Program
                         detached = true;
                         Application.ExitThread(); return;
                     }
-                    if (NativeLayout.IsIconic(layout.Frame)) return;
+                    if (NativeLayout.IsIconic(layout.Frame) || nativeMenu.Pending) return;
                     Rectangle slot = layout.Reserve(true);
                     if (slot.IsEmpty && layout.AtBottom)
                     {

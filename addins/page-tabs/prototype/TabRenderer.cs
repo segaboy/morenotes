@@ -42,7 +42,7 @@ internal sealed class PageTabButton : ToolStripButton
         }
         return size;
     }
-    internal string OverflowText { get { return Text + " / " + Group.Text; } }
+    internal string OverflowText { get { return Text + " / " + (Group.Notebook == null ? ((SavedTab)Tag).Page.NotebookForMenu().Name : Group.Text); } }
     internal Size StripSize(Size constrainingSize)
     {
         var size = base.GetPreferredSize(constrainingSize);
@@ -77,6 +77,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
     internal readonly bool DarkSections;
+    internal static int CornerRadius(uint dpi) { return HostChrome.Px(8, dpi); }
     internal TabRenderer(Color surface, uint dpi, bool highContrast, bool darkSections)
     {
         DarkSections = darkSections;
@@ -201,7 +202,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     private void PaintTab(ToolStripItemRenderEventArgs e, PageTabButton page)
     {
         int w = e.Item.Width, h = e.Item.Height;
-        int diameter = Math.Min(HostChrome.Px(16, Dpi), Math.Min(w, h));
+        int diameter = Math.Min(2 * CornerRadius(Dpi), Math.Min(w, h));
         if (diameter < 2) return;
         var state = e.Graphics.Save();
         try
