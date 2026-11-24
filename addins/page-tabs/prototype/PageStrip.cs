@@ -11,8 +11,7 @@ internal interface IPages
 {
     string Current { get; }
     string Caption(string id);
-    Color SectionColor(string pageId);
-    Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> pageIds);
+    Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> pageIds, bool refresh = false);
     string CreateQuickNote();
     void Navigate(string id);
     string LinkFor(string id);
@@ -24,6 +23,8 @@ internal sealed class NotebookPages : IPages
     internal readonly One.Window Window;
     internal readonly One.Application App;
     private readonly string quickNotesPath;
+    private Dictionary<string, BookmarkLocation> sections;
+    private DateTime nextHierarchyRead;
     internal NotebookPages(One.Application app, One.Window window, string quickNotesPath = null)
     {
         App = app;
@@ -144,14 +145,18 @@ internal sealed class NotebookPages : IPages
         if (section == null || section.Name.LocalName != "Section") return Color.Empty;
         return BookmarkNotebook.ReadColor((string)section.Attribute("color"));
     }
-    public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> pageIds)
+    public Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> pageIds, bool refresh = false)
     {
         var result = new Dictionary<string, BookmarkLocation>();
-        string xml;
-        try { App.GetHierarchy("", One.HierarchyScope.hsSections, out xml, One.XMLSchema.xs2013); }
-        catch (COMException) { return result; }
-        var sections = BookmarkLocation.IndexSections(XElement.Parse(xml));
-        foreach (string pageId in pageIds)
+        if (refresh || sections == null || DateTime.UtcNow >= nextHierarchyRead)
+        {
+            string xml;
+            try { App.GetHierarchy("", One.HierarchyScope.hsSections, out xml, One.XMLSchema.xs2013); }
+            catch (COMException) { return result; }
+            sections = BookmarkLocation.IndexSections(XElement.Parse(xml));
+            nextHierarchyRead = DateTime.UtcNow.AddSeconds(3);
+        }
+        foreach (string pageId in pageIds.Distinct())
         {
             string section;
             try { App.GetHierarchyParent(pageId, out section); }
@@ -175,6 +180,8 @@ internal sealed class PageStrip : ToolStrip
     private readonly IntPtr frame;
     private readonly IPages pages;
     private readonly Dictionary<string, PageTabButton> buttons = new Dictionary<string, PageTabButton>();
+    private readonly Dictionary<string, NotebookTabLabel> labels = new Dictionary<string, NotebookTabLabel>();
+    private readonly ToolStripButton stop;
     private readonly ToolStripSplitButton add;
     private readonly BookmarkButton bookmarks = new BookmarkButton();
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
@@ -221,7 +228,7 @@ internal sealed class PageStrip : ToolStrip
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
         Items.AddRange(new ToolStripItem[] { bookmarks, bookmarkDivider, pinDivider, add });
-        var stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
+        stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
         Host = new StripHost(frame, this);
@@ -404,6 +411,7 @@ internal sealed class PageStrip : ToolStrip
             var margin = TabMargin(appearance.Dpi);
             bookmarks.Margin = new Padding(0, margin.Top, margin.Right, margin.Bottom);
             foreach (var tab in buttons.Values) tab.Margin = margin;
+            foreach (var label in labels.Values) label.Margin = margin;
             Invalidate();
         }
     }
@@ -445,7 +453,7 @@ internal sealed class PageStrip : ToolStrip
             Font = tabMenu.Font = tabFont;
             var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
             foreach (ToolStripItem item in Items)
-                if (!(item is PageTabButton) && !(item is ToolStripSeparator) && item != bookmarks) item.Padding = commandPadding;
+                if (!(item is PageTabButton) && !(item is NotebookTabLabel) && !(item is ToolStripSeparator) && item != bookmarks) item.Padding = commandPadding;
             foreach (var divider in new[] { bookmarkDivider, pinDivider })
             {
                 divider.AutoSize = false;
@@ -455,6 +463,7 @@ internal sealed class PageStrip : ToolStrip
                 divider.Overflow = ToolStripItemOverflow.Never;
             }
             foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);
+            foreach (var label in labels.Values) SizeLabel(label);
             if (oldRegular != null) oldRegular.Dispose();
             if (oldSelected != null) oldSelected.Dispose();
         }
@@ -474,11 +483,11 @@ internal sealed class PageStrip : ToolStrip
         tab.Margin = TabMargin(dpi);
         tab.Padding = new Padding(HostChrome.Px(10, dpi), 0, HostChrome.Px(10, dpi), 0);
     }
-    private static string ShortCaption(SavedPage page)
+    private void SizeLabel(NotebookTabLabel label)
     {
-        const string separator = " / ";
-        int split = page.Caption.IndexOf(separator, StringComparison.Ordinal);
-        return split > 0 && split == page.Caption.LastIndexOf(separator, StringComparison.Ordinal) ? page.Caption.Substring(0, split) : page.Caption;
+        label.Dpi = appearance.Dpi;
+        label.Font = selectedTabFont;
+        label.Margin = TabMargin(appearance.Dpi);
     }
     internal void AddCurrent()
     {
@@ -573,6 +582,12 @@ internal sealed class PageStrip : ToolStrip
     {
         state = updated;
         if (displayedRevision == updated.Revision) return;
+        SuspendLayout();
+        try { UpdateTabItems(); displayedRevision = updated.Revision; }
+        finally { ResumeLayout(true); }
+    }
+    private void UpdateTabItems()
+    {
         foreach (var id in buttons.Keys.Where(id => !state.Tabs.Any(t => t.Key == id)).ToArray())
         {
             if (id == activeKey) activeKey = null;
@@ -581,7 +596,6 @@ internal sealed class PageStrip : ToolStrip
             Items.Remove(obsolete);
             obsolete.Dispose();
         }
-        var titles = state.Tabs.ToLookup(t => ShortCaption(t.Page), StringComparer.CurrentCultureIgnoreCase);
         foreach (var slot in state.Tabs)
         {
             SavedPage page = slot.Page;
@@ -606,24 +620,107 @@ internal sealed class PageStrip : ToolStrip
                 button.NextColorCheck = DateTime.MinValue;
                 button.Invalidate();
             }
-            string title = ShortCaption(page);
-            button.Text = titles[title].Any(t => t.Page.Caption != page.Caption) ? page.Caption : title;
+            button.Text = page.BookmarkTitle;
             button.AccessibleName = page.Caption;
             button.ToolTipText = page.Caption + (slot.Pinned ? "\nPinned tab" : "") + "\nRight-click for tab options.";
             button.Tag = slot;
         }
         int position = 2;
-        foreach (var tab in state.Tabs.Where(t => t.Pinned)) PlaceItem(buttons[tab.Key], position++);
-        pinDivider.Available = position > 2;
-        PlaceItem(pinDivider, position++);
-        foreach (var tab in state.Tabs.Where(t => !t.Pinned)) PlaceItem(buttons[tab.Key], position++);
-        displayedRevision = updated.Revision;
+        var used = new HashSet<string>();
+        var known = state.Tabs.Select(t => t.Page.Notebook).Concat(state.Bookmarks.Select(p => p.Notebook))
+            .Where(book => book != null).GroupBy(book => book.Id).Select(g => g.First())
+            .ToLookup(book => book.Name, StringComparer.CurrentCultureIgnoreCase);
+        foreach (bool pinned in new[] { true, false })
+        {
+            if (!pinned)
+            {
+                pinDivider.Available = position > 2;
+                PlaceItem(pinDivider, position++);
+            }
+            // GroupBy keeps the order of first appearance and the saved order inside each notebook.
+            var groups = state.Tabs.Where(tab => tab.Pinned == pinned).Select(tab => {
+                var book = tab.Page.NotebookForMenu();
+                if (book.Id.Length == 0 && known[book.Name].Count() == 1) book = known[book.Name].First();
+                return new { Tab = tab, Book = book };
+            }).GroupBy(entry => entry.Book.GroupKey);
+            foreach (var group in groups)
+            {
+                var key = (pinned ? "p:" : "r:") + group.Key;
+                used.Add(key);
+                NotebookTabLabel label;
+                if (!labels.TryGetValue(key, out label))
+                {
+                    labels.Add(key, label = new NotebookTabLabel());
+                    SizeLabel(label);
+                }
+                label.Notebook = group.First().Book;
+                label.Text = label.AccessibleName = label.ToolTipText = label.Notebook.Name;
+                label.Invalidate();
+                PlaceItem(label, position++);
+                foreach (var entry in group)
+                {
+                    var button = buttons[entry.Tab.Key];
+                    button.Group = label;
+                    PlaceItem(button, position++);
+                }
+            }
+        }
+        foreach (string key in labels.Keys.Where(key => !used.Contains(key)).ToArray())
+        {
+            labels[key].Dispose();
+            labels.Remove(key);
+        }
     }
     private void PlaceItem(ToolStripItem item, int index)
     {
         if (Items.IndexOf(item) == index) return;
         Items.Remove(item);
         Items.Insert(index, item);
+    }
+    protected override void OnLayout(LayoutEventArgs e)
+    {
+        if (appearance != null && stop != null) FitNotebookGroups();
+        base.OnLayout(e);
+    }
+    private static int ItemWidth(ToolStripItem item)
+    {
+        var tab = item as PageTabButton;
+        if (tab != null) return tab.StripSize(Size.Empty).Width + tab.Margin.Horizontal;
+        return (item.AutoSize ? item.GetPreferredSize(Size.Empty).Width : item.Width) + item.Margin.Horizontal;
+    }
+    private void FitNotebookGroups()
+    {
+        // A label and at least one of its tabs must fit together. Native overflow can split them independently.
+        var tabs = Items.OfType<PageTabButton>().Where(t => t.Group != null).ToList();
+        foreach (var label in labels.Values) label.WidthLimit = 0;
+        foreach (var tab in tabs) tab.WidthLimit = 0;
+        var visible = new HashSet<ToolStripItem>();
+        int space = DisplayRectangle.Width - ItemWidth(bookmarks) - ItemWidth(bookmarkDivider) - ItemWidth(add);
+        if (pinDivider.Available) space -= ItemWidth(pinDivider);
+        bool overflow = labels.Values.Sum(label => ItemWidth(label)) + tabs.Sum(tab => ItemWidth(tab)) + ItemWidth(stop) > space;
+        if (overflow) space -= Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
+        PageTabButton active;
+        if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null)
+        {
+            int content = space - active.Margin.Horizontal - active.Group.Margin.Horizontal;
+            if (content >= HostChrome.Px(48, appearance.Dpi) && ItemWidth(active) + ItemWidth(active.Group) > space)
+            {
+                active.Group.WidthLimit = Math.Min(active.Group.GetPreferredSize(Size.Empty).Width, content / 3);
+                active.WidthLimit = content - active.Group.WidthLimit;
+            }
+        }
+        // Reserve the selected page first, then fit other pages in the order they appear on the strip.
+        foreach (var tab in tabs.OrderByDescending(t => ((SavedTab)t.Tag).Key == activeKey))
+        {
+            int cost = ItemWidth(tab) + (visible.Contains(tab.Group) ? 0 : ItemWidth(tab.Group));
+            if (cost > space) continue;
+            visible.Add(tab.Group);
+            visible.Add(tab);
+            space -= cost;
+        }
+        foreach (var label in labels.Values) label.Available = visible.Contains(label);
+        foreach (var tab in tabs) tab.Overflow = visible.Contains(tab) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
+        stop.Overflow = space >= ItemWidth(stop) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
     }
     internal ContextMenuStrip TabMenuFor(SavedTab tab)
     {
@@ -652,7 +749,7 @@ internal sealed class PageStrip : ToolStrip
     {
         if (page == null) return;
         BookmarkLocation owner;
-        if (pages.BookmarkOwners(new[] { page.Id }).TryGetValue(page.Id, out owner))
+        if (pages.PageLocations(new[] { page.Id }).TryGetValue(page.Id, out owner))
             page = new SavedPage(page.Id, page.Caption, page.Link, owner);
         ApplyState(store.Change(s => WorkingSet.Keep(s.Bookmarks, page)));
     }
@@ -668,7 +765,7 @@ internal sealed class PageStrip : ToolStrip
         bookmarks.DropDown.MinimumSize = Size.Empty;
         menu.Add("Bookmark current page", null, delegate { Perform(delegate { SaveBookmark(CaptureCurrent()); }); });
         if (state.Bookmarks.Count == 0) return;
-        var owners = pages.BookmarkOwners(state.Bookmarks.Select(page => page.Id));
+        var owners = pages.PageLocations(state.Bookmarks.Select(page => page.Id), true);
         if (state.Bookmarks.Any(p => owners.ContainsKey(p.Id) && !owners[p.Id].SameAs(p.Location)))
         {
             // The menu can still use live colors if the optional offline cache cannot be written.
@@ -693,7 +790,7 @@ internal sealed class PageStrip : ToolStrip
         int screenWidth = Screen.FromHandle(Handle).WorkingArea.Width;
         int sectionWidth = BookmarkRow.MeasureColumn(entries.Select(entry => entry.Location), bookmarks.DropDown.Font,
             appearance.Dpi, screenWidth);
-        var groups = entries.GroupBy(item => item.Book.Id.Length == 0 ? "name:" + item.Book.Name.ToUpperInvariant() : "id:" + item.Book.Id)
+        var groups = entries.GroupBy(item => item.Book.GroupKey)
           .OrderBy(group => group.First().Book.Name, StringComparer.CurrentCultureIgnoreCase);
         foreach (var group in groups)
         {
@@ -798,8 +895,6 @@ internal sealed class PageStrip : ToolStrip
         foreach (var entry in buttons)
         {
             bool active = entry.Key == activeKey;
-            var overflow = active ? ToolStripItemOverflow.Never : ToolStripItemOverflow.AsNeeded;
-            if (entry.Value.Overflow != overflow) entry.Value.Overflow = overflow;
             if (entry.Value.Checked != active)
             {
                 entry.Value.Checked = active;
@@ -807,6 +902,7 @@ internal sealed class PageStrip : ToolStrip
                 entry.Value.Invalidate();
             }
         }
+        if (selectionChanged) PerformLayout();
         if (focusPending && (activeKey == null || DateTime.UtcNow > navigationDeadline || FocusTab(buttons[activeKey], ForegroundFocus())))
             focusPending = false;
     }
@@ -821,12 +917,17 @@ internal sealed class PageStrip : ToolStrip
         var due = buttons.Values.Where(button => button.NextColorCheck <= now)
             .OrderByDescending(button => button == active).ThenBy(button => button.NextColorCheck)
             .Select(button => ((SavedTab)button.Tag).Page.Id).Distinct().Take(3).ToArray();
+        var lookup = due.ToDictionary(pageId => pageId, pageId =>
+            currentId != null && byPage[pageId].Contains(active) ? currentId : pageId);
+        var locations = pages.PageLocations(lookup.Values.Distinct());
+        var owners = new Dictionary<string, BookmarkLocation>();
         foreach (string pageId in due)
         {
             var tabs = byPage[pageId];
-            Color color;
-            try { color = pages.SectionColor(currentId != null && tabs.Contains(active) ? currentId : pageId); }
-            catch (COMException) { color = Color.Empty; }
+            BookmarkLocation owner;
+            bool found = locations.TryGetValue(lookup[pageId], out owner);
+            if (found && tabs.Any(t => !owner.Notebook.SameAs(((SavedTab)t.Tag).Page.Notebook))) owners.Add(pageId, owner);
+            Color color = found ? owner.SectionColor : Color.Empty;
             foreach (var tab in tabs)
             {
                 tab.NextColorCheck = now.AddSeconds(3);
@@ -835,6 +936,19 @@ internal sealed class PageStrip : ToolStrip
                 tab.Invalidate();
             }
         }
+        if (owners.Count > 0)
+        {
+            try { ApplyState(store.Change(s => s.UpdateTabNotebooks(owners))); }
+            catch (System.IO.IOException) { ShowUncachedNotebooks(owners); }
+            catch (UnauthorizedAccessException) { ShowUncachedNotebooks(owners); }
+        }
+    }
+    private void ShowUncachedNotebooks(Dictionary<string, BookmarkLocation> owners)
+    {
+        state.UpdateTabNotebooks(owners);
+        SuspendLayout();
+        try { UpdateTabItems(); }
+        finally { ResumeLayout(true); }
     }
     internal void ClickAdd() { add.PerformButtonClick(); }
     internal void ClickKeepCurrent() { add.DropDownItems[0].PerformClick(); }

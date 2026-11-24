@@ -13,6 +13,7 @@ internal sealed class BookmarkNotebook
     internal readonly Color Color;
 
     internal BookmarkNotebook(string id, string name, Color color) { Id = id; Name = name; Color = color; }
+    internal string GroupKey { get { return Id.Length == 0 ? "name:" + Name.ToUpperInvariant() : "id:" + Id; } }
     internal bool SameAs(BookmarkNotebook other)
     {
         return other != null && Id == other.Id && Name == other.Name && Color.ToArgb() == other.Color.ToArgb();

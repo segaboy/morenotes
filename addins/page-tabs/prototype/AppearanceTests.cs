@@ -21,8 +21,10 @@ internal static class AppearanceTests
             SectionPalette.DarkPalette(Color.FromArgb(142, 228, 234)) == false,
             "Custom section RGB or the light native palette was not recognized.");
         var labels = strip.Items.OfType<PageTabButton>().Select(tab => tab.Text).ToArray();
-        Check(labels.SequenceEqual(new[] { "Dashboard / A", "Schedule", "Dashboard / B" }),
-            "Tab labels must distinguish duplicate page titles.");
+        Check(labels.SequenceEqual(new[] { "Dashboard", "Schedule", "Dashboard" }) &&
+            strip.Items.OfType<NotebookTabLabel>().Select(l => l.Text).SequenceEqual(new[] { "Atlas", "Workshop" }) &&
+            strip.Items.OfType<PageTabButton>().Select(t => t.Group.Text).SequenceEqual(new[] { "Atlas", "Atlas", "Workshop" }),
+            "Interleaved pages must form notebook groups that distinguish duplicate page titles.");
         Check(strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1, "An empty pinned group has two dividers.");
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
         var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
@@ -199,6 +201,21 @@ internal static class AppearanceTests
             strip.DrawToBitmap(bitmap, strip.ClientRectangle);
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
+            foreach (var label in strip.Items.OfType<NotebookTabLabel>().Where(l => l.Placement == ToolStripItemPlacement.Main))
+            {
+                var groupTabs = strip.Items.OfType<PageTabButton>().Where(t => t.Group == label && t.Placement == ToolStripItemPlacement.Main);
+                Check(groupTabs.Any() && groupTabs.All(t => t.Bounds.Left >= label.Bounds.Right) && !label.CanSelect &&
+                    label.Font.Bold && label.AccessibleName == label.Text, "A notebook heading is missing, misplaced or selectable.");
+                Color ink = chrome.HighContrast || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;
+                var box = label.Bounds;
+                Check(bitmap.GetPixel(box.Left + 1, box.Top + box.Height / 2).ToArgb() == palette.Surface.ToArgb(),
+                    "Notebook labels should use the strip background.");
+                bool found = false;
+                for (int x = box.Left; x < box.Right && !found; x++)
+                    for (int y = box.Top; y < box.Bottom && !found; y++)
+                        found = bitmap.GetPixel(x, y).ToArgb() == ink.ToArgb();
+                Check(found, "The notebook label did not render in its notebook color.");
+            }
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
             int starCenter = star.Bounds.Left + star.Width / 2;
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + star.Height / 2).ToArgb() == Color.Gold.ToArgb(),

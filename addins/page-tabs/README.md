@@ -34,11 +34,13 @@ MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far 
 
 In either position, the star lines up horizontally with the native notebook icon. The strip samples the navigation row for its background color and icon position when OneNote changes appearance or moves between displays. While the icon is covered, the strip keeps the last measurement. At startup it can fall back to the Office or Windows theme and a DPI-scaled inset. Windows high-contrast colors take precedence.
 
-![MoreTabs in dark mode with the bookmark star on the left, Schedule pinned, and two regular tabs](appearance.png)
+![MoreTabs in dark mode with two pages under Atlas and a third under Workshop](appearance.png)
 
 ![The same tabs docked at the bottom, with upright titles, bottom stripes and an up arrow](appearance-bottom.png)
 
 The solid yellow star at the far left opens bookmarks. Its compact tab has the same height and rounded corners as the page tabs. A short vertical divider separates it from the page tabs. Pinned tabs appear first. When a tab is pinned, a second divider sits midway between the pinned group and the regular tabs.
+
+Within the pinned and regular areas, tabs are grouped by notebook. A bold label in the notebook's color sits directly on the strip to the left of its pages. Groups follow the first open tab for each notebook in saved tab order. The pages within a group keep their order. Notebook IDs distinguish notebooks with the same name. MoreTabs remembers the notebook name and color for restored tabs and refreshes both when OneNote is available. Windows high contrast uses system text colors.
 
 The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 
@@ -46,13 +48,13 @@ MoreTabs refreshes notebook and section names and colors when the menu opens and
 
 ![Bookmarks under two notebook headings, with section-color labels and aligned page titles](bookmarks.png)
 
-Every open page tab has a full-width stripe matching its native section tab. The stripe is three pixels high at 100% scaling and keeps the same thickness when selected. The selected tab has a muted section-color fill and a contrasting title. Pinned and regular tabs both follow this rule. MoreTabs reads section colors for restored tabs without opening their pages and refreshes them when sections are recolored. Automatic or unavailable colors use a theme accent. Windows high contrast uses the system palette. Naming or renaming the displayed page updates its tab title. If two pages in different notebooks share a title, the labels also show the notebook.
+Every open page tab has a full-width stripe matching its native section tab. The stripe is three pixels high at 100% scaling and keeps the same thickness when selected. The selected tab has a muted section-color fill and a contrasting title. Pinned and regular tabs both follow this rule. MoreTabs reads section colors for restored tabs without opening their pages and refreshes them when sections are recolored. Automatic or unavailable colors use a theme accent. Windows high contrast uses the system palette. Naming or renaming the displayed page updates its tab title.
 
 The stored section RGB and the painted section tab can differ. MoreTabs maps the 16 standard section colors to the Fluent light and dark palettes from desktop OneNote build `16.0.20715.20004`. It checks the selected section's band along the bottom of native navigation to identify the palette when visible. On that build at 96 DPI, a section stored as `#91BAAE` painted a `#006168` band in dark mode.
 
 MoreTabs pauses while File or Options hides the editor row or opens a modal dialog. When you return to the editor, it measures the theme again and resumes automatically. The November 24 desktop test confirmed that the strip reappeared after changing the Office theme and leaving Options, without relaunching MoreTabs.
 
-Following OneNote's page list, a link, or Back updates the page in the active tab and preserves its position. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
+Following OneNote's page list, a link, or Back updates the page in the active tab. If the destination is in another notebook, the tab moves into that notebook's group and stays selected. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
 
 Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
 
@@ -121,7 +123,7 @@ Prove same-window navigation and the requested placement on Windows desktop. Use
 | --- | --- |
 | Placement | With the Quick Access Toolbar below the ribbon and horizontal section tabs active, the new strip occupies its own row directly between the toolbar and native notebook/section row. Both native rows and the editor remain fully visible and clickable. Capture before and after views of test content. |
 | New tab and navigation | From another notebook, click **+** twice. Each click creates one page in the configured Quick Notes section, opens it in the same editor and focuses its new tab. Keep existing pages via the arrow beside **+**. Alternate among three pages across two notebooks and verify that the active page matches the selected tab. |
-| Native navigation | Use the page list, section navigation or Back to visit another page. The active tab keeps its position and indicator, shows the new title and remembers that destination. If another tab already shows that page, both remain open and exactly one is active. |
+| Native navigation | Use the page list, section navigation or Back to visit another page. The same tab stays selected, shows the new title and appears under the destination notebook. If another tab already shows that page, both remain open and exactly one is active. |
 | Layout | Resize and maximize/restore the window. Collapse/expand the ribbon. Check at 100% and 150% scaling and across monitors with different scaling when available. Verify alignment, click targets, native controls and page content each time. Record unavailable configurations as untested. |
 | Keyboard focus | Navigate and activate tabs with the keyboard, return focus to the page, and type into a test page. Repeat after using native navigation. No stolen keystrokes, unexpected window activation or focus trap. |
 

@@ -33,7 +33,14 @@ internal sealed class SavedPage
     }
     internal string BookmarkTitle
     {
-        get { int split = Caption.LastIndexOf(" / ", StringComparison.Ordinal); return split > 0 ? Caption.Substring(0, split) : Caption; }
+        get
+        {
+            string suffix = Notebook == null ? null : " / " + Notebook.Name;
+            if (suffix != null && Caption.EndsWith(suffix, StringComparison.Ordinal) && Caption.Length > suffix.Length)
+                return Caption.Substring(0, Caption.Length - suffix.Length);
+            int split = Caption.LastIndexOf(" / ", StringComparison.Ordinal);
+            return split > 0 ? Caption.Substring(0, split) : Caption;
+        }
     }
     internal BookmarkNotebook NotebookForMenu()
     {
@@ -44,7 +51,7 @@ internal sealed class SavedPage
     internal XElement ToXml(bool bookmark = false)
     {
         return new XElement("page", new XAttribute("id", Id), new XAttribute("caption", Caption), new XAttribute("link", Link),
-            bookmark && Location != null ? Notebook.ToXml() : null, bookmark && Location != null ? Location.SectionXml() : null);
+            Notebook != null ? Notebook.ToXml() : null, bookmark && Location != null ? Location.SectionXml() : null);
     }
 }
 
@@ -76,9 +83,10 @@ internal sealed class WorkingSet
         int index = Tabs.FindIndex(t => t.Key == expected.Key);
         if (index < 0 || !expected.Page.Matches(Tabs[index].Page)) return false;
         var old = Tabs[index].Page;
-        if (page.Matches(old) && page.Link.Length == 0 && old.Link.Length != 0)
-            page = new SavedPage(page.Id, page.Caption, old.Link);
-        if (page.Id == old.Id && page.Caption == old.Caption && page.Link == old.Link) return false;
+        if (page.Matches(old))
+            page = new SavedPage(page.Id, page.Caption, page.Link.Length == 0 ? old.Link : page.Link, page.Location ?? old.Location);
+        if (page.Id == old.Id && page.Caption == old.Caption && page.Link == old.Link &&
+            (page.Notebook == old.Notebook || (page.Notebook != null && page.Notebook.SameAs(old.Notebook)))) return false;
         Tabs[index] = new SavedTab(expected.Key, page, Tabs[index].Pinned);
         return true;
     }
@@ -100,6 +108,21 @@ internal sealed class WorkingSet
             BookmarkLocation owner;
             if (!owners.TryGetValue(page.Id, out owner) || owner.SameAs(page.Location)) continue;
             Bookmarks[i] = new SavedPage(page.Id, page.Caption, page.Link, owner);
+            changed = true;
+        }
+        return changed;
+    }
+
+    internal bool UpdateTabNotebooks(Dictionary<string, BookmarkLocation> owners)
+    {
+        bool changed = false;
+        for (int i = 0; i < Tabs.Count; i++)
+        {
+            var tab = Tabs[i];
+            var page = tab.Page;
+            BookmarkLocation owner;
+            if (!owners.TryGetValue(page.Id, out owner) || owner.Notebook.SameAs(page.Notebook)) continue;
+            Tabs[i] = new SavedTab(tab.Key, new SavedPage(page.Id, page.Caption, page.Link, owner), tab.Pinned);
             changed = true;
         }
         return changed;

@@ -21,14 +21,17 @@ internal static class PrototypeTests
         internal string PendingPage;
         public string Current { get; private set; }
         internal Color BookBColor = Color.FromArgb(246,176,120);
+        internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
-        public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> ids)
+        public Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> ids, bool refresh = false)
         {
             var a = new BookmarkNotebook("a", "Atlas", Color.SteelBlue);
-            var b = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
-            return ids.ToDictionary(id => id, id => id.StartsWith("a/") ? new BookmarkLocation(a, "Route plans", SectionColor(id)) :
+            var b = BookB;
+            var personal = new BookmarkNotebook("personal", "Personal", Color.Coral);
+            return ids.Distinct().ToDictionary(id => id, id => id.StartsWith("personal/") ? new BookmarkLocation(personal, "Quick Notes", SectionColor(id)) :
+                id.StartsWith("a/") ? new BookmarkLocation(a, "Route plans", SectionColor(id)) :
                 id == "b/parts" ? new BookmarkLocation(b, "Materials & tools", Color.FromArgb(183, 201, 151)) :
-                new BookmarkLocation(b, "Sketches", Color.FromArgb(171, 156, 183)));
+                new BookmarkLocation(b, "Sketches", id == "b/design" ? Color.FromArgb(171, 156, 183) : SectionColor(id)));
         }
         internal readonly Dictionary<string, string> Renamed = new Dictionary<string, string>();
         public string Caption(string id)
@@ -118,10 +121,22 @@ internal static class PrototypeTests
                         layout.CheckHitTargets(strip.Host.Handle, slot);
                         Console.WriteLine("PASS detected a partially covered navigation row and its recovery.");
                         string[] ids = { "a/1", "a/2", "b/1" };
-                        foreach (var id in ids) { source.Navigate(id); strip.ClickKeepCurrent(); }
+                        foreach (var id in new[] { "a/1", "b/1", "a/2" }) { source.Navigate(id); strip.ClickKeepCurrent(); }
                         strip.ClickKeepCurrent();
+                        strip.ClickTab("b/1");
                         Check(strip.TabCount == 3, "Duplicate add created another tab.");
                         AppearanceTests.Controlled(strip, layout, slot);
+                        var previousBook = source.BookB;
+                        source.BookB = new BookmarkNotebook("b", "Atlas", Color.Orchid);
+                        foreach (var tab in strip.Items.OfType<PageTabButton>()) tab.NextColorCheck = DateTime.MinValue;
+                        strip.RefreshActive();
+                        var renamed = strip.Items.OfType<NotebookTabLabel>().ToArray();
+                        Check(renamed.Length == 2 && renamed.All(label => label.Text == "Atlas") &&
+                            renamed[0].Notebook.Id != renamed[1].Notebook.Id && renamed[1].Notebook.Color == Color.Orchid,
+                            "Renaming or recoloring a notebook merged distinct notebooks with the same name.");
+                        source.BookB = previousBook;
+                        foreach (var tab in strip.Items.OfType<PageTabButton>()) tab.NextColorCheck = DateTime.MinValue;
+                        strip.RefreshActive();
                         expected = CheckDocking(frame, document, layout, strip);
                         Check(source.NotesCreated == 0, "Keeping an existing page created a Quick Note.");
                         strip.ClickAdd();
@@ -193,7 +208,7 @@ internal static class PrototypeTests
                         }
                         var moving = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
                         var original = strip.Items.OfType<PageTabButton>().First();
-                        int position = strip.Items.IndexOf(moving);
+                        string movingKey = ((SavedTab)moving.Tag).Key;
                         source.Navigate("a/1"); strip.RefreshActive();
                         Check(moving.Checked && !original.Checked && moving != original && moving.Text == original.Text &&
                             strip.IsSelected("a/1"), "Native navigation to an already-open page switched tab slots.");
@@ -201,9 +216,10 @@ internal static class PrototypeTests
                         Check(original.Checked && !moving.Checked, "Clicking a second tab for the same page failed to select that tab.");
                         moving.PerformClick();
                         source.Navigate("other"); strip.RefreshActive();
-                        Check(moving.Checked && strip.Items.IndexOf(moving) == position && ((SavedTab)moving.Tag).Page.Id == "other" &&
-                            ((SavedTab)original.Tag).Page.Id == "a/1", "Native navigation did not update the active tab in place.");
-                        Console.WriteLine("PASS Quick Note title edits and native navigation preserve the active tab's identity, position and independent selection.");
+                        Check(moving.Checked && ((SavedTab)moving.Tag).Key == movingKey && ((SavedTab)moving.Tag).Page.Id == "other" &&
+                            moving.Group.Notebook.Id == "b" && original.Group.Notebook.Id == "a" &&
+                            ((SavedTab)original.Tag).Page.Id == "a/1", "Native navigation did not move the same tab to its destination notebook.");
+                        Console.WriteLine("PASS native navigation regroups the active tab by notebook and preserves its identity and independent selection.");
                         if (failure != null) throw failure;
                     }
                     layout.Dispose();
@@ -244,6 +260,10 @@ internal static class PrototypeTests
             strip.Host.Width = 245;
             Check(strip.OverflowButton.Visible && arrow.Right == strip.Host.ClientSize.Width && strip.Right == arrow.Left,
                 "Tab overflow displaced the far-right move button.");
+            var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToArray();
+            var headers = strip.Items.OfType<NotebookTabLabel>().Where(l => l.Placement == ToolStripItemPlacement.Main).ToArray();
+            Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Bounds.Right <= t.Bounds.Left) &&
+                headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
             full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
             document.Bounds = full;
@@ -375,7 +395,7 @@ internal static class PrototypeTests
                 {
                     strip.ClickAdd();
                     Check(strip.TabCount == 4 + i, "Quick Note click " + (i + 1) + " did not add a new tab.");
-                    string id = ((SavedTab)strip.Items.OfType<PageTabButton>().Last().Tag).Page.Id;
+                    string id = strip.Items.OfType<PageTabButton>().Select(t => ((SavedTab)t.Tag).Page.Id).Single(page => !existing.Contains(page));
                     WaitForPage(source, id, "opening Quick Note " + (i + 1)); strip.RefreshActive();
                     string parent;
                     source.App.GetHierarchyParent(id, out parent);
@@ -386,12 +406,12 @@ internal static class PrototypeTests
                 Console.WriteLine("PASS two + clicks created two Quick Notes in the disposable destination section and focused each new tab in this editor.");
                 var note = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
                 var samePage = strip.Items.OfType<PageTabButton>().First();
-                int slotIndex = strip.Items.IndexOf(note);
+                string tabKey = ((SavedTab)note.Tag).Key;
                 string noteId = ((SavedTab)note.Tag).Page.Id;
                 RenameFixturePage(source.App, noteId, "Quick Note title check");
                 WaitForLabel(strip, note, "Quick Note title check");
                 source.Navigate(pages[0]); WaitForPage(source, pages[0]); strip.RefreshActive();
-                Check(note.Checked && !samePage.Checked && note.Text == samePage.Text && strip.Items.IndexOf(note) == slotIndex &&
+                Check(note.Checked && !samePage.Checked && note.Text == samePage.Text && ((SavedTab)note.Tag).Key == tabKey && note.Group == samePage.Group &&
                     ((SavedTab)note.Tag).Page.Id == pages[0] && strip.TabCount == 5, "Navigation switched away from the active tab.");
                 source.Navigate(noteId); WaitForPage(source, noteId);
                 WaitForLabel(strip, note, "Quick Note title check");

@@ -26,14 +26,57 @@ internal sealed class BookmarkButton : ToolStripDropDownButton
 
 internal sealed class PageTabButton : ToolStripButton
 {
+    internal NotebookTabLabel Group;
+    internal int WidthLimit;
     internal Color SectionColor { get; set; }
     internal DateTime NextColorCheck { get; set; }
     internal uint Dpi = 96;
     public override Size GetPreferredSize(Size constrainingSize)
     {
+        var size = StripSize(constrainingSize);
+        if (Overflow == ToolStripItemOverflow.Always && Group != null)
+        {
+            int width = TextRenderer.MeasureText(OverflowText, Font, Size.Empty,
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Width + Padding.Horizontal;
+            size.Width = Math.Max(size.Width, Math.Min(width, HostChrome.Px(360, Dpi)));
+        }
+        return size;
+    }
+    internal string OverflowText { get { return Text + " / " + Group.Text; } }
+    internal Size StripSize(Size constrainingSize)
+    {
         var size = base.GetPreferredSize(constrainingSize);
         size.Width = Math.Max(HostChrome.Px(70, Dpi), Math.Min(size.Width, HostChrome.Px(184, Dpi)));
+        if (WidthLimit > 0) size.Width = Math.Min(WidthLimit, size.Width);
         return size;
+    }
+}
+
+internal sealed class NotebookTabLabel : ToolStripLabel
+{
+    internal BookmarkNotebook Notebook;
+    internal int WidthLimit;
+    internal uint Dpi = 96;
+    private const TextFormatFlags Flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+    internal NotebookTabLabel()
+    {
+        AccessibleRole = AccessibleRole.StaticText;
+        Overflow = ToolStripItemOverflow.Never;
+    }
+    public override bool CanSelect { get { return false; } }
+    public override Size GetPreferredSize(Size constrainingSize)
+    {
+        var size = TextRenderer.MeasureText(Text, Font, Size.Empty, Flags);
+        size.Width = Math.Min(HostChrome.Px(150, Dpi), size.Width + 2 * HostChrome.Px(5, Dpi));
+        if (WidthLimit > 0) size.Width = Math.Min(WidthLimit, size.Width);
+        return size;
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var palette = (TabRenderer)Owner.Renderer;
+        Color ink = palette.HighContrast || Notebook.Color.IsEmpty ? palette.Ink : Notebook.Color;
+        var bounds = Rectangle.Inflate(new Rectangle(Point.Empty, Size), -HostChrome.Px(5, Dpi), 0);
+        TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ink, Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }
 
@@ -138,6 +181,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var tab = e.Item as PageTabButton;
         if (tab != null)
         {
+            if (e.ToolStrip is ToolStripDropDown && tab.Group != null) e.Text = tab.OverflowText;
             if (!tab.Checked) e.TextFont = e.ToolStrip.Font;
             e.TextFormat |= TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
         }

@@ -17,7 +17,7 @@ internal static class SavedSessionTests
         internal bool reopened;
         public string Current { get; private set; }
         public Color SectionColor(string id) { return id == "a2" ? Color.Gold : Color.Indigo; }
-        public Dictionary<string, BookmarkLocation> BookmarkOwners(IEnumerable<string> ids)
+        public Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> ids, bool refresh = false)
         {
             var a = new BookmarkNotebook("a", "A", Color.Coral);
             var b = new BookmarkNotebook("b", "B & C", Color.Teal);
@@ -106,6 +106,10 @@ internal static class SavedSessionTests
             "A bookmark saved before section labels were introduced lost its notebook.");
         store.Change(s => s.UpdateBookmarkOwners(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
         Check(store.Read().Bookmarks.Single().Location.SameAs(sections["s1"]), "Could not backfill a legacy bookmark's section.");
+        store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
+        store.Change(s => s.UpdateTab(first, new SavedPage("a", "Renamed / Field book", "")));
+        Check(new SessionStore(path).Read().Tabs[0].Page.Notebook.SameAs(sections["s1"].Notebook),
+            "A legacy tab lost its saved notebook ID, name or color when renamed and reopened offline.");
         Check(!legacy.Tabs.Any(t => t.Pinned), "A legacy tab unexpectedly migrated as pinned.");
         store.Change(s => s.SetPinned(first.Key, true));
         store.Change(s => s.UpdateTab(first, second.Page));
