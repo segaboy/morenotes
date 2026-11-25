@@ -212,7 +212,7 @@ internal static class Program
             e.Cancel = true;
             System.Threading.Interlocked.Exchange(ref cancel, 1);
         };
-        using (var nativeMenu = new NativeMenuActivity(layout.Frame))
+        using (var nativeMenu = new NativeMenuActivity(layout, strip.MarkPageMenuGesture))
         using (var timer = new Timer { Interval = 250 })
         {
             timer.Tick += delegate

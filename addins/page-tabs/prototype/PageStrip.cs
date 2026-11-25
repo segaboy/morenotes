@@ -10,7 +10,7 @@ using One = Microsoft.Office.Interop.OneNote;
 internal interface IPages
 {
     string Current { get; }
-    string SelectedPage();
+    string SelectedPage(string sourceId);
     string Caption(string id);
     Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> pageIds, bool refresh = false);
     string CreateQuickNote();
@@ -78,7 +78,7 @@ internal sealed class NotebookPages : IPages
         return selected;
     }
     public string Current { get { return Window.CurrentPageId; } }
-    public string SelectedPage()
+    public string SelectedPage(string sourceId)
     {
         string section = Window.CurrentSectionId, xml;
         if (String.IsNullOrEmpty(section)) return null;
@@ -87,8 +87,18 @@ internal sealed class NotebookPages : IPages
         var root = XElement.Parse(xml);
         var node = root.DescendantsAndSelf(root.Name.Namespace + "Section").FirstOrDefault(s => (string)s.Attribute("ID") == section);
         string current = Current;
-        return node != null && Window.CurrentSectionId == section ?
-            PageMenuCommand.SelectedPage(node, current) : null;
+        return node != null && Window.CurrentSectionId == section ? MenuSelection(node, current, sourceId) : null;
+    }
+    internal static string MenuSelection(XElement section, string current, string sourceId)
+    {
+        string id = PageMenuCommand.SelectedPage(section, current);
+        if (id != null || String.IsNullOrEmpty(sourceId) || current == sourceId) return id;
+        var rows = section.Elements(section.Name.Namespace + "Page");
+        // Some hierarchies omit selection flags after the menu closes. The invoking window
+        // must have moved to a page in this section and there must be no conflicting selection.
+        return rows.Any(p => (string)p.Attribute("ID") == current) &&
+            !rows.Any(p => (string)p.Attribute("selected") == "all" || (string)p.Attribute("selected") == "partial" ||
+                (string)p.Attribute("isCurrentlyViewed") == "true") ? current : null;
     }
     public string CreateQuickNote()
     {
@@ -196,10 +206,14 @@ internal sealed class PageStrip : ToolStrip
     {
         internal bool PageList;
         internal string PageId;
+        internal SavedTab Source;
         internal readonly DateTime Deadline = DateTime.UtcNow.AddSeconds(3);
     }
     private readonly Queue<MenuRequest> menuRequests = new Queue<MenuRequest>();
     private bool openingMenuPage;
+    private SavedTab menuSource, followedFrom;
+    private SavedPage followedTo;
+    private int followedAt;
     private readonly Dictionary<string, PageTabButton> buttons = new Dictionary<string, PageTabButton>();
     private readonly Dictionary<string, NotebookTabLabel> labels = new Dictionary<string, NotebookTabLabel>();
     private readonly ToolStripButton stop;
@@ -338,8 +352,8 @@ internal sealed class PageStrip : ToolStrip
         if (message.Msg == PageMenuCommand.OpenFromMenu && pages != null && message.LParam == IntPtr.Zero &&
             (message.WParam == IntPtr.Zero || message.WParam == (IntPtr)1))
         {
-            menuRequests.Enqueue(new MenuRequest { PageList = message.WParam == (IntPtr)1 });
-            Perform(delegate { ProcessMenuRequest(); });
+            bool pageList = message.WParam == (IntPtr)1;
+            Perform(delegate { QueueMenuRequest(pageList, null); });
             return;
         }
         const int wmHotkey = 0x0312;
@@ -609,6 +623,7 @@ internal sealed class PageStrip : ToolStrip
     }
     private void ExpectNavigation(SavedTab tab, bool focus)
     {
+        menuSource = followedFrom = null;
         pendingTab = tab;
         focusPending = focus;
         navigationDeadline = DateTime.UtcNow.AddSeconds(5);
@@ -624,14 +639,24 @@ internal sealed class PageStrip : ToolStrip
     }
     internal void OpenPageInNewTab(string id)
     {
-        SavedPage page;
-        try { page = NavigateForNewTab(id); }
-        catch (COMException)
-        {
-            notice.Show("OneNote could not open that page.", this, 4, Height, 4000);
-            return;
-        }
-        AddOpenedTab(page);
+        QueueMenuRequest(true, id);
+    }
+    private void QueueMenuRequest(bool pageList, string pageId)
+    {
+        menuRequests.Enqueue(new MenuRequest { PageList = pageList, Source = pageList ? menuSource : null, PageId = pageId });
+        menuSource = null;
+        ProcessMenuRequest();
+    }
+    internal void MarkPageMenuGesture(int inputTime)
+    {
+        menuSource = null;
+        if (activeKey == null || pendingTab != null) return;
+        var tab = state.Tabs.Find(t => t.Key == activeKey);
+        if (tab == null) return;
+        // Input can be queued while the strip is inside a OneNote COM call. Recover the
+        // source only when that follow happened after this gesture and into this exact slot.
+        menuSource = followedFrom != null && tab.Key == followedFrom.Key && tab.Page.Matches(followedTo) &&
+            unchecked((uint)(followedAt - inputTime)) < 60000 ? followedFrom : tab;
     }
     internal bool ProcessMenuRequest()
     {
@@ -644,7 +669,8 @@ internal sealed class PageStrip : ToolStrip
             SavedPage page = null;
             try
             {
-                if (request.PageId == null) request.PageId = request.PageList ? pages.SelectedPage() : pages.Current;
+                if (request.PageId == null) request.PageId = request.PageList ?
+                    pages.SelectedPage(request.Source == null ? null : request.Source.Page.Id) : pages.Current;
                 if (!String.IsNullOrEmpty(request.PageId)) page = NavigateForNewTab(request.PageId);
             }
             catch (COMException e)
@@ -661,15 +687,24 @@ internal sealed class PageStrip : ToolStrip
                 Console.WriteLine("OneNote page menu: no single page could be identified.");
                 notice.Show("Select a single page in OneNote's page list and try again.", this, 4, Height, 4000);
             }
-            else if (AddOpenedTab(page)) Console.WriteLine("OneNote page menu: opened a new tab.");
+            else if (AddOpenedTab(page, request.Source)) Console.WriteLine("OneNote page menu: opened a new tab ({0} tabs).", TabCount);
             return true;
         }
         finally { openingMenuPage = false; }
     }
-    private bool AddOpenedTab(SavedPage page)
+    private bool AddOpenedTab(SavedPage page, SavedTab source = null)
     {
         var tab = new SavedTab(Guid.NewGuid().ToString("N"), page);
-        try { ApplyState(store.Change(s => { s.Tabs.Add(tab); return true; })); }
+        try
+        {
+            ApplyState(store.Change(s => {
+                if (source != null && source.Key == activeKey && followedFrom != null && followedFrom.Key == source.Key &&
+                    followedFrom.Page.Matches(source.Page) && followedTo.Matches(page))
+                    s.UpdateTab(new SavedTab(source.Key, followedTo), source.Page);
+                s.Tabs.Add(tab);
+                return true;
+            }));
+        }
         catch (System.IO.IOException) { ExplainUnsavedTab(); return false; }
         catch (UnauthorizedAccessException) { ExplainUnsavedTab(); return false; }
         ExpectNavigation(tab, true);
@@ -1060,6 +1095,7 @@ internal sealed class PageStrip : ToolStrip
             nextRead = DateTime.UtcNow.AddSeconds(2);
         }
         string id = pages.Current;
+        int observedAt = Environment.TickCount;
         if (String.IsNullOrEmpty(id))
         {
             // OneNote can clear the displayed page briefly. Saved tabs still have their own page IDs.
@@ -1083,8 +1119,15 @@ internal sealed class PageStrip : ToolStrip
             try
             {
                 var next = new SavedPage(id, pages.Caption(id), visible.Link);
-                if (pages.Current != id) return;
-                ApplyState(store.Change(s => s.UpdateTab(activeTab, next)));
+                if (pages.Current != id || activeKey != activeTab.Key || pendingTab != null) return;
+                bool followed = false;
+                ApplyState(store.Change(s => followed = s.UpdateTab(activeTab, next)));
+                if (followed)
+                {
+                    followedFrom = activeTab;
+                    followedTo = next;
+                    followedAt = observedAt;
+                }
                 activeTab = state.Tabs.Find(t => t.Key == activeKey);
             }
             catch (COMException) { return; } // Retry the same transition once OneNote finishes loading the page.

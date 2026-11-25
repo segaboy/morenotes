@@ -16,7 +16,7 @@ internal static class SavedSessionTests
     {
         internal bool reopened;
         public string Current { get; private set; }
-        public string SelectedPage() { return Current; }
+        public string SelectedPage(string sourceId) { return Current; }
         public Color SectionColor(string id) { return id == "a2" ? Color.Gold : Color.Indigo; }
         public Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> ids, bool refresh = false)
         {

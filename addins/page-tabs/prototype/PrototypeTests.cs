@@ -22,7 +22,7 @@ internal static class PrototypeTests
         public string Current { get; private set; }
         internal string ListSelection;
         internal bool RejectNextMenuNavigation;
-        public string SelectedPage() { return ListSelection; }
+        public string SelectedPage(string sourceId) { return ListSelection; }
         internal Color BookBColor = Color.FromArgb(246,176,120);
         internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
@@ -291,6 +291,8 @@ internal static class PrototypeTests
                         strip.CloseTab((SavedTab)opened.Tag);
                         originalActive.PerformClick();
                         Console.WriteLine("PASS MoreTabs right-click opens the clicked page in an independent focused tab.");
+                        CheckPageMenuPreselection(strip, source, moving, frame.Handle);
+                        originalActive.PerformClick();
                         CheckCloseIcons(strip, source);
                         if (failure != null) throw failure;
                     }
@@ -301,6 +303,54 @@ internal static class PrototypeTests
             }
             finally { frame.Close(); }
         }
+    }
+
+    private static void CheckPageMenuPreselection(PageStrip strip, TestPages source, PageTabButton original, IntPtr frame)
+    {
+        int count = strip.TabCount;
+        var slot = (SavedTab)original.Tag;
+        string target = "b/1";
+        foreach (bool lateInput in new[] { false, true })
+        {
+            original.PerformClick();
+            int pressed = Environment.TickCount;
+            if (!lateInput) strip.MarkPageMenuGesture(pressed);
+            // OneNote has already navigated, and ordinary polling has already changed the source tab.
+            source.Navigate(target);
+            strip.RefreshActive();
+            Check(((SavedTab)original.Tag).Page.Id == target, "Fixture did not reproduce early native navigation.");
+            if (lateInput) strip.MarkPageMenuGesture(pressed);
+            source.ListSelection = target;
+            Check(PageMenuCommand.Request(frame, true), "Could not dispatch the delayed page-menu click.");
+            Application.DoEvents();
+            var opened = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+            var restored = (SavedTab)original.Tag;
+            Check(strip.TabCount == count + 1 && original != opened && restored.Key == slot.Key &&
+                restored.Page.Id == slot.Page.Id && restored.Pinned == slot.Pinned && strip.HasTabFocus(target) &&
+                !((SavedTab)opened.Tag).Pinned, "The native page selection replaced the source tab before the command arrived.");
+            original.PerformClick();
+            Check(source.Current == slot.Page.Id, "The original tab did not navigate back to its original page.");
+            strip.CloseTab((SavedTab)opened.Tag);
+        }
+        source.Navigate(target);
+        strip.RefreshActive();
+        // A completed left-click followed by right-clicking that same page should leave two copies.
+        strip.MarkPageMenuGesture(unchecked(Environment.TickCount + 1));
+        Check(PageMenuCommand.Request(frame, true), "Could not dispatch a same-page menu click.");
+        Application.DoEvents();
+        var duplicate = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+        Check(strip.TabCount == count + 1 && duplicate != original && ((SavedTab)original.Tag).Page.Id == target,
+            "The menu undid a previous left-click.");
+        strip.CloseTab((SavedTab)duplicate.Tag);
+        original.PerformClick();
+        source.Navigate(slot.Page.Id);
+        strip.RefreshActive();
+        var section = XElement.Parse("<Section><Page ID='a'/><Page ID='b'/></Section>");
+        Check(NotebookPages.MenuSelection(section, "b", "a") == "b" && NotebookPages.MenuSelection(section, "b", "b") == null,
+            "An unmarked hierarchy failed to distinguish a right-click navigation from an unknown selection.");
+        foreach (var row in section.Elements()) row.SetAttributeValue("selected", "all");
+        Check(NotebookPages.MenuSelection(section, "b", "a") == null, "Multiple selected pages were treated as a single click.");
+        Console.WriteLine("PASS page-menu preselection, late input delivery, return to source, pin preservation and ordinary left-click navigation.");
     }
 
     private static void CheckVerticalTabs()
