@@ -260,7 +260,6 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
-    private readonly ToolStripSeparator pinDivider = new ToolStripSeparator { Available = false };
     private readonly ContextMenuStrip tabMenu = new ContextMenuStrip();
     private readonly ToolTip notice = new ToolTip();
     private readonly TabCloseInput stripClose, overflowClose;
@@ -330,7 +329,7 @@ internal sealed class PageStrip : ToolStrip
         BindTool(home, GoHome);
         BindTool(newNote, delegate { CreateNote(this.store.Read().NewNoteSectionId); });
         Items.AddRange(toolGroup);
-        Items.AddRange(new ToolStripItem[] { bookmarkDivider, pinDivider, add });
+        Items.AddRange(new ToolStripItem[] { bookmarkDivider, add });
         stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
@@ -590,6 +589,7 @@ internal sealed class PageStrip : ToolStrip
         {
             var tabMargin = TabMargin(chrome.Dpi);
             SetMenuTabMargins(tabMargin);
+            add.TabWidth = HostChrome.Px(32, chrome.Dpi);
             Font oldRegular = tabFont, oldSelected = selectedTabFont, oldCaption = captionFont;
             var menuFont = SystemFonts.MenuFont;
             tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -606,14 +606,7 @@ internal sealed class PageStrip : ToolStrip
             var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
             foreach (ToolStripItem item in Items)
                 if (!(item is PageTabButton) && !(item is ToolStripSeparator) && !(item is ToolButton) && item != bookmarks && item != options) item.Padding = commandPadding;
-            foreach (var divider in new[] { bookmarkDivider, pinDivider })
-            {
-                divider.AutoSize = false;
-                divider.Margin = divider == bookmarkDivider ? new Padding(tabMargin.Right, 0, 0, 0) : Padding.Empty;
-                // One painted pixel with the same number of empty pixels on either side.
-                divider.Size = new Size(2 * HostChrome.Px(4, chrome.Dpi) + 1, HostChrome.Px(25, chrome.Dpi));
-                divider.Overflow = ToolStripItemOverflow.Never;
-            }
+            foreach (var divider in Items.OfType<ToolStripSeparator>()) SizeDivider(divider);
             foreach (var tab in Items.OfType<PageTabButton>()) SizeTab(tab);
             foreach (var label in labels.Values) label.Font = captionFont;
             if (oldRegular != null) oldRegular.Dispose();
@@ -629,8 +622,18 @@ internal sealed class PageStrip : ToolStrip
     }
     private void SetMenuTabMargins(Padding margin)
     {
+        add.Margin = margin;
         foreach (var tool in toolGroup)
             tool.Margin = new Padding(0, margin.Top, 0, margin.Bottom);
+    }
+    private void SizeDivider(ToolStripSeparator divider)
+    {
+        uint dpi = appearance.Dpi;
+        divider.AutoSize = false;
+        // Tools have no side margins. Match the first tab's inset on the Tools side.
+        divider.Margin = divider == bookmarkDivider ? new Padding(TabMargin(dpi).Left, 0, 0, 0) : Padding.Empty;
+        divider.Size = new Size(2 * HostChrome.Px(4, dpi) + 1, HostChrome.Px(25, dpi));
+        divider.Overflow = ToolStripItemOverflow.Never;
     }
     private void SizeTab(PageTabButton tab)
     {
@@ -960,24 +963,18 @@ internal sealed class PageStrip : ToolStrip
             button.Tag = slot;
         }
         int position = Items.IndexOf(bookmarkDivider) + 1;
-        int firstTab = position;
         var used = new HashSet<string>();
         var known = state.Tabs.Select(t => t.Page.Notebook).Concat(state.Bookmarks.Select(p => p.Notebook))
             .Where(book => book != null).GroupBy(book => book.Id).Select(g => g.First())
             .ToLookup(book => book.Name, StringComparer.CurrentCultureIgnoreCase);
         foreach (bool pinned in new[] { true, false })
         {
-            if (!pinned)
-            {
-                pinDivider.Available = position > firstTab;
-                PlaceItem(pinDivider, position++);
-            }
             // GroupBy keeps the order of first appearance and the saved order inside each notebook.
             var groups = state.Tabs.Where(tab => tab.Pinned == pinned).Select(tab => {
                 var book = tab.Page.NotebookForMenu();
                 if (book.Id.Length == 0 && known[book.Name].Count() == 1) book = known[book.Name].First();
                 return new { Tab = tab, Book = book };
-            }).GroupBy(entry => pinned ? "pinned" : state.GroupByNotebook ? entry.Book.GroupKey : entry.Tab.Key);
+            }).GroupBy(entry => !pinned && state.GroupByNotebook ? entry.Book.GroupKey : "");
             foreach (var group in groups)
             {
                 var key = (pinned ? "p:" : "r:") + group.Key;
@@ -985,11 +982,12 @@ internal sealed class PageStrip : ToolStrip
                 NotebookTabLabel label;
                 if (!labels.TryGetValue(key, out label))
                 {
-                    labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false });
+                    labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false, Divider = new ToolStripSeparator() });
+                    SizeDivider(label.Divider);
                     Host.Captions.Controls.Add(label);
                 }
-                label.Notebook = pinned ? null : group.First().Book;
-                string caption = pinned ? "Pinned" : label.Notebook.Name;
+                label.Notebook = !pinned && state.GroupByNotebook ? group.First().Book : null;
+                string caption = pinned ? "Pinned" : label.Notebook == null ? "" : label.Notebook.Name;
                 if (label.Text != caption)
                 {
                     label.Text = label.AccessibleName = caption;
@@ -1002,10 +1000,12 @@ internal sealed class PageStrip : ToolStrip
                     button.Group = label;
                     PlaceItem(button, position++);
                 }
+                PlaceItem(label.Divider, position++);
             }
         }
         foreach (string key in labels.Keys.Where(key => !used.Contains(key)).ToArray())
         {
+            labels[key].Divider.Dispose();
             labels[key].Dispose();
             labels.Remove(key);
         }
@@ -1051,33 +1051,36 @@ internal sealed class PageStrip : ToolStrip
         var tabs = Items.OfType<PageTabButton>().Where(t => t.Group != null).ToList();
         foreach (var tab in tabs) tab.WidthLimit = 0;
         var visible = new HashSet<ToolStripItem>();
+        var visibleGroups = new HashSet<NotebookTabLabel>();
         // With the star hidden the gear is the first icon and alone may have to span the Tools caption.
         options.TabWidth = bookmarks.Available ? HostChrome.Px(25, appearance.Dpi) : Math.Max(bookmarks.TabWidth, HostChrome.Px(34, appearance.Dpi));
         int space = DisplayRectangle.Width - ItemWidth(options) - ItemWidth(bookmarkDivider) - ItemWidth(add);
         if (bookmarks.Available) space -= ItemWidth(bookmarks);
-        if (pinDivider.Available) space -= ItemWidth(pinDivider);
+        int dividerWidth = bookmarkDivider.Width;
         var tools = toolGroup.OfType<ToolButton>().Where(t => t.Available).ToArray();
         int toolsWidth = tools.Sum(tool => ItemWidth(tool));
         int overflowWidth = Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
-        bool collapseTools = tools.Length > 0 && space - toolsWidth < overflowWidth + (tabs.Count == 0 ? 0 : HostChrome.Px(70, appearance.Dpi));
+        bool collapseTools = tools.Length > 0 && space - toolsWidth < overflowWidth + (tabs.Count == 0 ? 0 : HostChrome.Px(70, appearance.Dpi) + dividerWidth);
         foreach (var tool in tools) tool.Overflow = collapseTools ? ToolStripItemOverflow.Always : ToolStripItemOverflow.Never;
         if (!collapseTools) space -= toolsWidth;
-        if (collapseTools || tabs.Sum(tab => ItemWidth(tab)) + ItemWidth(stop) > space) space -= overflowWidth;
+        if (collapseTools || tabs.Sum(tab => ItemWidth(tab)) + labels.Count * dividerWidth + ItemWidth(stop) > space) space -= overflowWidth;
         PageTabButton active;
         if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null)
         {
-            int content = space - active.Margin.Horizontal;
+            int content = space - active.Margin.Horizontal - dividerWidth;
             if (content >= HostChrome.Px(48, appearance.Dpi)) active.WidthLimit = content;
         }
         // Reserve the selected page first, then fit other pages in the order they appear on the strip.
         foreach (var tab in tabs.OrderByDescending(t => ((SavedTab)t.Tag).Key == activeKey))
         {
-            int cost = ItemWidth(tab);
+            int cost = ItemWidth(tab) + (visibleGroups.Contains(tab.Group) ? 0 : dividerWidth);
             if (cost > space) continue;
             visible.Add(tab);
+            visibleGroups.Add(tab.Group);
             space -= cost;
         }
         foreach (var tab in tabs) tab.Overflow = visible.Contains(tab) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
+        foreach (var label in labels.Values) label.Divider.Available = visibleGroups.Contains(label);
         stop.Overflow = space >= ItemWidth(stop) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
     }
     internal ContextMenuStrip TabMenuFor(SavedTab tab)

@@ -29,7 +29,7 @@ internal sealed class BookmarkButton : StripMenuButton
     }
 }
 
-internal enum ToolIcon { Settings, Back, Forward, Home, NewNote }
+internal enum ToolIcon { Settings, Back, Forward, Home, NewNote, NewTab }
 
 internal sealed class ToolButton : ToolStripButton
 {
@@ -102,6 +102,7 @@ internal sealed class PageTabButton : ToolStripButton
 internal sealed class NotebookTabLabel : Label
 {
     internal BookmarkNotebook Notebook;
+    internal ToolStripSeparator Divider;
     private const TextFormatFlags Flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
     internal NotebookTabLabel()
     {
@@ -293,7 +294,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         try
         {
             var strip = e.Item.Owner as PageStrip;
-            if (page == null && strip != null)
+            if (page == null && strip != null && !(e.Item is PagePicker))
             {
                 // The tools share an outline while retaining individual hit targets.
                 Rectangle both = strip.MenuTabBounds;
@@ -340,6 +341,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         if (!(e.Item is StripMenuButton)) { PaintCommand(e); return; }
         PaintTab(e, null);
+        if (e.Item is PagePicker) { DrawToolIcon(e, ToolIcon.NewTab); return; }
         if (!(e.Item is BookmarkButton)) { DrawToolIcon(e, ToolIcon.Settings); return; }
         float cy = e.Item.Height / 2f;
         float radius = Math.Min(HostChrome.Px(8, Dpi), cy - 1);
@@ -389,6 +391,10 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             {
                 switch (icon)
                 {
+                    case ToolIcon.NewTab:
+                        g.DrawLine(pen, 3, 8, 13, 8);
+                        g.DrawLine(pen, 8, 3, 8, 13);
+                        break;
                     case ToolIcon.Back:
                     case ToolIcon.Forward:
                         if (icon == ToolIcon.Forward) { g.TranslateTransform(16, 0); g.ScaleTransform(-1, 1); }

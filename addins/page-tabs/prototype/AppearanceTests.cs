@@ -24,7 +24,7 @@ internal static class AppearanceTests
         Check(labels.SequenceEqual(new[] { "Dashboard", "Schedule", "Dashboard" }) &&
             strip.Items.OfType<PageTabButton>().Select(t => t.Group.Text).SequenceEqual(new[] { "Atlas", "Atlas", "Workshop" }),
             "Interleaved pages must form notebook groups that distinguish duplicate page titles.");
-        Check(strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1, "An empty pinned group has two dividers.");
+        CheckGroupDividers(strip, 2);
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
         var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
         TogglePin(strip, schedule, true);
@@ -93,8 +93,8 @@ internal static class AppearanceTests
         Check(active.Checked && active == strip.Items.OfType<PageTabButton>().First(),
             "Pinning the active tab lost its selection or left it in the regular group.");
         TogglePin(strip, active, false);
-        Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
-            "Unpinning the active tab lost its selection or left an extra divider.");
+        Check(active.Checked, "Unpinning the active tab lost its selection.");
+        CheckGroupDividers(strip, 2);
         strip.Attach(slot, layout);
         CheckOptions(strip, layout);
         Console.WriteLine("PASS long regular and bold titles leave clear space around the close icon at all four scales.");
@@ -157,6 +157,7 @@ internal static class AppearanceTests
         TogglePin(strip, grouped[2], true);
         int fullDocument = layout.DocumentBounds.Height;
         labels.PerformClick();
+        CheckGroupDividers(strip, 2);
         Check(!colors.Enabled && !colors.Checked && group.Checked && labels.Enabled && !labels.Checked &&
             !strip.Host.Captions.Visible && !grouped[2].Group.Visible && strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false) &&
             layout.DocumentBounds.Height == fullDocument + HostChrome.CaptionHeight(layout.Dpi) &&
@@ -165,6 +166,7 @@ internal static class AppearanceTests
                 colors.Enabled, colors.Checked, group.Checked, labels.Enabled, labels.Checked, strip.Host.Captions.Visible,
                 grouped[2].Group.Visible, strip.Host.Height, layout.DocumentBounds.Height, fullDocument, layout.StillReserved(strip.Host.Bounds)));
         group.PerformClick();
+        CheckGroupDividers(strip, 2);
         Check(!labels.Enabled && !colors.Enabled && strip.Items.OfType<PageTabButton>().First() == grouped[2],
             "Disabling grouping must keep pins first and disable the caption controls.");
         group.PerformClick();
@@ -179,6 +181,7 @@ internal static class AppearanceTests
             !labels.Enabled && !labels.Checked && !colors.Enabled && !colors.Checked &&
             !strip.Host.Captions.Visible && layout.DocumentBounds.Height == fullDocument + HostChrome.CaptionHeight(layout.Dpi),
             "Ungrouping must restore opening order and remove the caption row.");
+        CheckGroupDividers(strip, 1);
         group.PerformClick();
         Check(strip.ActiveTabKey == selected && strip.Items.OfType<PageTabButton>().SequenceEqual(grouped) &&
             labels.Checked && colors.Checked && strip.Host.Captions.Visible && layout.DocumentBounds.Height == fullDocument,
@@ -268,6 +271,22 @@ internal static class AppearanceTests
     {
         return bottom ? tab.Bounds.Bottom - 1 - distance : tab.Bounds.Top + distance;
     }
+    internal static void CheckGroupDividers(PageStrip strip, int? expectedGroups = null)
+    {
+        var items = strip.Items.Cast<ToolStripItem>().Where(i => i.Available && i.Placement == ToolStripItemPlacement.Main &&
+            (i is ToolStripSeparator || i is PageTabButton || i is PagePicker)).ToArray();
+        int groups = expectedGroups ?? items.OfType<PageTabButton>().Select(t => t.Group).Distinct().Count();
+        Check(items.Length >= 2 && items[0] is ToolStripSeparator && items.Last() is PagePicker &&
+            items.OfType<ToolStripSeparator>().Count() == 1 + groups, "Tools, tab groups and the page picker have incorrect boundaries.");
+        for (int i = 1; i < items.Length - 1; i++)
+        {
+            var tab = items[i] as PageTabButton;
+            if (tab == null) continue;
+            var nextTab = items.Skip(i + 1).OfType<PageTabButton>().FirstOrDefault();
+            bool endsGroup = nextTab == null || nextTab.Group != tab.Group;
+            Check((items[i + 1] is ToolStripSeparator) == endsGroup, "A divider is missing or splits tabs from the same group.");
+        }
+    }
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)
     {
         strip.PerformLayout();
@@ -276,13 +295,10 @@ internal static class AppearanceTests
         var gear = strip.Items[1];
         var dividers = strip.Items.OfType<ToolStripSeparator>().Where(s => s.Available).ToArray();
         Check(star != null && star.Available && star.AccessibleName == "Bookmarks" && !star.ShowDropDownArrow &&
-            star.DisplayStyle == ToolStripItemDisplayStyle.None && dividers.Length == 2,
-            "Expected an icon-only bookmark menu and two group dividers.");
+            star.DisplayStyle == ToolStripItemDisplayStyle.None, "Expected an icon-only bookmark menu.");
+        CheckGroupDividers(strip);
         Check(star.Bounds.Right <= dividers[0].Bounds.Left && dividers[0].Bounds.Right <= first.Bounds.Left,
             "Bookmark menu and first divider must precede the tabs.");
-        foreach (var tab in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main))
-            Check(((SavedTab)tab.Tag).Pinned ? tab.Bounds.Right <= dividers[1].Bounds.Left : tab.Bounds.Left >= dividers[1].Bounds.Right,
-                "A tab appeared in the wrong group.");
         var active = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
         var palette = (TabRenderer)strip.Renderer;
         bool bottom = strip.AtBottom;
@@ -313,6 +329,15 @@ internal static class AppearanceTests
             }
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
+            var picker = strip.Items.OfType<PagePicker>().Single();
+            int center = picker.Bounds.Left + picker.Width / 2;
+            Color pickerFill = picker.Pressed ? palette.Active : picker.Selected ? palette.Hover : palette.Tab;
+            Check(picker.Bounds.Top == first.Bounds.Top && picker.Height == first.Height &&
+                bitmap.GetPixel(center, FlatEdgeY(picker, bottom, 2 * edge)).ToArgb() == pickerFill.ToArgb() &&
+                bitmap.GetPixel(picker.Bounds.Left, FlatEdgeY(picker, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(picker.Bounds.Right - 1, FlatEdgeY(picker, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(center, picker.Bounds.Top + picker.Height / 2).ToArgb() != pickerFill.ToArgb(),
+                "The new-tab button must have a centered plus and the same dock-facing shape as the page tabs.");
             var band = strip.Host.Captions;
             var tools = band.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
             Check(tools.Visible && tools.ForeColor == palette.Ink && tools.Font.Style == FontStyle.Regular &&
@@ -430,8 +455,8 @@ internal static class AppearanceTests
             bitmap.Save(Path.Combine(fixtureDirectory, "MoreTabs-strip.png"), ImageFormat.Png);
         }
         TogglePin(strip, schedule, false);
-        Check(active.Checked && strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 1,
-            "Unpinning switched the active tab or left an empty pinned group.");
+        Check(active.Checked, "Unpinning switched the active tab.");
+        CheckGroupDividers(strip);
         Console.WriteLine("PASS bookmark star, subtle vertical dividers and pin/unpin via the tab menu with the active tab preserved.");
         Console.WriteLine("PASS tab rendering in OneNote: surface #{0:X6}, bookmark star X={1}px ({2}), DPI {3}; square top and rounded lower corners.",
             chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, !layout.VerticalTabs && chrome.Measured ? "measured notebook icon" : "default inset", chrome.Dpi);

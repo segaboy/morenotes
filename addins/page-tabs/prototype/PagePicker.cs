@@ -5,15 +5,17 @@ using System.Xml;
 using System.Xml.Linq;
 
 // Opening a branch reads just that level of the hierarchy. Only page items navigate.
-internal sealed class PagePicker : ToolStripDropDownButton
+internal sealed class PagePicker : StripMenuButton
 {
     internal readonly ToolStripMenuItem QuickNote, KeepCurrent;
 
-    internal PagePicker(IPages pages, Action<SavedPage> open, Action quickNote, Action keepCurrent) : base("+")
+    internal PagePicker(IPages pages, Action<SavedPage> open, Action quickNote, Action keepCurrent)
     {
+        Text = "+";
         Enabled = pages != null;
         AccessibleName = ToolTipText = "Open a page in a new tab";
-        DisplayStyle = ToolStripItemDisplayStyle.Text;
+        AutoToolTip = false;
+        DisplayStyle = ToolStripItemDisplayStyle.None;
         ShowDropDownArrow = false;
         Overflow = ToolStripItemOverflow.Never;
         QuickNote = new ToolStripMenuItem("New Quick Note", null, delegate { quickNote(); });

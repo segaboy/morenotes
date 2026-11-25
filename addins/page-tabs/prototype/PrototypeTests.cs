@@ -752,6 +752,7 @@ internal static class PrototypeTests
                 strip.Items.OfType<ToolButton>().All(t => t.Placement == ToolStripItemPlacement.Overflow),
                 "A narrow window must keep the Tools caption aligned and its commands available in overflow.");
             var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible && l != toolsLabel).ToArray();
+            AppearanceTests.CheckGroupDividers(strip, headers.Length);
             Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left + TabRenderer.CornerRadius(t.Dpi) && t.Group.Right >= t.Bounds.Right) &&
                 headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);

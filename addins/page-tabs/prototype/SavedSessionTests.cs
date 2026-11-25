@@ -232,8 +232,8 @@ internal static class SavedSessionTests
                         settings.All(i => !i.Checked) && settings[0].Enabled && settings.Skip(1).All(i => !i.Enabled),
                         "A restart lost the dependent preferences or showed them as active with grouping off.");
                     var pinned = strip.Items.OfType<PageTabButton>().First();
-                    Check(((SavedTab)pinned.Tag).Pinned && ((SavedTab)pinned.Tag).Page.Id == "a2" &&
-                        strip.Items.OfType<ToolStripSeparator>().Count(s => s.Available) == 2, "Pinned group did not survive restart.");
+                    Check(((SavedTab)pinned.Tag).Pinned && ((SavedTab)pinned.Tag).Page.Id == "a2", "Pinned group did not survive restart.");
+                    AppearanceTests.CheckGroupDividers(strip, 2);
                     Check(strip.TabCount == 2 && stored.Tabs.Select(t => t.Page.Id).SequenceEqual(new[] { "a1", "a2" }) &&
                         source.Current == "untracked" && !strip.IsSelected("a1"), "Restoration changed the page or lost the tab order.");
                     Check(strip.Items.OfType<PageTabButton>().All(t => !t.Checked && t.SectionColor == source.SectionColor(((SavedTab)t.Tag).Page.Id)),
@@ -268,6 +268,7 @@ internal static class SavedSessionTests
                     break;
                 case "empty":
                     Check(strip.TabCount == 0 && store.Read().Bookmarks.Count == 0, "An intentionally empty session was reseeded.");
+                    AppearanceTests.CheckGroupDividers(strip, 0);
                     break;
                 default: throw new ArgumentException("Unknown session fixture phase.");
             }
