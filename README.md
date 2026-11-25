@@ -1,23 +1,45 @@
 # MoreNotes
 
-<img src="assets/brand/morenotes-logo.png" alt="MoreNotes" width="420">
-
 *It's OneNote, but More!*
 
-MoreNotes is a collection of independently installable add-ins for Microsoft OneNote on Windows desktop. Each add-in has its own version, downloads, and release notes in this repository.
+MoreNotes is a collection of add-ins for **OneNote on Windows desktop**. Today the collection features one add-in, **MoreTabs**.
 
-## Add-ins
+## MoreTabs
 
-| Add-in | What it does | Download |
-| --- | --- | --- |
-| [MoreTabs](addins/page-tabs/README.md) | Keep pages from different notebooks open as tabs in one OneNote window. Bookmark the ones you come back to. | In development |
+<img src="addins/page-tabs/media/moretabs-logo.png" alt="MoreTabs logo" width="430">
 
-The MoreTabs prototype reserved a row below the Quick Access Toolbar and above OneNote's native section tabs, then switched among three pages in two notebooks in the same Windows desktop window. Its **Run** mode saves tab order and bookmarks between sessions. [Use saved tabs and bookmarks](addins/page-tabs/README.md#saved-tabs-and-bookmarks)
+Keep the pages you use together in one OneNote window, even when they live in different notebooks. Pin the schedule you check all day, leave a floor plan and a set of workshop notes open beside it, and pick up where you left off when you restart MoreTabs.
 
-## Releases
+**Available as a Windows desktop prototype.** [Build and run MoreTabs](addins/page-tabs/README.md#run-the-prototype) · [Browse the source](addins/page-tabs/prototype)
 
-Each add-in lives under `addins/<id>/`. A release tag such as `page-tabs/v0.1.0` identifies one add-in and its version. When publishing, attach that add-in's installer and release notes to the tag's GitHub Release and update its download link in the table above. A user can install, update, and remove one add-in independently. Changes to shared code should be tested against each consumer.
+![Dark MoreTabs strip below the Quick Access Toolbar. Run of show is pinned, Floor plan is active, and two Workshop pages are open.](addins/page-tabs/media/workspace.png)
 
-## Artwork
+The strip sits below the Quick Access Toolbar. The arrow at the far right moves it to the bottom of the window. The previews use the actual MoreTabs controls with fictional notebooks and a sample page canvas.
 
-The [collection logo](assets/brand/morenotes-logo.png), [standalone icon](assets/brand/morenotes-icon.png), and [Windows icon](assets/brand/morenotes-icon.ico) are in `assets/brand/`.
+### Switch notebooks with a click
+
+Click a tab to display its page. Here, **Floor plan** belongs to *Open Studio*, while **Bench build** and **Finish samples** belong to *Workshop*. The section color and filled tab show which page is active.
+
+![The active tab and page change from Floor plan to Bench build, then Finish samples, and back to Floor plan.](addins/page-tabs/media/switch-tabs.gif)
+
+### Open an existing page in a new tab
+
+Click **+** and follow the notebook and section to the page you want. Choosing **Workshop → Furniture → Cut list** opens a separate tab and keeps the other pages available.
+
+![The plus menu opens, the pointer follows Workshop and Furniture, and Cut list appears in its own active tab.](addins/page-tabs/media/pick-a-page.gif)
+
+### Find a bookmark by notebook and section
+
+The gold star opens your bookmarks. Notebooks appear in alphabetical order, and each colored section label shows where a page lives. Bookmarks stay available after you close their tabs.
+
+![The bookmarks menu in the light theme groups four pages under Open Studio and Workshop, with section labels beside each page title.](addins/page-tabs/media/bookmarks.png)
+
+The gear lets you choose your Home page, set the destination for new notes, and show or hide individual Tools buttons. [MoreTabs controls and settings](addins/page-tabs/README.md#saved-tabs-and-bookmarks)
+
+## About the collection
+
+<img src="assets/brand/morenotes-logo.png" alt="MoreNotes collection logo" width="220">
+
+Each add-in lives under `addins/` and can be installed and updated independently. Its GitHub Release carries its installer and release notes. MoreTabs uses release tags of the form `page-tabs/vX.Y.Z`. The prototype currently builds from source.
+
+[MoreNotes artwork](assets/brand) · [MoreTabs logo](addins/page-tabs/media/moretabs-logo.png)

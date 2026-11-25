@@ -1,15 +1,20 @@
 # MoreTabs
 
-MoreTabs is the page-tabs add-in in the MoreNotes collection. An experimental Windows prototype tests whether the OneNote document area can give up a row for tabs. Its release identifier is `page-tabs`.
+<img src="media/moretabs-logo.png" alt="MoreTabs logo" width="390">
 
-A normal workday can involve several pages in different notebooks. Give those pages a persistent row of browser-style tabs in the same OneNote window. OneNote remains the editor. The tab collection survives changes of active notebook. Include a new-tab `+` button and bookmarks so a user can keep a page after closing its tab.
+MoreTabs adds persistent page tabs, pins, and bookmarks to OneNote on Windows desktop. Pages from different notebooks open in the same editor. The prototype is part of [MoreNotes](../../README.md) and uses the release identifier `page-tabs`.
+
+![The dark tab strip with a pinned schedule, an active floor plan, and two Workshop pages](media/workspace.png)
+
+[Watch MoreTabs in action](../../README.md#switch-notebooks-with-a-click)
 
 ## Run the prototype
 
-From the repository root in Windows PowerShell, run:
+With OneNote desktop open in normal editing view, run these commands from the repository root in Windows PowerShell. The first builds the prototype and the second starts it.
 
 ```powershell
-& .\addins\page-tabs\tools\Start-MoreTabsPrototype.ps1 -Mode Measure
+& .\addins\page-tabs\tools\Start-MoreTabsPrototype.ps1 -Mode Build
+& .\addins\page-tabs\artifacts\prototype\Run-MoreTabs.cmd
 ```
 
 The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 interop assembly. It builds a local executable under `artifacts/`. Open OneNote in normal editing view with the Quick Access Toolbar below the ribbon. MoreTabs detects both **Horizontal Tabs** and **Vertical Tabs**.
