@@ -385,6 +385,41 @@ internal static class PrototypeTests
         SendMessage(handle, 0x0202, IntPtr.Zero, point);
         Application.DoEvents();
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetMessagePos();
+
+    private static void CheckActivationClicks(Form frame, PageStrip strip)
+    {
+        using (var other = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = frame.Location })
+        {
+            other.Show();
+            foreach (var button in strip.Items.OfType<ToolStripDropDownButton>())
+            {
+                other.Activate();
+                Check(Form.ActiveForm == other, "The second test window must be active before the click.");
+                var bounds = button.Bounds;
+                var center = strip.PointToScreen(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+                var mouse = new Point(GetMessagePos());
+                var origin = strip.Host.Location;
+                // ToolStrip hit-tests the last queued mouse position. Move its clipped child inside
+                // our offscreen frame so the activation probe never needs to move the user's mouse.
+                IntPtr result;
+                try
+                {
+                    strip.Host.Location = new Point(origin.X + mouse.X - center.X, origin.Y + mouse.Y - center.Y);
+                    result = SendMessage(strip.Handle, 0x0021, frame.Handle, (IntPtr)((0x0201 << 16) | 1));
+                }
+                finally { strip.Host.Location = origin; }
+                Check(result == (IntPtr)1, button.AccessibleName + " must activate and keep the first click (reply " + result + ").");
+                frame.Activate();
+                LeftClickItem(button);
+                Check(button.DropDown.Visible, button.AccessibleName + " did not open on the activation click.");
+                button.HideDropDown();
+            }
+        }
+        Console.WriteLine("PASS first click from a second active window opens bookmarks, options and the page picker.");
+    }
     private static ToolStripMenuItem PickerItem(ToolStripDropDownItem parent, string id)
     {
         return parent.DropDownItems.OfType<ToolStripMenuItem>().Single(item => (string)item.Tag == id);
@@ -444,6 +479,7 @@ internal static class PrototypeTests
             Check(strip.TabCount == 4 && source.NotesCreated == 1 && strip.HasTabFocus(source.Current),
                 "Selecting New Quick Note from the picker did not create and focus exactly one new note.");
             Console.WriteLine("PASS left-click +, lazy notebook/section-group/page menus, cancellation, unavailable sections, duplicate titles and separate focused tabs.");
+            CheckActivationClicks(frame, strip);
         }
     }
 

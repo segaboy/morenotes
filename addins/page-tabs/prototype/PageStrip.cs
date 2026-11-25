@@ -375,6 +375,10 @@ internal sealed class PageStrip : ToolStrip
             return;
         }
         base.WndProc(ref message);
+        // ToolStrip normally consumes the click that brings an inactive frame forward.
+        const int wmMouseActivate = 0x0021, maActivateAndEat = 2, maActivate = 1;
+        if (message.Msg == wmMouseActivate && message.Result == (IntPtr)maActivateAndEat)
+            message.Result = (IntPtr)maActivate;
     }
     internal void FocusPageTabs(IntPtr previous)
     {
