@@ -533,7 +533,8 @@ internal static class AppearanceTests
             Check(tools.Visible && tools.ForeColor == toolsInk && tools.Font.Style == FontStyle.Regular && tools.GroupFill == toolsFill &&
                 (chrome.HighContrast ? toolsFill == SystemColors.Control : toolsFill.R == toolsFill.G && toolsFill.G == toolsFill.B &&
                     toolsFill.ToArgb() != palette.Surface.ToArgb()) &&
-                tools.Left == Math.Max(0, star.Bounds.Left - toolsPad) && tools.Left + tools.Padding.Left == star.Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) &&
+                tools.Left == (bottom ? 0 : Math.Max(0, star.Bounds.Left - toolsPad)) &&
+                tools.Left + tools.Padding.Left == star.Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) &&
                 tools.Right == strip.MenuTabBounds.Right + toolsPad &&
                 strip.Items.OfType<ToolButton>().All(t => t.Bounds.Top == star.Bounds.Top && t.Height == star.Height),
                 "Tools misalignment at " + chrome.Dpi + " DPI: label " + tools.Bounds + ", group " + strip.MenuTabBounds +
@@ -639,7 +640,8 @@ internal static class AppearanceTests
                     starLeft = x;
                     break;
                 }
-            Check(starLeft == chrome.Inset, "Bookmark glyph starts at X=" + starLeft + ", expected notebook icon X=" + chrome.Inset);
+            int expectedStar = bottom ? toolsPad + strip.LeadingToolInset : chrome.Inset;
+            Check(starLeft == expectedStar, "Bookmark glyph starts at X=" + starLeft + ", expected X=" + expectedStar);
             foreach (var divider in dividers)
             {
                 int x = divider.Bounds.Left + divider.Width / 2;

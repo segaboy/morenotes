@@ -22,6 +22,7 @@ internal sealed class NativeLayout : IDisposable
         return chrome;
     }
     private Rectangle original, applied;
+    internal bool HasReservation { get { return !applied.IsEmpty; } }
     internal bool AtBottom { get; private set; }
     internal IntPtr StripWindow;
     internal bool ShowCaptions = true;
@@ -81,7 +82,7 @@ internal sealed class NativeLayout : IDisposable
     internal Rectangle RibbonBounds { get { return Bounds(Ribbon, Frame); } }
     internal Rectangle RibbonFaceBounds { get { return chrome.RibbonFace(Ribbon, RibbonBounds, Dpi); } }
     private static bool OverlapsHorizontally(Rectangle a, Rectangle b) { return Math.Max(a.Left, b.Left) < Math.Min(a.Right, b.Right); }
-    private Rectangle ClientBounds
+    internal Rectangle ClientBounds
     {
         get
         {
@@ -136,6 +137,7 @@ internal sealed class NativeLayout : IDisposable
                 row, p.X, p.Y, parent, hit, expected));
     }
     internal bool Alive { get { return IsWindow(Frame) && GetParent(Document) == Frame && GetParent(Ribbon) == Frame; } }
+    internal bool FrameEnabled { get { return IsWindowEnabled(Frame); } }
 
     private static IEnumerable<Point> SamplePoints(Rectangle area, bool editor, uint dpi)
     {
@@ -195,31 +197,39 @@ internal sealed class NativeLayout : IDisposable
             TryUseLandmark(workspace, editor, true, dpi);
     }
 
-    internal Rectangle Reserve(bool waitForEditor = false, bool? atBottom = null)
+    internal Rectangle Reserve(bool waitForEditor = false, bool? atBottom = null, bool resizing = false)
     {
-        if (!Alive || !IsWindowEnabled(Frame) || !IsWindowVisible(Ribbon) || !IsWindowVisible(Document))
+        // A previously verified editor can briefly hide its children while processing WM_SIZE.
+        // Only use that reservation for the same native document and an enabled frame.
+        bool follow = resizing && HasReservation && GetParent(landmark) == Document;
+        if (!Alive || !FrameEnabled || (!follow && (!IsWindowVisible(Ribbon) || !IsWindowVisible(Document))))
             return Unavailable(waitForEditor, "OneNote replaced, disabled or hid a required layout window.");
         Rectangle body = DocumentBounds, ribbon = RibbonBounds;
         if (body.Top != ribbon.Bottom && (applied.IsEmpty || body.Top != applied.Top))
             return Unavailable(waitForEditor, "Unrecognized host layout. Cannot reserve a row.");
-        if (!OverlapsHorizontally(ribbon, body) || !SelectLandmark(body))
+        // OneNote sizes the frame, document and navigation children in separate passes.
+        if (!OverlapsHorizontally(ribbon, body) || (!follow && !SelectLandmark(body)))
             return Unavailable(waitForEditor, "OneNote's navigation row or vertical page editor is hidden, covered or no longer aligned with the ribbon.");
         bool bottom = atBottom ?? AtBottom;
         var client = ClientBounds;
         // When the host has already laid out the full document, use its new edge. When our
         // previous bottom reservation is still in effect, put those pixels back before sizing again.
         int fullBottom = body.Bottom;
-        if (AtBottom && !applied.IsEmpty && body.Bottom == applied.Bottom)
+        if (follow && bottom) fullBottom = client.Bottom;
+        else if (AtBottom && !applied.IsEmpty && body.Bottom == applied.Bottom)
             fullBottom = bottom ? client.Bottom : FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, client.Bottom));
         var full = Rectangle.FromLTRB(body.Left, ribbon.Bottom, body.Right, fullBottom);
         int height = HostChrome.StripHeight(Dpi, ShowCaptions, bottom);
         if (height <= 0 || body.Width < 120 || full.Height < height * 3)
             return Unavailable(waitForEditor, "Insufficient usable document space.");
-        var face = bottom ? chrome.RibbonFace(Ribbon, ribbon, Dpi) : ribbon;
+        var face = bottom ? chrome.RibbonFace(Ribbon, ribbon, Dpi, !resizing) : ribbon;
+        if (follow && bottom) face = Rectangle.Intersect(face, client);
         var slot = bottom ? new Rectangle(face.Left, full.Bottom - height, face.Width, height) :
             new Rectangle(full.Left, full.Top, full.Width, height);
         if (bottom && (slot.Width < 120 || !client.Contains(slot) || slot.Bottom != client.Bottom || FreeBottom(slot) != slot.Bottom))
             return Unavailable(waitForEditor, "OneNote does not have a free bottom row spanning the ribbon.");
+        if (follow && !bottom && FreeBottom(slot) != slot.Bottom)
+            return Unavailable(waitForEditor, "Another OneNote control occupies the top row during resize.");
         var next = Rectangle.FromLTRB(full.Left, bottom ? full.Top : slot.Bottom, full.Right, bottom ? slot.Top : full.Bottom);
         if (bottom && next.Bottom > body.Bottom && FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, next.Bottom)) != next.Bottom)
             return Unavailable(waitForEditor, "Another OneNote control occupies the space below the document.");
@@ -227,10 +237,20 @@ internal sealed class NativeLayout : IDisposable
         original = full;
         applied = next;
         AtBottom = bottom;
-        if (DocumentBounds != next || !SelectLandmark(next) || RibbonBounds != ribbon)
+        if (DocumentBounds != next || (!follow && !SelectLandmark(next)) || RibbonBounds != ribbon)
             return Unavailable(waitForEditor, "OneNote did not preserve the reserved row.");
         WaitReason = null;
         return slot;
+    }
+    internal void KeepStripVisible(Rectangle slot)
+    {
+        // A host layout pass may have hidden our HWND or raised its document over the strip.
+        var hit = ChildWindowFromPointEx(Frame, new Point(slot.Left + slot.Width / 2, slot.Top + slot.Height / 2), 7);
+        if (IsWindowVisible(StripWindow) && hit == StripWindow) return;
+        if (hit != Document && hit != Frame && hit != StripWindow) return;
+        const uint showWithoutMovingOrActivating = 0x0040 | 0x0001 | 0x0002 | 0x0010;
+        if (!SetWindowPos(StripWindow, IntPtr.Zero, 0, 0, 0, 0, showWithoutMovingOrActivating))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
     }
     private int FreeBottom(Rectangle band)
     {

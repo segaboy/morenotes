@@ -86,6 +86,8 @@ internal static class PrototypeTests
     internal static void ControlledWindow()
     {
         CheckVerticalTabs();
+        CheckLiveResize(false);
+        CheckLiveResize(true);
         CheckPagePicker();
         using (var frame = new Form { Text = "MoreTabs layout test", ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
             Location = new Point(-16000, -16000), ClientSize = new Size(730, 420) })
@@ -920,6 +922,88 @@ internal static class PrototypeTests
         }
         Check(source.Current == page && strip.TabCount == 0, "Closing the last tab must leave the editor page open.");
         Console.WriteLine("PASS close icons on active, inactive, pinned, duplicate and overflow tabs, cancel by dragging off, and keyboard close.");
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern void NotifyWinEvent(uint kind, IntPtr window, int obj, int child);
+    private static void CheckLiveResize(bool bottom)
+    {
+        using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
+            Location = new Point(-16000, -16000), ClientSize = new Size(720, 440) })
+        using (var ribbon = new Panel { Bounds = new Rectangle(8, 0, 704, 80) })
+        using (var body = new Panel { Bounds = new Rectangle(0, 80, 720, 360) })
+        using (var row = new Panel { Bounds = new Rectangle(0, 0, 720, 32) })
+        using (var drag = new System.Windows.Forms.Timer { Interval = 325 })
+        {
+            frame.Controls.Add(ribbon);
+            frame.Controls.Add(body);
+            body.Controls.Add(row);
+            frame.Show();
+            var source = new TestPages();
+            source.Navigate("a/1");
+            using (var layout = new NativeLayout(frame.Handle, body.Handle, ribbon.Handle, row.Handle))
+            using (var strip = new PageStrip(frame.Handle, source, delegate {}, e => { throw e; }))
+            {
+                strip.Attach(layout.Reserve(false, bottom), layout);
+                strip.RestoreOrSeed();
+                string active = strip.ActiveTabKey;
+                bool hidden = false;
+                strip.Host.VisibleChanged += delegate { if (!strip.Host.Visible) hidden = true; };
+                Exception failure = null;
+                var sizes = new[] { new Size(650, 440), new Size(650, 360), new Size(790, 475) };
+                int step = 0;
+                drag.Tick += delegate
+                {
+                    try
+                    {
+                        if (step > 0)
+                        {
+                            var slot = strip.Host.Bounds;
+                            Check(!hidden && strip.Host.Visible && strip.AtBottom == bottom && strip.ActiveTabKey == active &&
+                                (bottom ? slot.Bottom == frame.ClientSize.Height && slot.Top == body.Bottom &&
+                                    slot.Left == ribbon.Left && slot.Right == ribbon.Right :
+                                    slot.Top == ribbon.Bottom && slot.Bottom == body.Top && slot.Width == body.Width),
+                                "The strip disappeared, changed docks or lost its reservation during resize step " + step + ".");
+                            if (body.Visible) layout.CheckHitTargets(strip.Host.Handle, slot);
+                            if (bottom)
+                            {
+                                var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(label => label.Text == "Tools");
+                                Check(NativeLayout.Bounds(tools.Handle, frame.Handle).Left == layout.RibbonFaceBounds.Left,
+                                    "The visible Tools container lost the ribbon's left edge during resize.");
+                            }
+                        }
+                        if (step == 0) NotifyWinEvent(10, frame.Handle, 0, 0);
+                        if (step < sizes.Length)
+                        {
+                            frame.ClientSize = sizes[step];
+                            ribbon.Width = frame.ClientSize.Width - 16;
+                            body.Bounds = new Rectangle(0, ribbon.Bottom, frame.ClientSize.Width, frame.ClientSize.Height - ribbon.Bottom);
+                            body.BringToFront();
+                            body.Visible = step != 1;
+                            // The navigation child can trail the new document width until after the mouse is released.
+                            row.Width = body.Width - 30;
+                        }
+                        else if (step == sizes.Length)
+                        {
+                            row.Width = body.Width;
+                            NotifyWinEvent(11, frame.Handle, 0, 0);
+                        }
+                        else
+                        {
+                            Check(layout.StillReserved(strip.Host.Bounds), "The settled resize failed normal editor validation.");
+                            drag.Stop();
+                            Application.ExitThread();
+                        }
+                        step++;
+                    }
+                    catch (Exception e) { failure = e; drag.Stop(); Application.ExitThread(); }
+                };
+                drag.Start();
+                Program.RunInteractive(layout, strip, null);
+                if (failure != null) throw failure;
+                Check(step == sizes.Length + 2, "The resident resize test ended early.");
+            }
+        }
+        Console.WriteLine("PASS " + (bottom ? "bottom" : "top") + " strip continuously visible through horizontal, vertical and diagonal resize.");
     }
 
     private static Rectangle CheckDocking(Form frame, Panel document, NativeLayout layout, PageStrip strip)

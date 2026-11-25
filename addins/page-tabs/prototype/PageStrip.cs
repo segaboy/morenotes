@@ -268,6 +268,7 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolTip notice = new ToolTip();
     private readonly TabCloseInput stripClose, overflowClose;
     private TabRenderer appearance;
+    private int topToolsInset;
     private readonly HostChrome defaultChrome = new HostChrome();
     internal readonly StripHost Host;
     private NativeLayout attachedLayout;
@@ -542,6 +543,13 @@ internal sealed class PageStrip : ToolStrip
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
         Host.Show();
     }
+    internal void FollowResize(Rectangle slot, NativeLayout layout)
+    {
+        Host.Bounds = slot;
+        if (appearance.Dpi != layout.Dpi) ApplyAppearance(layout.Appearance());
+        if (!Host.Visible) Host.Show();
+        layout.KeepStripVisible(slot);
+    }
     private void MoveStrip()
     {
         if (attachedLayout == null) return;
@@ -574,6 +582,7 @@ internal sealed class PageStrip : ToolStrip
         if (appearance != null)
         {
             Host.Padding = new Padding(0, HostChrome.ContentGap(appearance.Dpi, bottom), 0, 0);
+            AlignTools();
             PerformLayout();
             Invalidate();
         }
@@ -606,10 +615,10 @@ internal sealed class PageStrip : ToolStrip
             toolsLabel.Invalidate();
             if (state != null) { RefreshOptions(); PerformLayout(); }
         }
-        // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
+        // The top dock anchors the glyph to the notebook icon. The bottom dock anchors the Tools band to the ribbon.
         int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), Math.Max(0, chrome.Inset - TabMargin(chrome.Dpi).Horizontal));
-        var inset = new Padding(chrome.Inset - iconPadding, 0, HostChrome.Px(2, chrome.Dpi), 0);
-        if (Padding != inset) Padding = inset;
+        topToolsInset = chrome.Inset - iconPadding;
+        AlignTools();
         if (bookmarks.Padding.Left != iconPadding) bookmarks.Padding = new Padding(iconPadding, 0, 0, 0);
         int bookmarkWidth = Math.Max(HostChrome.Px(24, chrome.Dpi), HostChrome.Px(17, chrome.Dpi) + 2 * iconPadding);
         if (bookmarks.TabWidth != bookmarkWidth) { bookmarks.TabWidth = bookmarkWidth; PerformLayout(); }
@@ -640,6 +649,12 @@ internal sealed class PageStrip : ToolStrip
             if (oldSelected != null) oldSelected.Dispose();
             if (oldCaption != null) oldCaption.Dispose();
         }
+    }
+    private void AlignTools()
+    {
+        int left = AtBottom ? GroupEndPadding(toolsLabel) : topToolsInset;
+        var inset = new Padding(left, 0, HostChrome.Px(2, appearance.Dpi), 0);
+        if (Padding != inset) Padding = inset;
     }
     private Padding TabMargin(uint dpi)
     {
@@ -945,6 +960,7 @@ internal sealed class PageStrip : ToolStrip
     private void ApplyState(WorkingSet updated)
     {
         state = updated;
+        AlignTools();
         RefreshOptions();
         if (displayedRevision == updated.Revision) return;
         bool resize = attachedLayout != null && attachedLayout.ShowCaptions != WantsCaptionRow;

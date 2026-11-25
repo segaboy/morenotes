@@ -48,14 +48,18 @@ internal sealed class HostChrome
     }
 
     // Office paints the ribbon card inside its HWND. Its drop shadow is outside the card.
-    internal Rectangle RibbonFace(IntPtr ribbon, Rectangle dock, uint dpi)
+    internal Rectangle RibbonFace(IntPtr ribbon, Rectangle dock, uint dpi, bool measure = true)
     {
-        if (dpi != ribbonDpi || dock.Size != ribbonSize || DateTime.UtcNow >= nextRibbonRead)
+        if (dpi != ribbonDpi)
         {
-            if (ribbonDpi != 0 && dpi != ribbonDpi)
+            if (ribbonDpi != 0)
                 ribbonInsets = new Size((int)Math.Round(ribbonInsets.Width * (double)dpi / ribbonDpi),
                     (int)Math.Round(ribbonInsets.Height * (double)dpi / ribbonDpi));
             ribbonDpi = dpi;
+            nextRibbonRead = DateTime.MinValue;
+        }
+        if (measure && (dock.Size != ribbonSize || DateTime.UtcNow >= nextRibbonRead))
+        {
             ribbonSize = dock.Size;
             nextRibbonRead = DateTime.UtcNow.AddSeconds(2);
             Size measured;

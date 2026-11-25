@@ -213,8 +213,9 @@ internal static class Program
             e.Cancel = true;
             System.Threading.Interlocked.Exchange(ref cancel, 1);
         };
-        using (var nativeMenu = new NativeMenuActivity(layout, strip.MarkPageMenuGesture))
-        using (var timer = new Timer { Interval = 250 })
+        const int idleInterval = 250, resizeInterval = 16;
+        using (var timer = new Timer { Interval = idleInterval })
+        using (var activity = new NativeEditorActivity(layout, strip.MarkPageMenuGesture, delegate { timer.Interval = resizeInterval; }))
         {
             timer.Tick += delegate
             {
@@ -227,7 +228,16 @@ internal static class Program
                         detached = true;
                         Application.ExitThread(); return;
                     }
-                    if (NativeLayout.IsIconic(layout.Frame) || nativeMenu.Pending) return;
+                    if (NativeLayout.IsIconic(layout.Frame)) return;
+                    bool resizing = activity.TrackingResize(layout.ClientBounds.Size);
+                    timer.Interval = resizing ? resizeInterval : idleInterval;
+                    if (resizing && layout.HasReservation && layout.FrameEnabled)
+                    {
+                        Rectangle moving = layout.Reserve(true, resizing: true);
+                        if (!moving.IsEmpty) strip.FollowResize(moving, layout);
+                        return;
+                    }
+                    if (activity.Pending) return;
                     Rectangle slot = layout.Reserve(true);
                     if (slot.IsEmpty && layout.AtBottom)
                     {

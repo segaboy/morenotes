@@ -4,34 +4,44 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-// Right-clicking a page can change OneNote's selection before the menu command runs.
-// Defer ordinary tab-following until this editor's popup is dismissed.
-internal sealed class NativeMenuActivity : NativeWindow, IDisposable
+// Track gestures on the associated editor. Resizing needs prompt layout updates.
+// A page-menu gesture defers tab-following until OneNote dismisses its popup.
+internal sealed class NativeEditorActivity : NativeWindow, IDisposable
 {
-    private const uint PopupStart = 6, PopupEnd = 7;
+    private const uint PopupStart = 6, PopupEnd = 7, MoveSizeStart = 10, MoveSizeEnd = 11, LocationChange = 0x800B;
     private readonly HashSet<IntPtr> popups = new HashSet<IntPtr>();
     private readonly WinEvent callback;
-    private readonly IntPtr hook, frame, document;
+    private readonly IntPtr hook, locationHook, frame, document;
+    private readonly Action wakeLayout;
+    private bool movingOrSizing;
+    private Size clientSize;
+    private DateTime settleUntil;
     private readonly Action<int> markGesture;
     private readonly bool mouseRegistered;
     private int? secondaryPress;
     private readonly uint thread;
     private DateTime resume;
 
-    internal NativeMenuActivity(NativeLayout layout, Action<int> markGesture)
+    internal NativeEditorActivity(NativeLayout layout, Action<int> markGesture, Action wakeLayout)
     {
         frame = layout.Frame;
         document = layout.Document;
         this.markGesture = markGesture;
+        this.wakeLayout = wakeLayout;
+        clientSize = layout.ClientBounds.Size;
         uint process;
         thread = GetWindowThreadProcessId(frame, out process);
-        callback = OnPopup;
-        if (thread != 0) hook = SetWinEventHook(PopupStart, PopupEnd, IntPtr.Zero, callback, process, thread, 0);
+        callback = OnEvent;
+        if (thread != 0)
+        {
+            hook = SetWinEventHook(PopupStart, MoveSizeEnd, IntPtr.Zero, callback, process, thread, 0);
+            locationHook = SetWinEventHook(LocationChange, LocationChange, IntPtr.Zero, callback, process, thread, 0);
+        }
         // Observe the secondary press before OneNote switches pages. Its custom popup can appear later.
         CreateHandle(new CreateParams { Parent = new IntPtr(-3) }); // HWND_MESSAGE
         mouseRegistered = RegisterMouse(0x100, Handle); // RIDEV_INPUTSINK
     }
-    private void OnPopup(IntPtr handle, uint kind, IntPtr window, int obj, int child, uint threadId, uint time)
+    private void OnEvent(IntPtr handle, uint kind, IntPtr window, int obj, int child, uint threadId, uint time)
     {
         if (kind == PopupStart)
         {
@@ -44,11 +54,27 @@ internal sealed class NativeMenuActivity : NativeWindow, IDisposable
             }
             popups.Add(window);
         }
-        else
+        else if (kind == PopupEnd)
         {
             popups.Remove(window);
             resume = DateTime.UtcNow.AddMilliseconds(350);
         }
+        else if (window == frame && (kind == MoveSizeStart || kind == MoveSizeEnd))
+        {
+            movingOrSizing = kind == MoveSizeStart;
+            settleUntil = DateTime.UtcNow.AddMilliseconds(120);
+            wakeLayout();
+        }
+        else if (window == frame && kind == LocationChange && obj == 0 && child == 0) wakeLayout();
+    }
+    internal bool TrackingResize(Size currentSize)
+    {
+        if (currentSize != clientSize)
+        {
+            clientSize = currentSize;
+            settleUntil = DateTime.UtcNow.AddMilliseconds(120);
+        }
+        return movingOrSizing || DateTime.UtcNow < settleUntil;
     }
     protected override void WndProc(ref Message m)
     {
@@ -82,6 +108,7 @@ internal sealed class NativeMenuActivity : NativeWindow, IDisposable
     {
         if (mouseRegistered) RegisterMouse(1, IntPtr.Zero); // RIDEV_REMOVE
         if (hook != IntPtr.Zero) UnhookWinEvent(hook);
+        if (locationHook != IntPtr.Zero) UnhookWinEvent(locationHook);
         DestroyHandle();
     }
     [StructLayout(LayoutKind.Sequential)]
