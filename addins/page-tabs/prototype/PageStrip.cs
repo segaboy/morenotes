@@ -260,7 +260,10 @@ internal sealed class PageStrip : ToolStrip
             return bounds;
         }
     }
-    private readonly ToolStripMenuItem colorLabels = new ToolStripMenuItem("Use notebook colors for labels");
+    private readonly ToolStripMenuItem themes = new ToolStripMenuItem("Themes");
+    private readonly ToolStripMenuItem enableThemes = new ToolStripMenuItem("Enable themes");
+    private readonly ToolStripMenuItem notebookColors = new ToolStripMenuItem("Notebook Colors") { Tag = MoreTabsTheme.NotebookColors };
+    private readonly ToolStripMenuItem fall = new ToolStripMenuItem("Fall") { Tag = MoreTabsTheme.Fall };
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
@@ -270,6 +273,7 @@ internal sealed class PageStrip : ToolStrip
     private TabRenderer appearance;
     private int topToolsInset;
     private readonly HostChrome defaultChrome = new HostChrome();
+    private HostChrome currentChrome;
     internal readonly StripHost Host;
     private NativeLayout attachedLayout;
     internal bool AtBottom { get; private set; }
@@ -314,9 +318,10 @@ internal sealed class PageStrip : ToolStrip
         OverflowButton.AccessibleName = OverflowButton.ToolTipText = "More commands";
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
-        options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, colorLabels });
+        themes.DropDownItems.AddRange(new ToolStripItem[] { notebookColors, fall, new ToolStripSeparator(), enableThemes });
+        options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, themes });
         options.DropDownOpening += delegate { openHomeAfterPicking = false; Perform(delegate { ApplyState(this.store.Read()); }); };
-        foreach (ToolStripMenuItem item in options.DropDownItems)
+        foreach (var item in new[] { groupTabs, showLabels, notebookColors, fall, enableThemes })
         {
             var setting = item;
             setting.Click += delegate { Perform(delegate { ChangeOption(setting); }); };
@@ -596,16 +601,18 @@ internal sealed class PageStrip : ToolStrip
     }
     internal void ApplyAppearance(HostChrome chrome)
     {
+        currentChrome = chrome;
+        var theme = state == null ? MoreTabsTheme.NotebookColors : state.EffectiveTheme;
         bool metrics = appearance == null || appearance.Dpi != chrome.Dpi;
         if (metrics || appearance.Surface.ToArgb() != chrome.Surface.ToArgb() || highContrast != chrome.HighContrast ||
-            appearance.DarkSections != chrome.DarkSections)
+            appearance.DarkSections != chrome.DarkSections || appearance.Theme != theme)
         {
             highContrast = chrome.HighContrast;
-            appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast, chrome.DarkSections);
+            appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast, chrome.DarkSections, theme);
             Renderer = appearance;
-            toolVisibility.DropDown.Renderer = appearance;
+            themes.DropDown.Renderer = toolVisibility.DropDown.Renderer = appearance;
             tabMenu.Renderer = bookmarks.DropDown.Renderer = options.DropDown.Renderer = MoreTabs.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
-            add.DropDown.Renderer = appearance.NotebookMenu;
+            add.DropDown.Renderer = chooseHome.DropDown.Renderer = chooseSection.DropDown.Renderer = appearance.NotebookMenu;
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
             Host.Style(appearance);
@@ -615,6 +622,7 @@ internal sealed class PageStrip : ToolStrip
             toolsLabel.ForeColor = highContrast ? SystemColors.ControlText : appearance.NotebookInk(appearance.ToolsBand);
             toolsLabel.Invalidate();
             if (state != null) { RefreshOptions(); PerformLayout(); }
+            Host.Invalidate(true);
         }
         // The top dock anchors the glyph to the notebook icon. The bottom dock anchors the Tools band to the ribbon.
         int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), Math.Max(0, chrome.Inset - TabMargin(chrome.Dpi).Horizontal));
@@ -632,6 +640,7 @@ internal sealed class PageStrip : ToolStrip
             selectedTabFont = new Font(tabFont, FontStyle.Bold);
             captionFont = HostChrome.CaptionFont(chrome.Dpi);
             Font = tabMenu.Font = tabFont;
+            add.DropDown.Font = chooseHome.DropDown.Font = chooseSection.DropDown.Font = tabFont;
             MoreTabs.DropDown.Font = tabFont;
             options.DropDown.Font = tabFont;
             toolsLabel.Font = captionFont;
@@ -683,10 +692,10 @@ internal sealed class PageStrip : ToolStrip
     private void StyleCaption(NotebookTabLabel label)
     {
         Color fill = Color.Empty;
-        if (UseNotebookColors)
+        if (ShowGroupColors)
         {
             if (label.Pinned) fill = appearance.PinnedBand;
-            else if (label.Notebook != null) fill = appearance.NotebookCover(label.Notebook.Color);
+            else if (label.Notebook != null) fill = appearance.NotebookCover(label.Notebook.Color, label.Notebook.GroupKey);
         }
         label.ForeColor = fill.IsEmpty ? appearance.Ink : appearance.NotebookInk(fill);
         if (label.GroupFill != fill)
@@ -698,7 +707,7 @@ internal sealed class PageStrip : ToolStrip
         }
     }
     internal bool WantsCaptionRow { get { return state != null && state.GroupByNotebook && state.ShowNotebookLabels; } }
-    private bool UseNotebookColors { get { return WantsCaptionRow && state.ColorNotebookLabels && !highContrast; } }
+    private bool ShowGroupColors { get { return WantsCaptionRow && state.ThemesEnabled && !highContrast; } }
     private void RefreshOptions()
     {
         foreach (ToolStripMenuItem toggle in toolVisibility.DropDownItems)
@@ -711,8 +720,10 @@ internal sealed class PageStrip : ToolStrip
         groupTabs.Checked = state.GroupByNotebook;
         showLabels.Enabled = state.GroupByNotebook;
         showLabels.Checked = WantsCaptionRow;
-        colorLabels.Enabled = WantsCaptionRow && !highContrast;
-        colorLabels.Checked = UseNotebookColors;
+        themes.Checked = enableThemes.Checked = state.ThemesEnabled;
+        notebookColors.Enabled = fall.Enabled = state.ThemesEnabled;
+        notebookColors.Checked = state.ThemesEnabled && state.Theme == MoreTabsTheme.NotebookColors;
+        fall.Checked = state.ThemesEnabled && state.Theme == MoreTabsTheme.Fall;
         useQuickNotes.Checked = state.NewNoteSectionId == null;
         chooseSection.Text = "New note location (" + (state.NewNoteSectionName ?? "Quick Notes").Replace("&", "&&") + ")";
         chooseHome.Text = "Home page (" + (state.HomePage == null ? "Choose a page" : state.HomePage.Caption.Replace("&", "&&")) + ")";
@@ -757,10 +768,16 @@ internal sealed class PageStrip : ToolStrip
             ApplyState(store.Change(s => {
                 var tool = item.Tag as ToolStripItem;
                 if (tool != null) return enable ? s.HiddenTools.Remove(tool.Name) : s.HiddenTools.Add(tool.Name);
+                if (item.Tag is MoreTabsTheme)
+                {
+                    var choice = (MoreTabsTheme)item.Tag;
+                    if (!s.ThemesEnabled || s.Theme == choice) return false;
+                    s.Theme = choice;
+                    return true;
+                }
+                if (item == enableThemes) { s.ThemesEnabled = enable; return true; }
                 if (item != groupTabs && !s.GroupByNotebook) return false;
-                if (item == colorLabels && !s.ShowNotebookLabels) return false;
-                if (item == colorLabels) s.ColorNotebookLabels = enable;
-                else if (item == showLabels) s.ShowNotebookLabels = enable;
+                if (item == showLabels) s.ShowNotebookLabels = enable;
                 else s.GroupByNotebook = enable;
                 return true;
             }));
@@ -961,6 +978,7 @@ internal sealed class PageStrip : ToolStrip
     private void ApplyState(WorkingSet updated)
     {
         state = updated;
+        if (appearance.Theme != state.EffectiveTheme) ApplyAppearance(currentChrome);
         AlignTools();
         RefreshOptions();
         if (displayedRevision == updated.Revision) return;
@@ -1012,6 +1030,8 @@ internal sealed class PageStrip : ToolStrip
             button.Text = page.BookmarkTitle;
             button.AccessibleName = page.Caption;
             button.ToolTipText = page.Caption + (slot.Pinned ? "\nPinned tab" : "") + "\nClick × to close this tab. Right-click for tab options.";
+            if (appearance.Theme == MoreTabsTheme.Fall && button.SectionName != (page.Location == null ? null : page.Location.SectionName))
+                button.Invalidate();
             button.Tag = slot;
         }
         int position = Items.IndexOf(bookmarkDivider) + 1;
@@ -1091,6 +1111,17 @@ internal sealed class PageStrip : ToolStrip
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         base.OnPaintBackground(e);
+        if (appearance != null && appearance.Theme == MoreTabsTheme.Fall && !highContrast)
+        {
+            // Use only spare space. The ornament never takes width from a tab or covers a command.
+            int left = 0, right = DisplayRectangle.Right;
+            foreach (ToolStripItem item in DisplayedItems)
+            {
+                if (item.Alignment == ToolStripItemAlignment.Right) right = Math.Min(right, item.Bounds.Left);
+                else if (item != OverflowButton) left = Math.Max(left, item.Bounds.Right);
+            }
+            appearance.PaintFallLeaves(e.Graphics, left, right, Height);
+        }
         if (!WantsCaptionRow) return;
         // The caption and the tab strip have separate windows. Continue each visible
         // caption's fill across the tab row before WinForms paints the individual tabs.
@@ -1132,7 +1163,7 @@ internal sealed class PageStrip : ToolStrip
         var visibleGroups = new HashSet<NotebookTabLabel>();
         var margin = TabMargin(appearance.Dpi);
         add.Margin = MoreTabs.Margin = margin;
-        bool showDividers = !UseNotebookColors;
+        bool showDividers = !ShowGroupColors;
         bookmarkDivider.Available = showDividers;
         int dividerWidth = showDividers ? bookmarkDivider.Width : 0;
         int toolsEndMargin = GroupEndPadding(toolsLabel) + margin.Right;
@@ -1518,7 +1549,7 @@ internal sealed class PageStrip : ToolStrip
             var tabs = byPage[pageId];
             BookmarkLocation owner;
             bool found = locations.TryGetValue(lookup[pageId], out owner);
-            if (found && tabs.Any(t => !owner.Notebook.SameAs(((SavedTab)t.Tag).Page.Notebook))) owners.Add(pageId, owner);
+            if (found && tabs.Any(t => !owner.SameAs(((SavedTab)t.Tag).Page.Location))) owners.Add(pageId, owner);
             Color color = found ? owner.SectionColor : Color.Empty;
             foreach (var tab in tabs)
             {
@@ -1530,14 +1561,14 @@ internal sealed class PageStrip : ToolStrip
         }
         if (owners.Count > 0)
         {
-            try { ApplyState(store.Change(s => s.UpdateTabNotebooks(owners))); }
-            catch (System.IO.IOException) { ShowUncachedNotebooks(owners); }
-            catch (UnauthorizedAccessException) { ShowUncachedNotebooks(owners); }
+            try { ApplyState(store.Change(s => s.UpdateTabLocations(owners))); }
+            catch (System.IO.IOException) { ShowUncachedLocations(owners); }
+            catch (UnauthorizedAccessException) { ShowUncachedLocations(owners); }
         }
     }
-    private void ShowUncachedNotebooks(Dictionary<string, BookmarkLocation> owners)
+    private void ShowUncachedLocations(Dictionary<string, BookmarkLocation> owners)
     {
-        state.UpdateTabNotebooks(owners);
+        state.UpdateTabLocations(owners);
         state.ResolveNotebookPins();
         SuspendLayout();
         try { UpdateTabItems(); }

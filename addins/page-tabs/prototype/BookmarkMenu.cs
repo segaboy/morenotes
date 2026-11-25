@@ -108,7 +108,8 @@ internal sealed class BookmarkHeader : ToolStripMenuItem
     protected override void OnPaint(PaintEventArgs e)
     {
         var palette = (TabRenderer)Owner.Renderer;
-        Color fill = palette.NotebookFill(color);
+        Color fill = Notebook != null && palette.Theme == MoreTabsTheme.Fall ?
+            palette.NotebookCover(color, Notebook.GroupKey) : palette.NotebookFill(color);
         Color ink = palette.NotebookInk(fill);
         e.Graphics.Clear(fill);
         int size = HostChrome.Px(16, palette.Dpi), x = HostChrome.Px(7, palette.Dpi), y = (Height - size) / 2;
@@ -165,8 +166,8 @@ internal sealed class BookmarkRow : ToolStripMenuItem
     protected override void OnPaint(PaintEventArgs e)
     {
         var palette = (TabRenderer)Owner.Renderer;
-        Color fill = palette.SectionFill(SectionColor);
-        Color titleFill = palette.MutedSection(SectionColor);
+        Color fill = palette.SectionFill(SectionColor, SectionName);
+        Color titleFill = palette.MutedSection(SectionColor, SectionName);
         Color titleInk = palette.NotebookInk(titleFill);
         if (palette.HighContrast && !Selected)
         {

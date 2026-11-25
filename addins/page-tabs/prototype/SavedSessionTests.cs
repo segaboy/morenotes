@@ -101,6 +101,7 @@ internal static class SavedSessionTests
             "<notebook id='a' name='Field book' color='#2468AC'/></page></bookmarks></workingSet>");
         var store = new SessionStore(path);
         var legacy = store.Read();
+        Check(legacy.ThemesEnabled && legacy.Theme == MoreTabsTheme.NotebookColors, "Existing sessions must keep Notebook Colors.");
         Check(legacy.LabelAlignment == ContentAlignment.MiddleLeft, "Existing sessions must start with left-aligned labels.");
         Check(legacy.PinnedNotebookKeys.Count == 0, "Older sessions must start without notebook pins.");
         var first = legacy.Tabs[0];
@@ -110,11 +111,12 @@ internal static class SavedSessionTests
             "A bookmark saved before section labels were introduced lost its notebook.");
         store.Change(s => s.UpdateBookmarkOwners(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
         Check(store.Read().Bookmarks.Single().Location.SameAs(sections["s1"]), "Could not backfill a legacy bookmark's section.");
-        store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
+        store.Change(s => s.UpdateTabLocations(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
+        Check(store.Read().Tabs[0].Page.Location.SameAs(sections["s1"]), "Restoring an offline Fall tab lost its host section.");
         store.Change(s => s.SetNotebookPinned("name:SHARED", true));
-        store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "b", sections["s2"] } }));
+        store.Change(s => s.UpdateTabLocations(new Dictionary<string, BookmarkLocation> { { "b", sections["s2"] } }));
         var duplicateName = new BookmarkLocation(new BookmarkNotebook("b", "Field book", Color.Teal), "Projects", Color.Empty);
-        store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "b", duplicateName } }));
+        store.Change(s => s.UpdateTabLocations(new Dictionary<string, BookmarkLocation> { { "b", duplicateName } }));
         Check(store.Read().PinnedNotebookKeys.SequenceEqual(new[]{"id:b"}), "A name-only notebook pin lost its ID when the notebook was renamed.");
         Check(store.Read().NotebookPinOrder("id:a") == Int32.MaxValue, "A notebook inherited the pin of a notebook with the same name.");
         store.Change(s => s.UpdateTab(first, new SavedPage("a", "Renamed / Field book", "")));
@@ -132,8 +134,10 @@ internal static class SavedSessionTests
         Check(store.Read().Tabs[0].Page.Id == "b", "An outdated window overwrote a newer page.");
         store.Change(s => s.Tabs.RemoveAll(t => t.Key == first.Key) > 0);
         Check(store.Read().Tabs.Single().Key == second.Key, "Closing one duplicate closed the other tab.");
-        File.WriteAllText(path, "<workingSet version='2' revision='old'><tabs><page tabId='slot' id='x' caption='X'/></tabs><bookmarks/></workingSet>");
-        var v2 = store.Read().Tabs.Single();
+        File.WriteAllText(path, "<workingSet version='2' revision='old'><options coloredLabels='false'/><tabs><page tabId='slot' id='x' caption='X'/></tabs><bookmarks/></workingSet>");
+        var older = store.Read();
+        Check(!older.ThemesEnabled && older.Theme == MoreTabsTheme.NotebookColors, "A saved plain-label preference was overwritten.");
+        var v2 = older.Tabs.Single();
         Check(v2.Key == "slot" && !v2.Pinned, "Version 2 lost the existing tab identity or invented a pin.");
         Console.WriteLine("PASS migrated saved tabs, independent same-page slots, persistent order, bookmarks and stale-window protection.");
     }
@@ -251,6 +255,7 @@ internal static class SavedSessionTests
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
                     PrototypeTests.ClickCaption(strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Pinned));
                     ((ToolStripDropDownButton)strip.Items[1]).DropDownItems[0].PerformClick();
+                    ((ToolStripMenuItem)((ToolStripDropDownButton)strip.Items[1]).DropDownItems[2]).DropDownItems[1].PerformClick();
                     var tools = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Visible tool buttons");
                     tools.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Forward").PerformClick();
                     break;
@@ -265,8 +270,10 @@ internal static class SavedSessionTests
                     Check(stored.HomePage.Matches(stored.Bookmarks.Single()) && stored.NewNoteSectionId == "section-b" &&
                         stored.NewNoteSectionName == "B & C / Projects", "A restart lost the Tools destinations.");
                     var settings = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripItem>().Take(3).Cast<ToolStripMenuItem>().ToArray();
-                    Check(stored.ColorNotebookLabels && stored.ShowNotebookLabels && !stored.GroupByNotebook && !strip.WantsCaptionRow &&
-                        settings.All(i => !i.Checked) && settings[0].Enabled && settings.Skip(1).All(i => !i.Enabled),
+                    Check(stored.ThemesEnabled && stored.Theme == MoreTabsTheme.Fall && ((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.Fall &&
+                        stored.ShowNotebookLabels && !stored.GroupByNotebook && !strip.WantsCaptionRow &&
+                        !settings[0].Checked && !settings[1].Enabled && settings[2].Enabled && settings[2].Checked &&
+                        ((ToolStripMenuItem)settings[2].DropDownItems[1]).Checked,
                         "A restart lost the dependent preferences or showed them as active with grouping off.");
                     var pinned = strip.Items.OfType<PageTabButton>().First();
                     Check(((SavedTab)pinned.Tag).Pinned && ((SavedTab)pinned.Tag).Page.Id == "a2", "Pinned group did not survive restart.");

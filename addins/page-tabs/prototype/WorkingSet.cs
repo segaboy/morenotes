@@ -48,10 +48,10 @@ internal sealed class SavedPage
         int split = Caption.LastIndexOf(" / ", StringComparison.Ordinal);
         return new BookmarkNotebook("", split > 0 ? Caption.Substring(split + 3) : "Unknown notebook", Color.Empty);
     }
-    internal XElement ToXml(bool bookmark = false)
+    internal XElement ToXml()
     {
         return new XElement("page", new XAttribute("id", Id), new XAttribute("caption", Caption), new XAttribute("link", Link),
-            Notebook != null ? Notebook.ToXml() : null, bookmark && Location != null ? Location.SectionXml() : null);
+            Notebook != null ? Notebook.ToXml() : null, Location == null ? null : Location.SectionXml());
     }
 }
 
@@ -63,6 +63,8 @@ internal sealed class SavedTab
     internal SavedTab(string key, SavedPage page, bool pinned = false) { Key = key; Page = page; Pinned = pinned; }
 }
 
+internal enum MoreTabsTheme { NotebookColors, Fall }
+
 internal sealed class WorkingSet
 {
     internal readonly List<SavedTab> Tabs = new List<SavedTab>();
@@ -72,7 +74,9 @@ internal sealed class WorkingSet
     internal readonly HashSet<string> HiddenTools = new HashSet<string>(StringComparer.Ordinal);
     internal SavedPage HomePage;
     internal string NewNoteSectionId, NewNoteSectionName;
-    internal bool ColorNotebookLabels = true, ShowNotebookLabels = true, GroupByNotebook = true;
+    internal bool ThemesEnabled = true, ShowNotebookLabels = true, GroupByNotebook = true;
+    internal MoreTabsTheme Theme = MoreTabsTheme.NotebookColors;
+    internal MoreTabsTheme EffectiveTheme { get { return ThemesEnabled ? Theme : MoreTabsTheme.NotebookColors; } }
     internal ContentAlignment LabelAlignment = ContentAlignment.MiddleLeft;
 
     internal bool CycleLabelAlignment()
@@ -103,7 +107,7 @@ internal sealed class WorkingSet
         if (page.Matches(old))
             page = new SavedPage(page.Id, page.Caption, page.Link.Length == 0 ? old.Link : page.Link, page.Location ?? old.Location);
         if (page.Id == old.Id && page.Caption == old.Caption && page.Link == old.Link &&
-            (page.Notebook == old.Notebook || (page.Notebook != null && page.Notebook.SameAs(old.Notebook)))) return false;
+            (page.Location == old.Location || (page.Location != null && page.Location.SameAs(old.Location)))) return false;
         Tabs[index] = new SavedTab(expected.Key, page, Tabs[index].Pinned);
         return true;
     }
@@ -177,7 +181,7 @@ internal sealed class WorkingSet
         return changed;
     }
 
-    internal bool UpdateTabNotebooks(Dictionary<string, BookmarkLocation> owners)
+    internal bool UpdateTabLocations(Dictionary<string, BookmarkLocation> owners)
     {
         bool changed = false;
         for (int i = 0; i < Tabs.Count; i++)
@@ -185,7 +189,7 @@ internal sealed class WorkingSet
             var tab = Tabs[i];
             var page = tab.Page;
             BookmarkLocation owner;
-            if (!owners.TryGetValue(page.Id, out owner) || owner.Notebook.SameAs(page.Notebook)) continue;
+            if (!owners.TryGetValue(page.Id, out owner) || owner.SameAs(page.Location)) continue;
             Tabs[i] = new SavedTab(tab.Key, new SavedPage(page.Id, page.Caption, page.Link, owner), tab.Pinned);
             changed = true;
         }
@@ -250,7 +254,8 @@ internal sealed class SessionStore
                 string id = (string)tool.Attribute("id");
                 if (!String.IsNullOrEmpty(id)) state.HiddenTools.Add(id);
             }
-            state.ColorNotebookLabels = (bool?)options.Attribute("coloredLabels") ?? true;
+            state.ThemesEnabled = (bool?)options.Attribute("coloredLabels") ?? true;
+            if ((string)options.Attribute("theme") == "Fall") state.Theme = MoreTabsTheme.Fall;
             state.ShowNotebookLabels = (bool?)options.Attribute("showLabels") ?? true;
             state.GroupByNotebook = (bool?)options.Attribute("groupByNotebook") ?? true;
             switch ((string)options.Attribute("labelAlignment"))
@@ -313,7 +318,7 @@ internal sealed class SessionStore
             state.ResolveNotebookPins();
             state.Revision = Guid.NewGuid().ToString("N");
             var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
-                new XElement("options", new XAttribute("coloredLabels", state.ColorNotebookLabels),
+                new XElement("options", new XAttribute("coloredLabels", state.ThemesEnabled), new XAttribute("theme", state.Theme),
                     new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook),
                     new XAttribute("labelAlignment", state.LabelAlignment),
                     state.PinnedNotebookKeys.Select(key => new XElement("pinnedNotebook", new XAttribute("key", key))),
@@ -327,7 +332,7 @@ internal sealed class SessionStore
                     if (tab.Pinned) xml.SetAttributeValue("pinned", true);
                     return xml;
                 })),
-                new XElement("bookmarks", state.Bookmarks.Select(page => page.ToXml(true))));
+                new XElement("bookmarks", state.Bookmarks.Select(page => page.ToXml())));
             string temporary = path + "." + state.Revision + ".tmp";
             try
             {

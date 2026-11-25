@@ -59,33 +59,37 @@ Choose **Settings → Home page** to pick a page from any open notebook. Clickin
 
 **New note** creates a page and opens it in a new focused tab. It uses the user's OneNote Quick Notes section by default. Choose **Settings → New note location** and select a section to change it, or **Use default Quick Notes** to reset it. The **+ → New Quick Note** command always uses Quick Notes.
 
-All three grouping and label options start enabled. Changes apply immediately. MoreTabs remembers your label and color choices when you turn grouping off and when you restart.
+Grouping and notebook labels start enabled. Changes apply immediately. MoreTabs remembers your label and theme preferences across windows and restarts.
 
 | Option | When turned off |
 | --- | --- |
-| **Group tabs by notebook** | Unpinned tabs return to saved tab order. Both label options are grayed out and OneNote gets the whole caption row back. |
-| **Show notebook labels** | Tabs stay grouped. All captions, including **Pinned**, disappear and OneNote gets the whole row back. The label color option is grayed out. |
-| **Use notebook colors for labels** | The notebook bands disappear and the labels use the theme's regular text color. Windows high contrast uses the system background and text colors. |
+| **Group tabs by notebook** | Unpinned tabs return to saved tab order. The label option is grayed out and OneNote gets the caption row back. |
+| **Show notebook labels** | Tabs stay grouped. All captions, including **Pinned**, disappear and OneNote gets the whole row back. |
+| **Themes → Enable themes** | Notebook bands use plain labels. Tabs and menus return to their standard OneNote colors. Enabling themes again restores your last choice. |
 
-With grouping on, each notebook band matches the cover color of its icon in OneNote's navigation. The band and notebook picker use the same 16 standard light and dark cover colors, verified against OneNote build `16.0.20719.20000`. For example, a notebook stored as `#AB9CB7` appears as `#5B2D90` in a light theme and `#B973D3` in a dark theme. Custom colors use the notebook's stored RGB.
+Open **Settings → Themes** to choose an appearance. **Notebook Colors** is the default. It carries forward your previous colored-label preference and uses the native OneNote notebook and section colors. **Fall** gives notebooks and sections a seasonal palette of maple red, amber, cranberry, persimmon, oak and sage. A maple leaf marks the active tab when the title has room, and three falling leaves appear beside **+** when that space is free. Bookmarks, overflow tabs and all three pickers share the palette. The colors adapt to the host surface, and Windows high contrast uses system colors. Themes also work when notebook labels are hidden.
+
+![Fall in dark and light OneNote appearances](fall-appearance.png)
+
+With **Notebook Colors** and grouping enabled, each notebook band matches the cover color of its icon in OneNote's navigation. The band and notebook picker use the same 16 standard light and dark cover colors, verified against OneNote build `16.0.20719.20000`. For example, a notebook stored as `#AB9CB7` appears as `#5B2D90` in a light theme and `#B973D3` in a dark theme. Custom colors use the notebook's stored RGB.
 
 The notebook color spans the caption and the space behind its visible tabs. Each end of the band has the same padding as the gap between two tabs. A thin, darker outline separates each page tab from the band. The notebook name is vertically centered in the caption, with black or white text chosen for contrast. The band is rounded along the edge facing the page, below the tabs when docked at the top and above them when docked at the bottom. Hover over a clipped caption to read its full name.
 
 Group labels start left-aligned. Left-click any notebook name, **Tools**, or **Pinned** to center all labels. Click again to align them right, then again to return them to the left. MoreTabs remembers the alignment across windows and restarts.
 
-The Tools buttons share the outline of an inactive page tab. A neutral gray band wraps the buttons and their label, follows the OneNote theme, and resizes to fit the visible tools. In the bottom dock, the outer left edge of this band lines up with the visible ribbon. In the top dock, the first icon lines up with the notebook icon. With colored labels on, **Pinned** has a gold band in light themes and an amber band in dark themes. Each pinned tab retains its page's section stripe. Windows high contrast uses system colors.
+The Tools buttons share the outline of an inactive page tab. With **Notebook Colors**, a neutral gray band wraps the buttons and their label, follows the OneNote theme, and resizes to fit the visible tools. In the bottom dock, the outer left edge of this band lines up with the visible ribbon. In the top dock, the first icon lines up with the notebook icon. With **Notebook Colors**, **Pinned** has a gold band in light themes and an amber band in dark themes. Each pinned tab retains its page's section stripe. Windows high contrast uses system colors.
 
 Click the outlined pushpin at the left of a notebook label to pin the entire group. The pin becomes solid and upright. Individually pinned pages stay under **Pinned**, immediately after **Tools**. Pinned notebooks come next, in the order you pinned them. Click a solid pin to return the notebook to its usual position among the remaining groups, which are ordered by their first open tab. Tabs within each notebook keep their saved order.
 
 MoreTabs remembers the notebook pin when you restart or close the notebook's last tab. Opening a tab from that notebook brings its pinned group back. If labels are hidden or a group is in the overflow menu, right-click one of its regular tabs and choose **Pin notebook group** or **Unpin notebook group**. Turning notebook grouping off suspends the group ordering and preserves the pins for when you turn it on again.
 
-The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
+The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the section stripe color from the selected theme and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 
 MoreTabs refreshes notebook and section names and colors when the menu opens and remembers them for offline use. Existing bookmarks gain their section labels automatically when OneNote can locate them. A bookmark whose section has never been resolved shows “Unknown section” in a theme color.
 
 ![Bookmarks under two notebook headings, with section-color labels and aligned page titles](bookmarks.png)
 
-Every open page tab has a full-width stripe matching its native section tab. The stripe is three pixels high at 100% scaling and keeps the same thickness when selected. The selected tab has a muted section-color fill and a contrasting title. Pinned and regular tabs both follow this rule. MoreTabs reads section colors for restored tabs without opening their pages and refreshes them when sections are recolored. Automatic or unavailable colors use a theme accent. Windows high contrast uses the system palette. Naming or renaming the displayed page updates its tab title.
+Every open page tab has a full-width stripe in its section's theme color. The stripe is three pixels high at 100% scaling and keeps the same thickness when selected. The selected tab has a muted section-color fill and a contrasting title. Pinned and regular tabs both follow this rule. MoreTabs reads native section colors for restored tabs without opening their pages and refreshes them when sections are recolored. Windows high contrast uses the system palette. Naming or renaming the displayed page updates its tab title.
 
 The stored section RGB and the painted section tab can differ. MoreTabs maps the 16 standard section colors to the Fluent light and dark palettes from desktop OneNote build `16.0.20715.20004`. It checks the selected section's band along the bottom of native navigation to identify the palette when visible. On that build at 96 DPI, a section stored as `#91BAAE` painted a `#006168` band in dark mode.
 

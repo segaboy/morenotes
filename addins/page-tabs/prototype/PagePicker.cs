@@ -62,8 +62,9 @@ internal sealed class PickerRow : ToolStripMenuItem
         if (kind != PickerRowKind.Page)
         {
             int height = HostChrome.Px(20, palette.Dpi);
-            Color color = kind == PickerRowKind.Notebook ? palette.NotebookCover(storedColor) : palette.SectionFill(storedColor);
-            if (palette.HighContrast || storedColor.IsEmpty) color = ink;
+            Color color = kind == PickerRowKind.Notebook ? palette.NotebookCover(storedColor, "id:" + (string)Tag) :
+                palette.SectionFill(storedColor, AccessibleName);
+            if (palette.HighContrast || (storedColor.IsEmpty && palette.Theme != MoreTabsTheme.Fall)) color = ink;
             DrawIcon(g, left, height, palette, color, ink, background);
         }
         int right = Math.Min(Width, Owner.ClientSize.Width - Bounds.Left) - left;
@@ -167,7 +168,7 @@ internal sealed class HierarchyPicker
             var palette = (TabRenderer)parent.Owner.Renderer;
             if (id.Length == 0) menu.Renderer = palette = palette.NotebookMenu;
             int width = HostChrome.Px(220, palette.Dpi);
-            menu.Font = parent.Font;
+            // The root follows the strip's DPI font. Let child menus inherit it across monitor changes.
             menu.MinimumSize = menu.MaximumSize = new Size(width, 0);
             Populate(parent, id, notebook, section, path, footer.Length);
         };
