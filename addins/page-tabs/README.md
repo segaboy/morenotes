@@ -37,6 +37,10 @@ The launcher uses the .NET Framework x64 compiler and the installed OneNote 15 i
 
 MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far right to move the whole strip to the bottom edge of the OneNote window. Click the up arrow to put it back. Both positions use the same tabs, active page and bookmarks. At the bottom, the tabs have rounded upper corners and a section-color stripe along the lower edge. The bookmarks menu opens upward. The move arrow stays visible when tabs overflow.
 
+When the window narrows, long tab titles shorten first. If the tabs still need more room, a button such as **5 more ▾** appears just to the left of **+**. The active tab gets first priority, followed by pinned tabs. Open the menu to see the hidden pages by group and select one to bring its tab back onto the strip. Widen the window to reveal the tabs in their original order. In very narrow windows the button shows just the count, and the **…** menu beside **+** also holds the extra Tools commands and **Close prototype**.
+
+![A narrow window with a pinned tab and the active Floor plan tab on the strip. The 5 more menu lists five Workshop pages.](media/tab-overflow.png)
+
 MoreTabs uses OneNote's notebook navigation background in both tab views. In horizontal view it also aligns the star with the native notebook icon. In vertical view it samples the upper-left notebook navigation header and uses a DPI-scaled inset. The strip refreshes as the theme changes. While the header is hidden or covered, it keeps the last measured color. Until the first measurement it uses the Office or Windows theme setting. Windows high-contrast colors take precedence.
 
 ![MoreTabs docked at the top, with a pinned page and a colored backing behind each notebook group](appearance.png)
@@ -113,7 +117,7 @@ Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for t
 1. From Dashboard in MoreTabs A, click **Schedule** in OneNote's own page list. The same tab should keep its colored bar and become Schedule, alongside the original Schedule tab. Use **Back** and watch the first tab return to Dashboard. Choose **+ → New Quick Note**, name it in its title field, and check that its active tab adopts the title.
 2. From **Dashboard / MoreTabs A**, put the caret in the page body and press **Ctrl+Alt+F6** to focus the active page tab. Press **Right** twice and **Enter** to open Dashboard in MoreTabs B. Without clicking, type `MoreTabs focus OK`. Try **Ctrl+Alt+F6** followed by **Escape** to return without navigating. The interactive prototype requests the shortcut while its editor is in the foreground and reports any registration conflict. Left and Right select a strip item, Enter activates it, and Escape exits the strip.
 3. Resize the window, maximize and restore it, then collapse and expand the ribbon. Pause briefly after each change and check the strip and both adjacent rows. If available, move the window to a display with a different scale setting.
-4. Choose **Close prototype**. The output reports displayed test pages, highlighting, sampled layout changes, DPI and whether the B page body contains the marker. The operator supplies the observations about input method and focus. A normal exit alone does not establish that each step was exercised.
+4. Open **…** beside **+** and choose **Close prototype**. The output reports displayed test pages, highlighting, sampled layout changes, DPI and whether the B page body contains the marker. The operator supplies the observations about input method and focus. A normal exit alone does not establish that each step was exercised.
 
 ### Live desktop verification
 

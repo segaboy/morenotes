@@ -383,7 +383,8 @@ internal static class AppearanceTests
                 Check(group.Left - right == gap, "A hidden divider left excess space before " + group.Text + ".");
                 right = group.Right;
             }
-            Check(items.Last().Bounds.Left - right == gap, "The page picker must follow the last band by one tab gap.");
+            var next = strip.MoreTabs.Available ? strip.MoreTabs : items.Last();
+            Check(next.Bounds.Left - right >= gap, "The trailing controls must clear the last notebook band.");
             return;
         }
         Check(items[0] is ToolStripSeparator && items.OfType<ToolStripSeparator>().Count() == 1 + groups.Length,
@@ -570,7 +571,8 @@ internal static class AppearanceTests
                     var rightTab = right as PageTabButton;
                     int leftGap = x - (leftTab == null ? tools.Right : leftTab.Group.Right);
                     int rightGap = (rightTab == null ? right.Bounds.Left : rightTab.Group.Left) - x - 1;
-                    Check(leftGap > 0 && leftGap == rightGap, "Divider gaps in pixels: left " + leftGap + ", right " + rightGap);
+                    Check(leftGap > 0 && (leftGap == rightGap || (right is PagePicker && rightGap >= leftGap)),
+                        "Divider gaps in pixels: left " + leftGap + ", right " + rightGap);
                     for (int gap = 1; gap <= leftGap; gap++)
                         Check(bitmap.GetPixel(x - gap, y).ToArgb() == palette.Surface.ToArgb() &&
                             bitmap.GetPixel(x + gap, y).ToArgb() == palette.Surface.ToArgb(), "A divider gap contains painted pixels.");

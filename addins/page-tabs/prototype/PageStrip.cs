@@ -230,6 +230,10 @@ internal sealed class PageStrip : ToolStrip
     private readonly Dictionary<string, NotebookTabLabel> labels = new Dictionary<string, NotebookTabLabel>();
     private readonly ToolStripButton stop;
     private readonly PagePicker add;
+    internal readonly StripMenuButton MoreTabs = new StripMenuButton {
+        Alignment = ToolStripItemAlignment.Right, Available = false,
+        DisplayStyle = ToolStripItemDisplayStyle.Text, Overflow = ToolStripItemOverflow.Never, AutoToolTip = false
+    };
     private bool openingPickedPage;
     private readonly BookmarkButton bookmarks = new BookmarkButton();
     private readonly StripMenuButton options = new StripMenuButton {
@@ -300,6 +304,13 @@ internal sealed class PageStrip : ToolStrip
         AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, Delete to close a tab, or Escape to return.";
         add = new PagePicker(pages, page => Perform(delegate { OpenPickedPage(page); }),
             delegate { Perform(delegate { CreateNote(null); }); }, delegate { Perform(AddCurrent); });
+        add.Alignment = ToolStripItemAlignment.Right;
+        var overflowMenu = (ToolStripDropDownMenu)MoreTabs.DropDown;
+        overflowMenu.ShowImageMargin = overflowMenu.ShowCheckMargin = false;
+        overflowMenu.ShowItemToolTips = true;
+        MoreTabs.DropDownItems.Add("Open tabs");
+        MoreTabs.DropDownOpening += delegate { Perform(BuildOverflowMenu); };
+        OverflowButton.AccessibleName = OverflowButton.ToolTipText = "More commands";
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
         options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, colorLabels });
@@ -329,13 +340,13 @@ internal sealed class PageStrip : ToolStrip
         BindTool(home, GoHome);
         BindTool(newNote, delegate { CreateNote(this.store.Read().NewNoteSectionId); });
         Items.AddRange(toolGroup);
-        Items.AddRange(new ToolStripItem[] { bookmarkDivider, add });
-        stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
+        Items.AddRange(new ToolStripItem[] { bookmarkDivider, add, MoreTabs });
+        stop = new ToolStripButton("Close prototype") { Overflow = ToolStripItemOverflow.Always };
         stop.Click += delegate { close(); };
         Items.Add(stop);
         Action<SavedTab> closePageTab = tab => Perform(delegate { CloseTab(tab); });
         stripClose = new TabCloseInput(this, closePageTab);
-        overflowClose = new TabCloseInput(OverflowButton.DropDown, closePageTab);
+        overflowClose = new TabCloseInput(MoreTabs.DropDown, closePageTab);
         Host = new StripHost(frame, this);
         AddCaption(toolsLabel);
         notice.SetToolTip(toolsLabel, toolsLabel.AccessibleDescription);
@@ -435,7 +446,7 @@ internal sealed class PageStrip : ToolStrip
     internal void FocusPageTabs(IntPtr previous)
     {
         var active = buttons.Values.FirstOrDefault(button => button.Checked);
-        FocusTab((ToolStripItem)active ?? add, previous);
+        FocusTab(active == null ? (ToolStripItem)add : active.Available ? (ToolStripItem)active : MoreTabs, previous);
     }
     private bool FocusTab(ToolStripItem tab, IntPtr previous)
     {
@@ -459,7 +470,9 @@ internal sealed class PageStrip : ToolStrip
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (!ContainsFocus) return base.ProcessCmdKey(ref msg, keyData);
-        var choices = Items.Cast<ToolStripItem>().Where(item => (item is ToolStripButton || item is ToolStripDropDownItem) && item.Available && item.Enabled).ToList();
+        var choices = Items.Cast<ToolStripItem>().Where(item => (item is ToolStripButton || item is ToolStripDropDownItem) &&
+            item.Available && item.Enabled && item.Placement == ToolStripItemPlacement.Main).OrderBy(item => item.Bounds.Left).ToList();
+        if (OverflowButton.Visible) choices.Add(OverflowButton);
         int index = choices.FindIndex(item => item.Selected);
         if (keyData == Keys.Delete && index >= 0 && choices[index] is PageTabButton)
         {
@@ -578,7 +591,7 @@ internal sealed class PageStrip : ToolStrip
             appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast, chrome.DarkSections);
             Renderer = appearance;
             toolVisibility.DropDown.Renderer = appearance;
-            tabMenu.Renderer = bookmarks.DropDown.Renderer = options.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
+            tabMenu.Renderer = bookmarks.DropDown.Renderer = options.DropDown.Renderer = MoreTabs.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
             add.DropDown.Renderer = appearance.NotebookMenu;
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
@@ -605,6 +618,7 @@ internal sealed class PageStrip : ToolStrip
             selectedTabFont = new Font(tabFont, FontStyle.Bold);
             captionFont = HostChrome.CaptionFont(chrome.Dpi);
             Font = tabMenu.Font = tabFont;
+            MoreTabs.DropDown.Font = tabFont;
             options.DropDown.Font = tabFont;
             toolsLabel.Font = captionFont;
             foreach (var tool in Items.OfType<ToolButton>())
@@ -1061,7 +1075,7 @@ internal sealed class PageStrip : ToolStrip
         var tools = MenuTabBounds;
         toolsLabel.Align(tools.Left, tools.Right, Host.Captions.Height, appearance.Dpi, GroupEndPadding(toolsLabel));
         // Use the final main-row item bounds. Overflow pages and notebook names consume no caption width.
-        var visible = Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
+        var visible = Items.OfType<PageTabButton>().Where(t => t.Available && t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
         foreach (var label in labels.Values)
         {
             var tabs = visible[label];
@@ -1083,10 +1097,10 @@ internal sealed class PageStrip : ToolStrip
     {
         var tabs = Items.OfType<PageTabButton>().Where(t => t.Group != null).ToList();
         foreach (var tab in tabs) tab.WidthLimit = 0;
-        var visible = new HashSet<ToolStripItem>();
+        var visible = new HashSet<PageTabButton>();
         var visibleGroups = new HashSet<NotebookTabLabel>();
         var margin = TabMargin(appearance.Dpi);
-        add.Margin = margin;
+        add.Margin = MoreTabs.Margin = margin;
         bool showDividers = !UseNotebookColors;
         bookmarkDivider.Available = showDividers;
         int dividerWidth = showDividers ? bookmarkDivider.Width : 0;
@@ -1099,39 +1113,79 @@ internal sealed class PageStrip : ToolStrip
                 TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
             options.TabWidth = Math.Max(options.TabWidth, captionWidth + 2 * TabRenderer.CornerRadius(appearance.Dpi));
         }
-        int space = DisplayRectangle.Width - options.TabWidth - toolsEndMargin - dividerWidth - ItemWidth(add);
+        int commandWidth = Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
+        int space = DisplayRectangle.Width - options.TabWidth - toolsEndMargin - dividerWidth - ItemWidth(add) - commandWidth;
         if (bookmarks.Available) space -= bookmarks.TabWidth;
         var groups = tabs.ToLookup(t => t.Group);
         var groupWidths = groups.ToDictionary(g => g.Key, g => dividerWidth + 2 * GroupEndPadding(g.Key));
         var tools = toolGroup.OfType<ToolButton>().Where(t => t.Available).ToArray();
         int toolsWidth = tools.Sum(tool => tool.TabWidth);
-        int overflowWidth = Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
-        bool collapseTools = tools.Length > 0 && space - toolsWidth < overflowWidth +
-            (tabs.Count == 0 ? 0 : HostChrome.Px(70, appearance.Dpi) + margin.Horizontal + groupWidths.Values.Max());
+        var preferred = tabs.ToDictionary(t => t, t => t.StripSize(Size.Empty).Width);
+        int readable = HostChrome.Px(104, appearance.Dpi);
+        int minimumTotal = preferred.Values.Sum(w => Math.Min(w, readable) + margin.Horizontal) + groupWidths.Values.Sum();
+        // Size for the largest possible count so crossing 9/10 hidden tabs never oscillates on resize.
+        string digits = new string('8', tabs.Count.ToString().Length);
+        int countWidth = TextRenderer.MeasureText(digits + " more", Font).Width + HostChrome.Px(16, appearance.Dpi);
+        int largestGroup = groups.Count == 0 ? 0 : groupWidths.Values.Max();
+        bool collapseTools = space - toolsWidth < minimumTotal && space - toolsWidth <
+            countWidth + margin.Horizontal * 2 + readable + largestGroup;
         foreach (var tool in tools) tool.Overflow = collapseTools ? ToolStripItemOverflow.Always : ToolStripItemOverflow.Never;
         ToolStripItem lastTool = collapseTools || tools.Length == 0 ? (ToolStripItem)options : tools[tools.Length - 1];
         foreach (var tool in toolGroup)
             tool.Margin = new Padding(0, margin.Top, tool == lastTool ? toolsEndMargin : 0, margin.Bottom);
         if (!collapseTools) space -= toolsWidth;
-        if (collapseTools || tabs.Sum(t => t.StripSize(Size.Empty).Width + margin.Horizontal) + groupWidths.Values.Sum() + ItemWidth(stop) > space) space -= overflowWidth;
-        PageTabButton active;
-        int activeGroupWidth;
-        if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null &&
-            groupWidths.TryGetValue(active.Group, out activeGroupWidth))
+        bool singleActiveFits = tabs.Count == 1 && ((SavedTab)tabs[0].Tag).Key == activeKey &&
+            space >= HostChrome.Px(48, appearance.Dpi) + margin.Horizontal + largestGroup;
+        bool needsMenu = minimumTotal > space && tabs.Count > 0 && !singleActiveFits;
+        bool compact = needsMenu && space < countWidth + margin.Horizontal * 2 + readable + largestGroup;
+        if (needsMenu)
         {
-            int content = space - margin.Horizontal - activeGroupWidth;
-            if (content >= HostChrome.Px(48, appearance.Dpi)) active.WidthLimit = content;
+            if (compact) countWidth = TextRenderer.MeasureText(digits, Font).Width + HostChrome.Px(12, appearance.Dpi);
+            space -= countWidth + margin.Horizontal;
         }
-        // Reserve the selected page first, then fit other pages in the order they appear on the strip.
+        // Items are already in pinned-first strip order. Reserve the active slot first,
+        // then spend the remaining space on the other tabs without changing their order.
         foreach (var tab in tabs.OrderByDescending(t => ((SavedTab)t.Tag).Key == activeKey))
         {
-            int cost = tab.StripSize(Size.Empty).Width + margin.Horizontal +
-                (visibleGroups.Contains(tab.Group) ? 0 : groupWidths[tab.Group]);
-            if (cost > space) continue;
+            var saved = (SavedTab)tab.Tag;
+            int overhead = margin.Horizontal + (visibleGroups.Contains(tab.Group) ? 0 : groupWidths[tab.Group]);
+            int width = Math.Min(preferred[tab], readable);
+            if (width + overhead > space)
+            {
+                if (saved.Key != activeKey && !saved.Pinned) continue;
+                int floor = HostChrome.Px(saved.Key == activeKey ? 48 : 70, appearance.Dpi);
+                if (space - overhead < floor) break;
+                width = space - overhead;
+            }
+            tab.WidthLimit = width;
             visible.Add(tab);
             visibleGroups.Add(tab.Group);
-            space -= cost;
+            space -= width + overhead;
         }
+        if (needsMenu && visible.Count == tabs.Count) space += countWidth + margin.Horizontal;
+        // Restore width evenly to the visible titles, stopping at each title's natural width.
+        var growing = tabs.Where(t => visible.Contains(t) && t.WidthLimit < preferred[t]).ToList();
+        while (space > 0 && growing.Count > 0)
+        {
+            int share = Math.Max(1, space / growing.Count);
+            foreach (var tab in growing)
+            {
+                int extra = Math.Min(Math.Min(share, space), preferred[tab] - tab.WidthLimit);
+                tab.WidthLimit += extra;
+                space -= extra;
+            }
+            growing.RemoveAll(t => t.WidthLimit == preferred[t]);
+        }
+        int hidden = tabs.Count - visible.Count;
+        if (MoreTabs.DropDown.Visible && (MoreTabs.DropDownItems.OfType<PageTabButton>().Count() != hidden ||
+            tabs.Any(t => t.Available != visible.Contains(t)))) MoreTabs.HideDropDown();
+        if (hidden > 0)
+        {
+            MoreTabs.TabWidth = countWidth;
+            MoreTabs.Text = compact ? hidden.ToString() : hidden + " more";
+            MoreTabs.AccessibleName = MoreTabs.ToolTipText = hidden + (hidden == 1 ? " more open tab" : " more open tabs");
+        }
+        MoreTabs.Available = hidden > 0;
         foreach (var group in groups)
         {
             var first = group.FirstOrDefault(t => visible.Contains(t));
@@ -1141,11 +1195,57 @@ internal sealed class PageStrip : ToolStrip
             {
                 tab.Margin = new Padding(margin.Left + (tab == first ? pad : 0), margin.Top,
                     margin.Right + (tab == last ? pad : 0), margin.Bottom);
-                tab.Overflow = visible.Contains(tab) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
+                tab.Overflow = ToolStripItemOverflow.Never;
+                tab.Available = visible.Contains(tab);
             }
         }
         foreach (var label in labels.Values) label.Divider.Available = showDividers && visibleGroups.Contains(label);
-        stop.Overflow = space >= ItemWidth(stop) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
+    }
+    private void BuildOverflowMenu()
+    {
+        var menu = MoreTabs.DropDownItems;
+        var popup = MoreTabs.DropDown;
+        popup.MaximumSize = popup.MinimumSize = Size.Empty;
+        ClearMenu(menu);
+        foreach (var group in Items.OfType<PageTabButton>().Where(t => !t.Available).GroupBy(t => t.Group))
+        {
+            string heading = group.Key.Text;
+            if (heading.Length != 0 || state.Tabs.Any(t => t.Pinned))
+                menu.Add(new BookmarkHeader(heading.Length == 0 ? "Open tabs" : heading, group.Key.GroupFill));
+            foreach (var source in group)
+            {
+                var saved = (SavedTab)source.Tag;
+                var row = new PageTabButton {
+                    Text = group.Key.Notebook == null ? saved.Page.Caption : saved.Page.BookmarkTitle,
+                    Tag = saved, SectionColor = source.SectionColor, Dpi = appearance.Dpi,
+                    AccessibleName = saved.Page.Caption, ToolTipText = saved.Page.Caption,
+                    DisplayStyle = ToolStripItemDisplayStyle.Text, Padding = source.Padding, Margin = Padding.Empty
+                };
+                row.Click += delegate {
+                    MoreTabs.HideDropDown();
+                    Perform(delegate {
+                        ApplyState(store.Read());
+                        PageTabButton current;
+                        if (buttons.TryGetValue(saved.Key, out current))
+                        {
+                            var target = (SavedTab)current.Tag;
+                            OpenSaved(target.Page, target);
+                        }
+                    });
+                };
+                row.MouseUp += delegate(object sender, MouseEventArgs e) {
+                    if (e.Button == MouseButtons.Middle) { MoreTabs.HideDropDown(); Perform(delegate { CloseTab(saved); }); }
+                    if (e.Button == MouseButtons.Right) TabMenuFor(saved).Show(Cursor.Position);
+                };
+                menu.Add(row);
+            }
+        }
+        if (menu.Count > 0)
+        {
+            SizePageMenu(popup, menu.Cast<ToolStripItem>().Max(item => item.GetPreferredSize(Size.Empty).Width),
+                Screen.FromControl(this).WorkingArea.Width);
+            popup.MaximumSize = new Size(popup.MinimumSize.Width + popup.Padding.Horizontal, 0);
+        }
     }
     internal ContextMenuStrip TabMenuFor(SavedTab tab)
     {
@@ -1233,10 +1333,10 @@ internal sealed class PageStrip : ToolStrip
         menu.Add(new ToolStripSeparator());
         menu.Add(remove);
         int width = menu.OfType<BookmarkRow>().Max(row => row.ContentWidth);
-        SizeBookmarkMenu(bookmarks.DropDown, width, screenWidth);
-        SizeBookmarkMenu(remove.DropDown, width, screenWidth);
+        SizePageMenu(bookmarks.DropDown, width, screenWidth);
+        SizePageMenu(remove.DropDown, width, screenWidth);
     }
-    private static void SizeBookmarkMenu(ToolStripDropDown menu, int contentWidth, int screenWidth)
+    private static void SizePageMenu(ToolStripDropDown menu, int contentWidth, int screenWidth)
     {
         // The native menu measures only standard text and icon columns. Widen both the popup and its hit targets.
         int border = 2 * SystemInformation.BorderSize.Width;
@@ -1351,7 +1451,8 @@ internal sealed class PageStrip : ToolStrip
             }
         }
         if (selectionChanged) PerformLayout();
-        if (focusPending && (activeKey == null || DateTime.UtcNow > navigationDeadline || FocusTab(buttons[activeKey], ForegroundFocus())))
+        if (focusPending && (activeKey == null || DateTime.UtcNow > navigationDeadline ||
+            FocusTab(buttons[activeKey].Available ? (ToolStripItem)buttons[activeKey] : MoreTabs, ForegroundFocus())))
             focusPending = false;
     }
     private void RefreshSectionColors(string currentId, bool selectionChanged)
@@ -1400,7 +1501,14 @@ internal sealed class PageStrip : ToolStrip
     }
     internal void ClickNewQuickNote() { add.QuickNote.PerformClick(); }
     internal void ClickKeepCurrent() { add.KeepCurrent.PerformClick(); }
-    internal void ClickTab(string id) { buttons[state.Tabs.First(t => t.Page.Id == id).Key].PerformClick(); }
+    internal void ClickTab(string id)
+    {
+        var tab = state.Tabs.First(t => t.Page.Id == id);
+        var button = buttons[tab.Key];
+        if (button.Available) { button.PerformClick(); return; }
+        MoreTabs.ShowDropDown();
+        MoreTabs.DropDownItems.OfType<PageTabButton>().Single(row => ((SavedTab)row.Tag).Key == tab.Key).PerformClick();
+    }
     internal bool IsSelected(string id) { return buttons.Values.Any(b => b.Checked && ((SavedTab)b.Tag).Page.Id == id); }
     internal bool HasTabFocus(string id) { return ContainsFocus && IsSelected(id) && buttons[activeKey].Selected; }
     internal int TabCount { get { return buttons.Count; } }

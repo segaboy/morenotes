@@ -415,7 +415,7 @@ internal static class PrototypeTests
         using (var other = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = frame.Location })
         {
             other.Show();
-            foreach (var button in strip.Items.OfType<ToolStripDropDownButton>())
+            foreach (var button in strip.Items.OfType<ToolStripDropDownButton>().Where(b => b.Available && b.Placement == ToolStripItemPlacement.Main))
             {
                 SetActiveWindow(other.Handle);
                 Check(GetActiveWindow() == other.Handle, "The second test window must be active before the click (" +
@@ -451,6 +451,79 @@ internal static class PrototypeTests
         var item = PickerItem(parent, id);
         item.ShowDropDown();
         return item;
+    }
+    internal static void CheckTabOverflow(SessionStore store)
+    {
+        var source = new TestPages();
+        source.Navigate("a/1");
+        store.Change(set => {
+            for (int i = 0; i < 16; i++)
+            {
+                string id = i % 4 == 0 ? "a/1" : i % 2 == 0 ? "a/" + i : "b/" + i;
+                source.Renamed[id] = "Project review and planning notes " + id + (id.StartsWith("a/") ? " / Atlas" : " / Workshop");
+                set.Tabs.Add(new SavedTab("slot" + i, new SavedPage(id, source.Caption(id), "", source.PageLocations(new[] { id })[id]), i < 3));
+            }
+            return true;
+        });
+        var order = store.Read().Tabs.Select(t => t.Key).ToArray();
+        using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(-16000,-16000) })
+        using (var strip = new PageStrip(frame.Handle, source, delegate {}, e => { throw e; }, store))
+        {
+            frame.ClientSize = new Size(1200, 450);
+            frame.Show();
+            strip.Attach(new Rectangle(0, 0, 840, HostChrome.StripHeight(96)));
+            strip.RestoreOrSeed("slot12");
+            var tabs = strip.Items.OfType<PageTabButton>().ToArray();
+            var plus = strip.Items.OfType<PagePicker>().Single();
+            foreach (int width in new[] {840, 430, 670, 840})
+            {
+                strip.Host.Width = width;
+                var hidden = tabs.Where(t => !t.Available).ToArray();
+                var more = strip.MoreTabs;
+                Check(more.Available && more.Text == hidden.Length + " more" && more.Bounds.Right <= plus.Bounds.Left &&
+                    plus.Bounds.Right <= strip.Host.MoveButton.Left && tabs.Where(t => t.Available).All(t => t.Bounds.Right <= more.Bounds.Left),
+                    "The overflow count, button order or space reserved for tabs was wrong at width " + width + ".");
+                Check(tabs.Single(t => t.Checked).Available && (!hidden.Any(t => ((SavedTab)t.Tag).Pinned) ||
+                    tabs.Where(t => t.Available && !t.Checked).All(t => ((SavedTab)t.Tag).Pinned)),
+                    "A lower-priority tab displaced the active tab or a pin.");
+            }
+            frame.Activate();
+            SetActiveWindow(frame.Handle);
+            Application.DoEvents();
+            ToolStripDropDownCloseReason? reason = null;
+            strip.MoreTabs.DropDown.Closed += (sender, e) => reason = e.CloseReason;
+            LeftClickItem(strip.MoreTabs);
+            var rows = strip.MoreTabs.DropDownItems.OfType<PageTabButton>().ToArray();
+            var missing = tabs.Where(t => !t.Available).ToArray();
+            Check(strip.MoreTabs.DropDown.Visible && rows.Select(t => ((SavedTab)t.Tag).Key).SequenceEqual(missing.Select(t => ((SavedTab)t.Tag).Key)) &&
+                strip.MoreTabs.DropDownItems.OfType<BookmarkHeader>().Select(h => h.Text).SequenceEqual(missing.Select(t => t.Group.Text).Distinct()),
+                "The overflow menu lost a tab, duplicated one, or grouped it incorrectly. Open=" + strip.MoreTabs.DropDown.Visible +
+                " closed=" + reason + " rows=" + String.Join(",", rows.Select(t => ((SavedTab)t.Tag).Key)) + " expected=" +
+                String.Join(",", missing.Select(t => ((SavedTab)t.Tag).Key)) + " headers=" +
+                String.Join(",", strip.MoreTabs.DropDownItems.OfType<BookmarkHeader>().Select(h => h.Text)));
+            var row = rows.First(t => ((SavedTab)t.Tag).Page.Id == source.Current);
+            var target = (SavedTab)row.Tag;
+            Check(row.Text == target.Page.BookmarkTitle && row.CloseBounds.Left - row.Padding.Left >=
+                TextRenderer.MeasureText(row.Text, row.Font, Size.Empty, TextFormatFlags.NoPadding).Width,
+                "A full page title was clipped in the overflow menu.");
+            LeftClickItem(row);
+            strip.RefreshActive();
+            Check(strip.ActiveTabKey == target.Key && tabs.Single(t => t.Checked).Available && source.Current == target.Page.Id &&
+                !strip.MoreTabs.DropDown.Visible, "Selecting an overflow duplicate failed to reveal that exact tab.");
+            strip.MoreTabs.ShowDropDown();
+            row = strip.MoreTabs.DropDownItems.OfType<PageTabButton>().First(t => ((SavedTab)t.Tag).Page.Id != source.Current);
+            target = (SavedTab)row.Tag;
+            LeftClickItem(row);
+            Check(strip.ActiveTabKey == target.Key && source.Current == target.Page.Id && tabs.Single(t => t.Checked).Available,
+                "Choosing a hidden page did not navigate to it and reveal its tab.");
+            strip.MoreTabs.ShowDropDown();
+            strip.Host.Width = 4000;
+            Check(!strip.MoreTabs.Available && !strip.MoreTabs.DropDown.Visible &&
+                tabs.All(t => t.Available && t.Placement == ToolStripItemPlacement.Main) &&
+                order.SequenceEqual(store.Read().Tabs.Select(t => t.Key)) && tabs.SequenceEqual(strip.Items.OfType<PageTabButton>()),
+                "Widening the strip did not restore all tabs in their original order.");
+        }
+        Console.WriteLine("PASS counted overflow, readable full titles, pinned priority, duplicate tab selection and resize recovery.");
     }
     private static void CheckPagePicker()
     {
@@ -739,10 +812,12 @@ internal static class PrototypeTests
             "Closing a pinned duplicate must preserve the selected tab and editor page.");
 
         strip.Host.Width = 245;
-        strip.OverflowButton.ShowDropDown();
-        var hidden = strip.Items.OfType<PageTabButton>().First(t => t.Placement == ToolStripItemPlacement.Overflow && !t.Checked);
+        strip.MoreTabs.ShowDropDown();
+        var hidden = strip.MoreTabs.DropDownItems.OfType<PageTabButton>().First();
+        string hiddenKey = ((SavedTab)hidden.Tag).Key;
         ClickCloseTarget(hidden, true);
-        Check(!strip.Items.Contains(hidden) && strip.TabCount == count - 2 && strip.ActiveTabKey == selected && source.Current == page,
+        Check(!strip.Items.OfType<PageTabButton>().Any(t => ((SavedTab)t.Tag).Key == hiddenKey) &&
+            strip.TabCount == count - 2 && strip.ActiveTabKey == selected && source.Current == page,
             "Closing an overflow tab switched pages or failed to remove it.");
         strip.Host.Width = 850;
         var active = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
@@ -788,9 +863,11 @@ internal static class PrototypeTests
             layout.CheckHitTargets(strip.Host.Handle, bottom);
             AppearanceTests.Controlled(strip, layout, bottom);
             strip.Host.Width = 245;
-            Check(strip.OverflowButton.Visible && arrow.Right == strip.Host.ClientSize.Width && strip.Right == arrow.Left,
+            Check(strip.MoreTabs.Available && (strip.MoreTabs.DropDownDirection == ToolStripDropDownDirection.AboveRight ||
+                strip.MoreTabs.DropDownDirection == ToolStripDropDownDirection.AboveLeft) && strip.OverflowButton.Visible &&
+                arrow.Right == strip.Host.ClientSize.Width && strip.Right == arrow.Left,
                 "Tab overflow displaced the far-right move button.");
-            var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToArray();
+            var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Available && t.Placement == ToolStripItemPlacement.Main).ToArray();
             var toolsLabel = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
             Check(toolsLabel.Visible && toolsLabel.Right == strip.MenuTabBounds.Right + 2 * HostChrome.Px(1, layout.Dpi) &&
                 strip.Items.OfType<ToolButton>().All(t => t.Placement == ToolStripItemPlacement.Overflow),
@@ -798,7 +875,9 @@ internal static class PrototypeTests
             var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible && l != toolsLabel).ToArray();
             AppearanceTests.CheckGroupDividers(strip, headers.Length);
             Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left + TabRenderer.CornerRadius(t.Dpi) && t.Group.Right >= t.Bounds.Right) &&
-                headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
+                headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label: " +
+                    String.Join(", ", strip.Items.Cast<ToolStripItem>().Where(i => i.Available).Select(i => i.Text + "@" + i.Bounds.Left + "+" + i.Width)) +
+                    "; strip width " + strip.DisplayRectangle.Width + ", active " + strip.ActiveTabKey);
             foreach (var group in visible.GroupBy(t => t.Group))
             {
                 int pad = group.Key.GroupFill.IsEmpty ? 0 : 2 * HostChrome.Px(1, layout.Dpi);

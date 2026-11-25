@@ -92,10 +92,15 @@ internal sealed class BookmarkLocation
 internal sealed class BookmarkHeader : ToolStripMenuItem
 {
     internal readonly BookmarkNotebook Notebook;
-    internal BookmarkHeader(BookmarkNotebook notebook)
+    private readonly Color color;
+    internal BookmarkHeader(BookmarkNotebook notebook) : this(notebook.Name, notebook.Color)
     {
         Notebook = notebook;
-        Text = AccessibleName = notebook.Name;
+    }
+    internal BookmarkHeader(string name, Color fill)
+    {
+        color = fill;
+        Text = AccessibleName = name;
         AccessibleRole = AccessibleRole.StaticText;
         Enabled = false;
     }
@@ -103,18 +108,18 @@ internal sealed class BookmarkHeader : ToolStripMenuItem
     protected override void OnPaint(PaintEventArgs e)
     {
         var palette = (TabRenderer)Owner.Renderer;
-        Color fill = palette.NotebookFill(Notebook.Color);
+        Color fill = palette.NotebookFill(color);
         Color ink = palette.NotebookInk(fill);
         e.Graphics.Clear(fill);
         int size = HostChrome.Px(16, palette.Dpi), x = HostChrome.Px(7, palette.Dpi), y = (Height - size) / 2;
-        using (var pen = new Pen(ink, Math.Max(1, HostChrome.Px(1, palette.Dpi))))
+        if (Notebook != null) using (var pen = new Pen(ink, Math.Max(1, HostChrome.Px(1, palette.Dpi))))
         {
             e.Graphics.DrawRectangle(pen, x, y, size * 3 / 4, size - 1);
             e.Graphics.DrawLine(pen, x + size / 4, y, x + size / 4, y + size - 1);
             for (int i = 1; i <= 3; i++)
                 e.Graphics.DrawLine(pen, x + size * 3 / 4, y + i * size / 5, x + size - 1, y + i * size / 5);
         }
-        int textLeft = x + size + HostChrome.Px(7, palette.Dpi);
+        int textLeft = Notebook == null ? x : x + size + HostChrome.Px(7, palette.Dpi);
         TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(textLeft, 0, Math.Max(0, Width - textLeft - x), Height),
             ink, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
     }

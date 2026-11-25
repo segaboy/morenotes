@@ -80,16 +80,9 @@ internal sealed class PageTabButton : ToolStripButton
     }
     public override Size GetPreferredSize(Size constrainingSize)
     {
-        var size = StripSize(constrainingSize);
-        if (Overflow == ToolStripItemOverflow.Always && Group != null)
-        {
-            int width = TextRenderer.MeasureText(OverflowText, Font, Size.Empty,
-                TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Width + Padding.Horizontal;
-            size.Width = Math.Max(size.Width, Math.Min(width, HostChrome.Px(360, Dpi)));
-        }
-        return size;
+        if (Owner is ToolStripDropDown) return base.GetPreferredSize(constrainingSize);
+        return StripSize(constrainingSize);
     }
-    internal string OverflowText { get { return Text + " / " + (Group.Notebook == null ? ((SavedTab)Tag).Page.NotebookForMenu().Name : Group.Text); } }
     internal Size StripSize(Size constrainingSize)
     {
         var size = base.GetPreferredSize(constrainingSize);
@@ -284,14 +277,13 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var tab = e.Item as PageTabButton;
         if (tab != null)
         {
-            if (e.ToolStrip is ToolStripDropDown && tab.Group != null) e.Text = tab.OverflowText;
             if (!tab.Checked) e.TextFont = e.ToolStrip.Font;
             // A ToolStripButton can supply a text rectangle wider than a capped tab.
             // Truncate against the visible title area, keeping the close target entirely clear.
             int left = tab.Padding.Left;
             e.TextRectangle = new Rectangle(left, 0, Math.Max(0, tab.CloseBounds.Left - left), tab.Height);
             e.TextFormat = (e.TextFormat & TextFormatFlags.RightToLeft) | TextFormatFlags.SingleLine |
-                TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter |
+                TextFormatFlags.VerticalCenter | (e.ToolStrip is ToolStripDropDown ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter) |
                 TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
         }
         base.OnRenderItemText(e);
@@ -358,7 +350,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         try
         {
             var strip = e.Item.Owner as PageStrip;
-            bool sharedTools = page == null && strip != null && !(e.Item is PagePicker);
+            bool sharedTools = page == null && strip != null && !(e.Item is PagePicker) && e.Item != strip.MoreTabs;
             if (sharedTools)
             {
                 // The tools share an outline while retaining individual hit targets.
@@ -410,6 +402,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         if (!(e.Item is StripMenuButton)) { PaintCommand(e); return; }
         PaintTab(e, null);
+        var strip = e.ToolStrip as PageStrip;
+        if (strip != null && e.Item == strip.MoreTabs) return;
         if (e.Item is PagePicker) { DrawToolIcon(e, ToolIcon.NewTab); return; }
         if (!(e.Item is BookmarkButton)) { DrawToolIcon(e, ToolIcon.Settings); return; }
         float cy = e.Item.Height / 2f;
@@ -512,11 +506,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
     {
         PaintCommand(e);
-        DrawArrow(new ToolStripArrowRenderEventArgs(e.Graphics, e.Item, new Rectangle(Point.Empty, e.Item.Size), TextColor(e.Item), MenuArrow(e.ToolStrip)));
-    }
-    private static ArrowDirection MenuArrow(ToolStrip strip)
-    {
-        return strip.DefaultDropDownDirection == ToolStripDropDownDirection.AboveRight ? ArrowDirection.Up : ArrowDirection.Down;
+        TextRenderer.DrawText(e.Graphics, "…", e.ToolStrip.Font, new Rectangle(Point.Empty, e.Item.Size), TextColor(e.Item),
+            TextFormatFlags.NoPadding | TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {

@@ -57,7 +57,7 @@ internal static class SavedSessionTests
         Directory.CreateDirectory(directory);
         try
         {
-            foreach (string phase in new[] { "save", "restore", "empty" })
+            foreach (string phase in new[] { "save", "restore", "empty", "overflow" })
             {
                 var start = new ProcessStartInfo(Application.ExecutablePath, "sessiontest " + run.ToString("D") + " " + phase) {
                     UseShellExecute = false, CreateNoWindow = true
@@ -193,6 +193,26 @@ internal static class SavedSessionTests
 
     internal static void ProcessPhase(Guid run, string phase)
     {
+        // Give popup menus the same window-message loop and orderly shutdown as the live strip.
+        Exception failure = null;
+        EventHandler execute = null;
+        execute = delegate {
+            Application.Idle -= execute;
+            try { RunPhase(run, phase); }
+            catch (Exception ex) { failure = ex; }
+            finally { Application.ExitThread(); }
+        };
+        Application.Idle += execute;
+        Application.Run();
+        if (failure != null) throw failure;
+    }
+    private static void RunPhase(Guid run, string phase)
+    {
+        if (phase == "overflow")
+        {
+            PrototypeTests.CheckTabOverflow(new SessionStore(Path.Combine(DirectoryFor(run), "overflow.xml")));
+            return;
+        }
         var store = new SessionStore(Path.Combine(DirectoryFor(run), "fixture.xml"));
         var source = new Pages { reopened = phase != "save" };
         source.Navigate(phase == "save" ? "a1" : "untracked");
