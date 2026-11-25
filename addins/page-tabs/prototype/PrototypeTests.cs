@@ -31,10 +31,13 @@ internal static class PrototypeTests
         {
             PickerReads.Add(parentId);
             if (PickerUnavailable) throw new System.Runtime.InteropServices.COMException("Fixture section unavailable");
-            var tree = XElement.Parse("<Notebooks><Notebook ID='a' name='Atlas' color='#8AA8E4'><Section ID='as' name='Projects'>" +
+            var tree = XElement.Parse("<Notebooks><Notebook ID='a' name='Atlas' color='#8AA8E4'><Section ID='as' name='Projects' color='#91BAAE'>" +
                 "<Page ID='a/1' name='Dashboard'/></Section></Notebook><Notebook ID='b' name='B' nickname='Workshop'>" +
                 "<SectionGroup ID='bin' name='Recycle Bin' isRecycleBin='true'/><SectionGroup ID='g' name='Plans &amp; specs'>" +
-                "<Section ID='bs' name='Projects'><Page ID='b/1' name='Dashboard'/></Section>" +
+                "<Section ID='bs' name='Projects' color='#F6B078'><Page ID='b/1' name='Dashboard'/>" +
+                "<Page ID='b/child' name='Notes' pageLevel='2'/><Page ID='b/grand' name='Details' pageLevel='3'/>" +
+                "<Page ID='b/sibling' name='Details' pageLevel='2'/><Page ID='b/next' name='Next' pageLevel='invalid'/>" +
+                "<Page ID='b/jump' name='Notes' pageLevel='3'/></Section>" +
                 "<Section ID='empty' name='Archive'/></SectionGroup></Notebook></Notebooks>");
             return parentId == "" ? tree.Elements().Concat(ExtraNotebooks) : tree.Descendants().Single(x => (string)x.Attribute("ID") == parentId).Elements();
         }
@@ -472,8 +475,21 @@ internal static class PrototypeTests
             {
                 picker = ClickPicker(strip);
                 section = ExpandPickerItem(ExpandPickerItem(ExpandPickerItem(picker, "b"), "g"), "bs");
-                LeftClickItem(PickerItem(section, "b/1"));
-                Check(!picker.DropDown.Visible && strip.TabCount == expected && source.Current == "b/1" && strip.HasTabFocus("b/1") &&
+                var rows = section.DropDownItems.OfType<PickerRow>().ToArray();
+                Check(rows.Select(row => row.PageDepth).SequenceEqual(new[] { 0, 1, 2, 1, 0, 1 }) &&
+                    rows.All(row => !row.HasDropDownItems) && rows[2].AccessibleDescription == "Dashboard / Notes / Details" &&
+                    rows[3].ToolTipText == "Dashboard / Details" && rows[5].ToolTipText == "Next / Notes",
+                    "Page nesting, accessible ancestry, or selection of a parent with subpages was lost.");
+                string targetId = expected == 2 ? "b/1" : "b/grand";
+                var target = PickerItem(section, targetId);
+                if (expected == 2) LeftClickItem(target);
+                else
+                {
+                    target.Select();
+                    var enter = Message.Create(section.DropDown.Handle, 0x0100, (IntPtr)Keys.Enter, IntPtr.Zero);
+                    Check(section.DropDown.PreProcessMessage(ref enter), "Enter did not select the highlighted subpage.");
+                }
+                Check(!picker.DropDown.Visible && strip.TabCount == expected && source.Current == targetId && strip.HasTabFocus(targetId) &&
                     ((SavedTab)original.Tag).Page.Id == "a/1" && source.NotesCreated == 0,
                     "Picking an existing page must open a separate focused tab without changing the source tab.");
             }
@@ -486,7 +502,7 @@ internal static class PrototypeTests
             LeftClickItem(ClickPicker(strip).QuickNote);
             Check(strip.TabCount == 4 && source.NotesCreated == 1 && strip.HasTabFocus(source.Current),
                 "Selecting New Quick Note from the picker did not create and focus exactly one new note.");
-            Console.WriteLine("PASS left-click +, lazy notebook/section-group/page menus, cancellation, unavailable sections, duplicate titles and separate focused tabs.");
+            Console.WriteLine("PASS picker navigation, both levels of subpages, duplicate titles, selecting parents and opening a subpage with Enter.");
             CheckTools(strip, source);
             CheckToolVisibility(strip);
             CheckActivationClicks(frame, strip);
@@ -549,16 +565,19 @@ internal static class PrototypeTests
         int count = strip.TabCount, notes = source.NotesCreated;
         LeftClickItem(home);
         Check(homePicker.DropDown.Visible && source.Current == before, "First Home click must open the settings picker.");
-        Check(PickerItem(homePicker, "b") is NotebookPickerItem, "Home must use the same notebook list as +.");
+        Check(PickerItem(homePicker, "b") is PickerRow, "Home must use the same notebook list as +.");
         var section = ExpandPickerItem(ExpandPickerItem(ExpandPickerItem(homePicker, "b"), "g"), "bs");
-        LeftClickItem(PickerItem(section, "b/1"));
-        Check(source.Current == "b/1" && strip.ActiveTabKey == key && strip.TabCount == count,
+        Check(section is PickerRow && section.DropDown.Renderer == homePicker.DropDown.Renderer &&
+            section.DropDown.Width == homePicker.DropDown.Width && ((PickerRow)PickerItem(section, "b/grand")).PageDepth == 2,
+            "Home must share the section and subpage layout with +.");
+        LeftClickItem(PickerItem(section, "b/grand"));
+        Check(source.Current == "b/grand" && strip.ActiveTabKey == key && strip.TabCount == count,
             "Setting Home on first use must open that page in the current tab.");
         LeftClickItem(gear);
         homePicker.ShowDropDown();
         section = ExpandPickerItem(ExpandPickerItem(homePicker, "a"), "as");
         LeftClickItem(PickerItem(section, "a/1"));
-        Check(source.Current == "b/1", "Configuring Home in Settings unexpectedly navigated.");
+        Check(source.Current == "b/grand", "Configuring Home in Settings unexpectedly navigated.");
         LeftClickItem(home);
         Check(source.Current == "a/1" && strip.ActiveTabKey == key, "The Home button did not use its new page.");
         LeftClickItem(note);
@@ -568,10 +587,12 @@ internal static class PrototypeTests
             ", focus " + strip.ContainsFocus + ", selected item " + String.Join(", ", strip.Items.Cast<ToolStripItem>().Where(i => i.Selected).Select(i => i.AccessibleName)) + ".");
         LeftClickItem(gear);
         sectionPicker.ShowDropDown();
-        Check(PickerItem(sectionPicker, "b") is NotebookPickerItem, "New note location must use the same notebook list as +.");
+        Check(PickerItem(sectionPicker, "b") is PickerRow, "New note location must use the same notebook list as +.");
         var group = ExpandPickerItem(ExpandPickerItem(sectionPicker, "b"), "g");
         var target = PickerItem(group, "bs");
-        Check(!target.HasDropDownItems, "The new note destination picker must stop at sections.");
+        Check(target is PickerRow && !target.HasDropDownItems && group.DropDown.Renderer == sectionPicker.DropDown.Renderer &&
+            group.DropDown.Width == sectionPicker.DropDown.Width && target.Height == group.Height,
+            "The new note destination picker must show the shared section row and stop at that section.");
         LeftClickItem(target);
         Check(source.NotesCreated == notes + 1 && sectionPicker.Text.Contains("Workshop / Plans && specs / Projects"),
             "Choosing a section must only change the destination setting.");

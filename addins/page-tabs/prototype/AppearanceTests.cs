@@ -204,7 +204,7 @@ internal static class AppearanceTests
             try
             {
                 var menu = picker.DropDown;
-                var rows = menu.Items.OfType<NotebookPickerItem>().ToArray();
+                var rows = menu.Items.OfType<PickerRow>().ToArray();
                 var palette = (TabRenderer)menu.Renderer;
                 Check(rows.Length == 62 && rows[0].AccessibleName == "Atlas" && rows[1].AccessibleName == "Workshop" &&
                     rows[2].AccessibleName == longTitle && rows[2].ToolTipText == longTitle && menu.ShowItemToolTips &&
@@ -227,6 +227,23 @@ internal static class AppearanceTests
                             image.GetPixel(b.Left + HostChrome.Px(32, dpi), y).ToArgb() == bg.ToArgb(),
                             "Missing notebook cover or neutral gap before the name at " + dpi + " DPI.");
                     }
+                }
+                rows[0].ShowDropDown();
+                var sections = rows[0].DropDown;
+                var section = sections.Items.OfType<PickerRow>().First();
+                Check(sections.Renderer == palette && sections.Width == menu.Width && section.Height == rows[0].Height,
+                    "The section submenu must match the notebook menu's theme and metrics.");
+                using (var image = new Bitmap(sections.Width, sections.Height))
+                {
+                    sections.DrawToBitmap(image, sections.ClientRectangle);
+                    var b = section.Bounds;
+                    int x = b.Left + HostChrome.Px(17, dpi), y = b.Top + b.Height / 2;
+                    Color color = palette.HighContrast ? (section.Selected ? SystemColors.HighlightText : palette.Ink) :
+                        palette.DarkSections ? Color.FromArgb(0, 97, 104) : Color.FromArgb(142, 228, 234);
+                    Color background = section.Selected ? palette.Hover : palette.Surface;
+                    Check(image.GetPixel(x, y).ToArgb() == color.ToArgb() &&
+                        image.GetPixel(x, y + HostChrome.Px(7, dpi)).ToArgb() == background.ToArgb(),
+                        "The section marker lost its native section color or its notched edge.");
                 }
             }
             finally { picker.HideDropDown(); }

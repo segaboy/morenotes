@@ -24,7 +24,7 @@ Click a tab to display its page. Here, **Floor plan** belongs to *Open Studio*, 
 
 ### Open an existing page in a new tab
 
-Click **+** and follow the notebook and section to the page you want. Choosing **Workshop → Furniture → Cut list** opens a separate tab and keeps the other pages available.
+Click **+** and follow the notebook and colored section marker to the page you want. In **Workshop → Furniture**, the **Cut list** subpage is indented beneath **Bench build**. Click it to open a separate tab.
 
 ![The plus menu opens, the pointer follows Workshop and Furniture, and Cut list appears in its own active tab.](addins/page-tabs/media/pick-a-page.gif)
 
