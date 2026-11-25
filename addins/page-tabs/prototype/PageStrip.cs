@@ -234,10 +234,10 @@ internal sealed class PageStrip : ToolStrip
     private readonly BookmarkButton bookmarks = new BookmarkButton();
     private readonly StripMenuButton options = new StripMenuButton {
         AccessibleName = "MoreTabs options", ToolTipText = "MoreTabs options", AutoToolTip = false,
-        Text = "\uE713", ShowDropDownArrow = false, DisplayStyle = ToolStripItemDisplayStyle.Text, Overflow = ToolStripItemOverflow.Never
+        Text = "Settings", ShowDropDownArrow = false, DisplayStyle = ToolStripItemDisplayStyle.None, Overflow = ToolStripItemOverflow.Never
     };
-    private readonly ToolButton back = new ToolButton("Back", "\uE72B"), forward = new ToolButton("Forward", "\uE72A");
-    private readonly ToolButton home = new ToolButton("Home", "\uE80F"), newNote = new ToolButton("New note", "\uE8A5");
+    private readonly ToolButton back = new ToolButton("Back", ToolIcon.Back), forward = new ToolButton("Forward", ToolIcon.Forward);
+    private readonly ToolButton home = new ToolButton("Home", ToolIcon.Home), newNote = new ToolButton("New note", ToolIcon.NewNote);
     private readonly ToolStripMenuItem chooseHome = new ToolStripMenuItem("Home page");
     private readonly ToolStripMenuItem chooseSection = new ToolStripMenuItem("New note location");
     private readonly ToolStripMenuItem useQuickNotes = new ToolStripMenuItem("Use default Quick Notes");
@@ -259,7 +259,7 @@ internal sealed class PageStrip : ToolStrip
     private NativeLayout attachedLayout;
     internal bool AtBottom { get; private set; }
     private bool highContrast;
-    private Font tabFont, selectedTabFont, captionFont, gearFont;
+    private Font tabFont, selectedTabFont, captionFont;
     private readonly SessionStore store;
     private WorkingSet state;
     private string displayedRevision;
@@ -350,7 +350,6 @@ internal sealed class PageStrip : ToolStrip
             if (tabFont != null) tabFont.Dispose();
             if (selectedTabFont != null) selectedTabFont.Dispose();
             if (captionFont != null) captionFont.Dispose();
-            if (gearFont != null) gearFont.Dispose();
         }
     }
 
@@ -571,20 +570,17 @@ internal sealed class PageStrip : ToolStrip
         {
             var tabMargin = TabMargin(chrome.Dpi);
             SetMenuTabMargins(tabMargin);
-            Font oldRegular = tabFont, oldSelected = selectedTabFont, oldCaption = captionFont, oldGear = gearFont;
+            Font oldRegular = tabFont, oldSelected = selectedTabFont, oldCaption = captionFont;
             var menuFont = SystemFonts.MenuFont;
             tabFont = new Font(menuFont.FontFamily, menuFont.SizeInPoints * chrome.Dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
             selectedTabFont = new Font(tabFont, FontStyle.Bold);
             captionFont = HostChrome.CaptionFont(chrome.Dpi);
             Font = tabMenu.Font = tabFont;
-            gearFont = new Font("Segoe MDL2 Assets", HostChrome.Px(15, chrome.Dpi), FontStyle.Regular, GraphicsUnit.Pixel);
-            options.Font = gearFont;
             options.DropDown.Font = tabFont;
             options.TabWidth = HostChrome.Px(25, chrome.Dpi);
             toolsLabel.Font = captionFont;
             foreach (var tool in Items.OfType<ToolButton>())
             {
-                tool.Font = gearFont;
                 tool.TabWidth = options.TabWidth;
                 tool.Enabled = pages != null;
             }
@@ -604,7 +600,6 @@ internal sealed class PageStrip : ToolStrip
             if (oldRegular != null) oldRegular.Dispose();
             if (oldSelected != null) oldSelected.Dispose();
             if (oldCaption != null) oldCaption.Dispose();
-            if (oldGear != null) oldGear.Dispose();
         }
     }
     private Padding TabMargin(uint dpi)

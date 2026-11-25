@@ -294,6 +294,23 @@ internal static class AppearanceTests
         try
         {
             strip.DrawToBitmap(bitmap, strip.ClientRectangle);
+            // The Tools buttons have no text or image fallback. Check their actual painted centers.
+            foreach (var command in strip.Items.Cast<ToolStripItem>().Where(i => i == gear || i is ToolButton))
+            {
+                int size = HostChrome.Px(16, chrome.Dpi);
+                int x0 = command.Bounds.Left + (command.Width - size) / 2;
+                int y0 = command.Bounds.Top + (command.Height - size) / 2;
+                var background = command.Pressed ? palette.Active : command.Selected ? palette.Hover : palette.Tab;
+                int marks = 0;
+                for (int y = y0; y < y0 + size; y++)
+                    for (int x = x0; x < x0 + size; x++)
+                    {
+                        var pixel = bitmap.GetPixel(x, y);
+                        if (Math.Abs(pixel.R - background.R) + Math.Abs(pixel.G - background.G) +
+                            Math.Abs(pixel.B - background.B) >= 120) marks++;
+                    }
+                Check(marks >= size, command.AccessibleName + " icon is missing or too faint at " + chrome.Dpi + " DPI.");
+            }
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
             var band = strip.Host.Captions;

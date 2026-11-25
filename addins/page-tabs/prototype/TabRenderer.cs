@@ -28,14 +28,18 @@ internal sealed class BookmarkButton : StripMenuButton
     }
 }
 
+internal enum ToolIcon { Settings, Back, Forward, Home, NewNote }
+
 internal sealed class ToolButton : ToolStripButton
 {
     internal int TabWidth;
-    internal ToolButton(string name, string glyph) : base(glyph)
+    internal readonly ToolIcon Icon;
+    internal ToolButton(string name, ToolIcon icon) : base(name)
     {
+        Icon = icon;
         AccessibleName = ToolTipText = name;
         AutoToolTip = false;
-        DisplayStyle = ToolStripItemDisplayStyle.Text;
+        DisplayStyle = ToolStripItemDisplayStyle.None;
         Overflow = ToolStripItemOverflow.Never;
     }
     public override Size GetPreferredSize(Size constrainingSize)
@@ -237,7 +241,14 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
     {
-        if (e.Item is ToolButton && e.ToolStrip is PageStrip) { PaintTab(e, null); return; }
+        var tool = e.Item as ToolButton;
+        if (tool != null)
+        {
+            if (e.ToolStrip is PageStrip) PaintTab(e, null);
+            else PaintCommand(e);
+            DrawToolIcon(e, tool.Icon);
+            return;
+        }
         var tab = e.Item as PageTabButton;
         if (tab == null) { PaintCommand(e); return; }
         PaintTab(e, tab);
@@ -327,7 +338,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         if (!(e.Item is StripMenuButton)) { PaintCommand(e); return; }
         PaintTab(e, null);
-        if (!(e.Item is BookmarkButton)) return;
+        if (!(e.Item is BookmarkButton)) { DrawToolIcon(e, ToolIcon.Settings); return; }
         float cy = e.Item.Height / 2f;
         float radius = Math.Min(HostChrome.Px(8, Dpi), cy - 1);
         if (radius < 1) return;
@@ -353,6 +364,69 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         }
         finally { e.Graphics.Restore(saved); }
         DrawFocus(e, TextColor(e.Item));
+    }
+    // Original 16-unit outlines based on the silhouettes in OneNote's Quick Access Toolbar and page menu.
+    private void DrawToolIcon(ToolStripItemRenderEventArgs e, ToolIcon icon)
+    {
+        int size = Math.Min(HostChrome.Px(16, Dpi), Math.Min(e.Item.Width, e.Item.Height));
+        if (size < 1) return;
+        var g = e.Graphics;
+        var state = g.Save();
+        Color ink = TextColor(e.Item);
+        try
+        {
+            g.TranslateTransform((e.Item.Width - size) / 2, (e.Item.Height - size) / 2);
+            g.ScaleTransform(size / 16f, size / 16f);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            using (var pen = new Pen(ink, 1.1f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                switch (icon)
+                {
+                    case ToolIcon.Back:
+                    case ToolIcon.Forward:
+                        if (icon == ToolIcon.Forward) { g.TranslateTransform(16, 0); g.ScaleTransform(-1, 1); }
+                        g.DrawEllipse(pen, 1, 1, 14, 14);
+                        g.DrawLine(pen, 4.5f, 8, 11.5f, 8);
+                        g.DrawLines(pen, new[] { new PointF(7.5f, 5), new PointF(4.5f, 8), new PointF(7.5f, 11) });
+                        break;
+                    case ToolIcon.Home:
+                        g.DrawLines(pen, new[] { new PointF(1, 7.5f), new PointF(8, 1.5f), new PointF(15, 7.5f) });
+                        g.DrawLines(pen, new[] { new PointF(3, 7), new PointF(3, 14.5f), new PointF(6.5f, 14.5f),
+                            new PointF(6.5f, 10), new PointF(9.5f, 10), new PointF(9.5f, 14.5f), new PointF(13, 14.5f), new PointF(13, 7) });
+                        break;
+                    case ToolIcon.NewNote:
+                        g.DrawLines(pen, new[] { new PointF(6.5f, 2.5f), new PointF(10.5f, 2.5f), new PointF(14, 6),
+                            new PointF(14, 14.5f), new PointF(3.5f, 14.5f), new PointF(3.5f, 8.5f) });
+                        g.DrawLines(pen, new[] { new PointF(10.5f, 2.5f), new PointF(10.5f, 6), new PointF(14, 6) });
+                        if (!contrast && e.Item.Enabled)
+                            pen.Color = Luminance(Background(e.Item)) < .3 ? Color.FromArgb(117, 199, 246) : Color.FromArgb(0, 100, 160);
+                        g.DrawLine(pen, 1, 4.5f, 6, 4.5f);
+                        g.DrawLine(pen, 3.5f, 2, 3.5f, 7);
+                        break;
+                    case ToolIcon.Settings:
+                        g.DrawPolygon(pen, GearOutline);
+                        g.DrawEllipse(pen, 5.5f, 5.5f, 5, 5);
+                        break;
+                }
+            }
+        }
+        finally { g.Restore(state); }
+        DrawFocus(e, ink);
+    }
+    private static readonly PointF[] GearOutline = MakeGearOutline();
+    private static PointF[] MakeGearOutline()
+    {
+        var points = new PointF[32];
+        // Two outer and two inner corners per tooth, with a flat tip on each cardinal axis.
+        double[] offsets = { -6, 6, 11, 34 };
+        for (int i = 0; i < points.Length; i++)
+        {
+            double angle = (45 * (i / 4) + offsets[i % 4]) * Math.PI / 180;
+            double radius = i % 4 < 2 ? 7 : 5.6;
+            points[i] = new PointF(8 + (float)(radius * Math.Cos(angle)), 8 + (float)(radius * Math.Sin(angle)));
+        }
+        return points;
     }
     protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
     {
