@@ -23,6 +23,20 @@ internal static class PrototypeTests
         internal string ListSelection;
         internal bool RejectNextMenuNavigation;
         public string SelectedPage(string sourceId) { return ListSelection; }
+        internal readonly List<string> PickerReads = new List<string>();
+        internal bool PickerUnavailable;
+        internal Action DuringNavigation;
+        public IEnumerable<XElement> PickerChildren(string parentId)
+        {
+            PickerReads.Add(parentId);
+            if (PickerUnavailable) throw new System.Runtime.InteropServices.COMException("Fixture section unavailable");
+            var tree = XElement.Parse("<Notebooks><Notebook ID='a' name='Atlas'><Section ID='as' name='Projects'>" +
+                "<Page ID='a/1' name='Dashboard'/></Section></Notebook><Notebook ID='b' name='B' nickname='Workshop'>" +
+                "<SectionGroup ID='bin' name='Recycle Bin' isRecycleBin='true'/><SectionGroup ID='g' name='Plans &amp; specs'>" +
+                "<Section ID='bs' name='Projects'><Page ID='b/1' name='Dashboard'/></Section>" +
+                "<Section ID='empty' name='Archive'/></SectionGroup></Notebook></Notebooks>");
+            return parentId == "" ? tree.Elements() : tree.Descendants().Single(x => (string)x.Attribute("ID") == parentId).Elements();
+        }
         internal Color BookBColor = Color.FromArgb(246,176,120);
         internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
@@ -58,6 +72,7 @@ internal static class PrototypeTests
             if (FailNextNavigation) { FailNextNavigation = false; throw new System.Runtime.InteropServices.COMException(); }
             if (DelayNextNavigation) { DelayNextNavigation = false; PendingPage = id; return; }
             Current = id;
+            if (DuringNavigation != null) DuringNavigation();
         }
         public string LinkFor(string id) { return ""; }
         public void NavigateLink(string link) { throw new NotSupportedException(); }
@@ -65,6 +80,7 @@ internal static class PrototypeTests
     internal static void ControlledWindow()
     {
         CheckVerticalTabs();
+        CheckPagePicker();
         using (var frame = new Form { Text = "MoreTabs layout test", ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
             Location = new Point(-16000, -16000), ClientSize = new Size(730, 420) })
         using (var ribbon = new Panel())
@@ -157,32 +173,32 @@ internal static class PrototypeTests
                         strip.RefreshActive();
                         expected = CheckDocking(frame, document, layout, strip);
                         Check(source.NotesCreated == 0, "Keeping an existing page created a Quick Note.");
-                        strip.ClickAdd();
+                        strip.ClickNewQuickNote();
                         Check(strip.HasTabFocus(source.Current), "The first Quick Note tab did not receive keyboard focus.");
                         var note = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
                         Check(note.Text == "Untitled", "New Quick Note did not adopt OneNote's initial title.");
                         source.Renamed[source.Current] = "Trip plans / Personal";
                         WaitForLabel(strip, note, "Trip plans");
-                        strip.ClickAdd();
+                        strip.ClickNewQuickNote();
                         Check(source.NotesCreated == 2 && strip.TabCount == 5 && source.Current == "personal/quick/2" &&
                             strip.IsSelected(source.Current) && strip.HasTabFocus(source.Current), "Each click should create, open and focus a distinct Quick Note tab.");
                         source.LocationUnavailable = true;
-                        strip.ClickAdd();
+                        strip.ClickNewQuickNote();
                         Check(source.NotesCreated == 2 && strip.TabCount == 5 && source.Current == "personal/quick/2",
                             "Missing Quick Notes destination changed tabs or created a page elsewhere.");
                         source.LocationUnavailable = false;
                         source.FailNextNavigation = true;
-                        strip.ClickAdd();
+                        strip.ClickNewQuickNote();
                         strip.ClickTab("personal/quick/3");
                         Check(source.NotesCreated == 3 && strip.TabCount == 6 && strip.IsSelected("personal/quick/3"),
                             "Retrying a created Quick Note lost the page or created a duplicate.");
                         source.DelayNextNavigation = true;
-                        strip.ClickAdd();
+                        strip.ClickNewQuickNote();
                         Check(strip.IsSelected("personal/quick/3") && !strip.HasTabFocus(source.PendingPage),
                             "Focus moved to the new tab before its page opened.");
                         source.Navigate(source.PendingPage); strip.RefreshActive();
                         Check(strip.IsSelected(source.Current) && strip.HasTabFocus(source.Current), "Delayed navigation lost new-tab focus.");
-                        Console.WriteLine("PASS + creates distinct Quick Notes from another notebook and focuses each new tab; missing destination and navigation retry preserve the working set.");
+                        Console.WriteLine("PASS New Quick Note creates distinct pages from another notebook and focuses each new tab; missing destination and navigation retry preserve the working set.");
                         Check(NotebookPages.ReadSectionColor(XElement.Parse("<Section color='#138bc4'/>")).ToArgb() == Color.FromArgb(19,139,196).ToArgb() &&
                             NotebookPages.ReadSectionColor(XElement.Parse("<Section color='automatic'/>")).IsEmpty &&
                             NotebookPages.ReadSectionColor(XElement.Parse("<Section/>")).IsEmpty, "Section color parsing failed.");
@@ -351,6 +367,84 @@ internal static class PrototypeTests
         foreach (var row in section.Elements()) row.SetAttributeValue("selected", "all");
         Check(NotebookPages.MenuSelection(section, "b", "a") == null, "Multiple selected pages were treated as a single click.");
         Console.WriteLine("PASS page-menu preselection, late input delivery, return to source, pin preservation and ordinary left-click navigation.");
+    }
+
+    private static PagePicker ClickPicker(PageStrip strip)
+    {
+        var picker = strip.Items.OfType<PagePicker>().Single();
+        LeftClickItem(picker);
+        Check(picker.DropDown.Visible, "Left-clicking the + glyph did not display the page picker.");
+        return picker;
+    }
+    private static void LeftClickItem(ToolStripItem item)
+    {
+        var bounds = item.Bounds;
+        var point = (IntPtr)(((bounds.Top + bounds.Height / 2) << 16) | (bounds.Left + bounds.Width / 2));
+        var handle = item.GetCurrentParent().Handle;
+        SendMessage(handle, 0x0201, (IntPtr)1, point);
+        SendMessage(handle, 0x0202, IntPtr.Zero, point);
+        Application.DoEvents();
+    }
+    private static ToolStripMenuItem PickerItem(ToolStripDropDownItem parent, string id)
+    {
+        return parent.DropDownItems.OfType<ToolStripMenuItem>().Single(item => (string)item.Tag == id);
+    }
+    private static ToolStripMenuItem ExpandPickerItem(ToolStripDropDownItem parent, string id)
+    {
+        var item = PickerItem(parent, id);
+        item.ShowDropDown();
+        return item;
+    }
+    private static void CheckPagePicker()
+    {
+        var source = new TestPages();
+        source.Navigate("a/1");
+        using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(-16000,-16000) })
+        using (var strip = new PageStrip(frame.Handle, source, delegate {}, e => { throw e; }))
+        {
+            frame.Show();
+            strip.Attach(new Rectangle(0, 0, 700, HostChrome.StripHeight(96)));
+            strip.RestoreOrSeed();
+            var original = strip.Items.OfType<PageTabButton>().Single();
+            var picker = ClickPicker(strip);
+            Check(source.PickerReads.SequenceEqual(new[] { "" }) && PickerItem(picker, "b").Text == "Workshop",
+                "Opening the picker should list the open notebooks by their displayed names.");
+            var book = ExpandPickerItem(picker, "b");
+            Check(book.DropDownItems.Count == 1, "The recycle bin appeared in the picker.");
+            var group = ExpandPickerItem(book, "g");
+            Check(group.AccessibleName == "Plans & specs", "A section group name was altered.");
+            var empty = ExpandPickerItem(group, "empty");
+            Check(!empty.DropDownItems[0].Enabled && empty.DropDownItems[0].Text == "No pages", "Missing empty-section state.");
+            empty.HideDropDown();
+            source.PickerUnavailable = true;
+            var section = ExpandPickerItem(group, "bs");
+            Check(!section.DropDownItems[0].Enabled, "An unavailable section was selectable.");
+            source.PickerUnavailable = false;
+            section.HideDropDown();
+            picker.HideDropDown();
+            Check(strip.TabCount == 1 && original.Checked && source.Current == "a/1" && source.NotesCreated == 0,
+                "Browsing or canceling the picker changed the working set.");
+            source.DuringNavigation = strip.RefreshActive;
+            foreach (int expected in new[] { 2, 3 })
+            {
+                picker = ClickPicker(strip);
+                section = ExpandPickerItem(ExpandPickerItem(ExpandPickerItem(picker, "b"), "g"), "bs");
+                LeftClickItem(PickerItem(section, "b/1"));
+                Check(!picker.DropDown.Visible && strip.TabCount == expected && source.Current == "b/1" && strip.HasTabFocus("b/1") &&
+                    ((SavedTab)original.Tag).Page.Id == "a/1" && source.NotesCreated == 0,
+                    "Picking an existing page must open a separate focused tab without changing the source tab.");
+            }
+            source.DuringNavigation = null;
+            original.PerformClick();
+            Check(source.Current == "a/1", "The original picker tab did not return to its page.");
+            LeftClickItem(ClickPicker(strip).KeepCurrent);
+            Check(strip.TabCount == 3 && source.Current == "a/1" && source.NotesCreated == 0,
+                "Keeping the current page from the picker changed its existing tab.");
+            LeftClickItem(ClickPicker(strip).QuickNote);
+            Check(strip.TabCount == 4 && source.NotesCreated == 1 && strip.HasTabFocus(source.Current),
+                "Selecting New Quick Note from the picker did not create and focus exactly one new note.");
+            Console.WriteLine("PASS left-click +, lazy notebook/section-group/page menus, cancellation, unavailable sections, duplicate titles and separate focused tabs.");
+        }
     }
 
     private static void CheckVerticalTabs()
@@ -643,11 +737,25 @@ internal static class PrototypeTests
             else
             {
                 AppearanceTests.Live(strip, layout, directory);
+                var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                var originalPage = ((SavedTab)original.Tag).Page.Id;
+                var picker = ClickPicker(strip);
+                var sectionMenu = ExpandPickerItem(ExpandPickerItem(picker, books[1]), quickSection);
+                PickerItem(sectionMenu, pages[2]).PerformClick();
+                picker.HideDropDown();
+                WaitForPage(source, pages[2], "opening an existing page from the picker");
+                strip.RefreshActive();
+                var picked = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
+                Check(strip.TabCount == 4 && picked != original && strip.HasTabFocus(pages[2]) && source.Frame == layout.Frame,
+                    "The picker did not open a separate focused tab in the fixture window.");
+                original.PerformClick();
+                WaitForPage(source, originalPage, "returning to the source tab after using the picker");
+                strip.CloseTab((SavedTab)picked.Tag);
                 var existing = new HashSet<string>(pages);
                 source.Navigate(pages[0]); WaitForPage(source, pages[0], "selecting the starting notebook for Quick Notes");
                 for (int i = 0; i < 2; i++)
                 {
-                    strip.ClickAdd();
+                    strip.ClickNewQuickNote();
                     Check(strip.TabCount == 4 + i, "Quick Note click " + (i + 1) + " did not add a new tab.");
                     string id = strip.Items.OfType<PageTabButton>().Select(t => ((SavedTab)t.Tag).Page.Id).Single(page => !existing.Contains(page));
                     WaitForPage(source, id, "opening Quick Note " + (i + 1)); strip.RefreshActive();
@@ -657,7 +765,7 @@ internal static class PrototypeTests
                         source.Frame == layout.Frame && strip.IsSelected(id) && strip.HasTabFocus(id) && strip.TabCount == 4 + i,
                         "New Quick Note did not open with its own focused tab in the disposable destination section.");
                 }
-                Console.WriteLine("PASS two + clicks created two Quick Notes in the disposable destination section and focused each new tab in this editor.");
+                Console.WriteLine("PASS two New Quick Note selections created two pages in the disposable destination section and focused each new tab in this editor.");
                 var note = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
                 var samePage = strip.Items.OfType<PageTabButton>().First();
                 string tabKey = ((SavedTab)note.Tag).Key;

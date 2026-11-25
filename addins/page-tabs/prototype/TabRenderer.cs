@@ -335,12 +335,6 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         finally { e.Graphics.Restore(saved); }
         DrawFocus(e, TextColor(e.Item));
     }
-    protected override void OnRenderSplitButtonBackground(ToolStripItemRenderEventArgs e)
-    {
-        PaintCommand(e);
-        var split = (ToolStripSplitButton)e.Item;
-        DrawArrow(new ToolStripArrowRenderEventArgs(e.Graphics, split, split.DropDownButtonBounds, TextColor(split), MenuArrow(e.ToolStrip)));
-    }
     protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
     {
         PaintCommand(e);

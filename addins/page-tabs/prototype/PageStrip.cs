@@ -11,6 +11,7 @@ internal interface IPages
 {
     string Current { get; }
     string SelectedPage(string sourceId);
+    IEnumerable<XElement> PickerChildren(string parentId);
     string Caption(string id);
     Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> pageIds, bool refresh = false);
     string CreateQuickNote();
@@ -78,6 +79,17 @@ internal sealed class NotebookPages : IPages
         return selected;
     }
     public string Current { get { return Window.CurrentPageId; } }
+    public IEnumerable<XElement> PickerChildren(string parentId)
+    {
+        string xml;
+        App.GetHierarchy(parentId, parentId.Length == 0 ? One.HierarchyScope.hsNotebooks : One.HierarchyScope.hsChildren,
+            out xml, One.XMLSchema.xs2013);
+        if (String.IsNullOrWhiteSpace(xml)) return Enumerable.Empty<XElement>();
+        var root = XElement.Parse(xml);
+        if (parentId.Length == 0) return root.DescendantsAndSelf(root.Name.Namespace + "Notebook");
+        var parent = root.DescendantsAndSelf().FirstOrDefault(n => (string)n.Attribute("ID") == parentId);
+        return parent == null ? Enumerable.Empty<XElement>() : parent.Elements();
+    }
     public string SelectedPage(string sourceId)
     {
         string section = Window.CurrentSectionId, xml;
@@ -217,7 +229,8 @@ internal sealed class PageStrip : ToolStrip
     private readonly Dictionary<string, PageTabButton> buttons = new Dictionary<string, PageTabButton>();
     private readonly Dictionary<string, NotebookTabLabel> labels = new Dictionary<string, NotebookTabLabel>();
     private readonly ToolStripButton stop;
-    private readonly ToolStripSplitButton add;
+    private readonly PagePicker add;
+    private bool openingPickedPage;
     private readonly BookmarkButton bookmarks = new BookmarkButton();
     private readonly StripMenuButton options = new StripMenuButton {
         AccessibleName = "MoreTabs options", ToolTipText = "MoreTabs options", AutoToolTip = false,
@@ -267,9 +280,8 @@ internal sealed class PageStrip : ToolStrip
         AccessibleName = "MoreTabs page tabs";
         if (pages != null) Text = PageMenuCommand.ReceiverName;
         AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, Delete to close a tab, or Escape to return.";
-        add = new ToolStripSplitButton("+") { AccessibleName = "New Quick Note", ToolTipText = "Create a new Quick Note", Overflow = ToolStripItemOverflow.Never };
-        add.ButtonClick += delegate { Perform(CreateQuickNote); };
-        add.DropDownItems.Add("Keep current page in a tab", null, delegate { Perform(AddCurrent); });
+        add = new PagePicker(pages, page => Perform(delegate { OpenPickedPage(page); }),
+            delegate { Perform(CreateQuickNote); }, delegate { Perform(AddCurrent); });
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
         options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, colorLabels });
@@ -407,8 +419,7 @@ internal sealed class PageStrip : ToolStrip
         }
         if ((keyData == Keys.Enter || keyData == Keys.Space) && index >= 0)
         {
-            if (choices[index] == add) add.PerformButtonClick();
-            else if (choices[index] is ToolStripDropDownItem) ((ToolStripDropDownItem)choices[index]).ShowDropDown();
+            if (choices[index] is ToolStripDropDownItem) ((ToolStripDropDownItem)choices[index]).ShowDropDown();
             else { choices[index].PerformClick(); ReturnToEditor(); }
             return true;
         }
@@ -1063,6 +1074,12 @@ internal sealed class PageStrip : ToolStrip
         }
         menu.MinimumSize = new Size(width + border, 0);
     }
+    private void OpenPickedPage(SavedPage page)
+    {
+        openingPickedPage = true;
+        try { OpenSaved(page, newTab: true); }
+        finally { openingPickedPage = false; }
+    }
     internal bool OpenSaved(SavedPage page, SavedTab target = null, bool newTab = false)
     {
         pendingTab = null;
@@ -1089,6 +1106,8 @@ internal sealed class PageStrip : ToolStrip
     }
     internal void RefreshActive()
     {
+        // NavigateTo can pump this window's timer before the new slot is saved.
+        if (openingPickedPage && pendingTab == null) return;
         if (DateTime.UtcNow >= nextRead)
         {
             ApplyState(store.Read());
@@ -1199,8 +1218,8 @@ internal sealed class PageStrip : ToolStrip
         try { UpdateTabItems(); }
         finally { ResumeLayout(true); }
     }
-    internal void ClickAdd() { add.PerformButtonClick(); }
-    internal void ClickKeepCurrent() { add.DropDownItems[0].PerformClick(); }
+    internal void ClickNewQuickNote() { add.QuickNote.PerformClick(); }
+    internal void ClickKeepCurrent() { add.KeepCurrent.PerformClick(); }
     internal void ClickTab(string id) { buttons[state.Tabs.First(t => t.Page.Id == id).Key].PerformClick(); }
     internal bool IsSelected(string id) { return buttons.Values.Any(b => b.Checked && ((SavedTab)b.Tag).Page.Id == id); }
     internal bool HasTabFocus(string id) { return ContainsFocus && IsSelected(id) && buttons[activeKey].Selected; }

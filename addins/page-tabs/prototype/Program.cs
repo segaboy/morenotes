@@ -187,7 +187,7 @@ internal static class Program
                     strip.RestoreOrSeed(previousFrame == frame ? previousTab : null);
                     strip.ConnectNativePageMenu(source.App);
                     previousFrame = frame;
-                    Console.WriteLine("Tabs restored. + creates a new Quick Note. Its arrow keeps the current page in a tab.");
+                    Console.WriteLine("Tabs restored. Click + to pick a page or create a Quick Note.");
                     bool detached = RunInteractive(layout, strip, null);
                     previousTab = strip.ActiveTabKey;
                     if (!closeRequested && failure == null && detached) return WaitForEditor;
