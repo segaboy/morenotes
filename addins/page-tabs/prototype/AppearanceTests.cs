@@ -191,15 +191,16 @@ internal static class AppearanceTests
         var themes = (ToolStripMenuItem)gear.DropDownItems[2];
         var notebook = (ToolStripMenuItem)themes.DropDownItems[0];
         var fall = (ToolStripMenuItem)themes.DropDownItems[1];
-        var colors = (ToolStripMenuItem)themes.DropDownItems[3];
-        Check(group.Checked && labels.Checked && themes.Text == "Themes" && notebook.Text == "Notebook Colors" && fall.Text == "Fall" &&
+        var roboCop = (ToolStripMenuItem)themes.DropDownItems[2];
+        var colors = (ToolStripMenuItem)themes.DropDownItems[4];
+        Check(group.Checked && labels.Checked && themes.Text == "Themes" && notebook.Text == "Notebook Colors" && fall.Text == "Fall" && roboCop.Text == "RoboCop" &&
             notebook.Checked && !fall.Checked && colors.Checked, "The Themes submenu must open with Notebook Colors selected.");
         gear.HideDropDown();
         var selected = strip.ActiveTabKey;
         var grouped = strip.Items.OfType<PageTabButton>().ToArray();
         var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
         colors.PerformClick();
-        Check(!notebook.Enabled && !fall.Enabled && !themes.Checked, "Themes off must disable the two palette choices.");
+        Check(!notebook.Enabled && !fall.Enabled && !roboCop.Enabled && !themes.Checked, "Themes off must disable all palette choices.");
         CheckGroupDividers(strip, 2);
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
@@ -258,17 +259,19 @@ internal static class AppearanceTests
         strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = SystemColors.Window, HighContrast = true });
         Check(colors.Enabled && notebook.Checked && labels.Enabled && labels.Checked && grouped.All(t => t.Group.GroupFill.IsEmpty),
             "High contrast must preserve the theme preference and use system caption colors.");
-        CheckFall(strip, layout, notebook, fall, colors);
+        CheckCustomTheme(strip, layout, notebook, fall, colors);
+        CheckCustomTheme(strip, layout, notebook, roboCop, colors);
         strip.Attach(layout.Reserve(), layout);
         Console.WriteLine("PASS shared star and gear tab, settings dependencies, remembered preferences and reclaimed document height with pins.");
     }
 
-    private static void CheckFall(PageStrip strip, NativeLayout layout, ToolStripMenuItem notebook, ToolStripMenuItem fall, ToolStripMenuItem enable)
+    private static void CheckCustomTheme(PageStrip strip, NativeLayout layout, ToolStripMenuItem notebook, ToolStripMenuItem choice, ToolStripMenuItem enable)
     {
         string selected = strip.ActiveTabKey;
-        fall.PerformClick();
-        Check(fall.Checked && !notebook.Checked && ((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.Fall,
-            "Selecting Fall must immediately replace Notebook Colors.");
+        choice.PerformClick();
+        var theme = (MoreTabsTheme)choice.Tag;
+        Check(choice.Checked && !notebook.Checked && ((TabRenderer)strip.Renderer).Theme == theme,
+            "Selecting a theme must immediately replace Notebook Colors.");
         foreach (var surface in new[] { Color.FromArgb(17,12,8), Color.FromArgb(82,79,76), Color.WhiteSmoke, Color.White, SystemColors.Window })
         {
             bool contrast = surface.IsSystemColor;
@@ -278,17 +281,17 @@ internal static class AppearanceTests
             var active = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
             var group = strip.Items.OfType<PageTabButton>().First(t => t.Group.Notebook != null).Group;
             var color = palette.MarkerFor(active);
-            Check(palette.Theme == MoreTabsTheme.Fall && palette.NotebookMenu.Theme == palette.Theme &&
+            Check(palette.Theme == theme && palette.NotebookMenu.Theme == palette.Theme &&
                 palette.Surface == surface && color == (contrast ? SystemColors.HighlightText : palette.SectionFill(Color.Fuchsia, active.SectionName)) &&
                 (contrast ? group.GroupFill.IsEmpty : group.GroupFill == palette.NotebookCover(Color.Empty, group.Notebook.GroupKey)) &&
                 palette.MutedSection(Color.Lime, active.SectionName) == palette.MutedSection(Color.Blue, active.SectionName),
-                "Fall used a stored OneNote color or lost its host appearance.");
+                theme + " used a stored OneNote color or lost its host appearance.");
             using (var image = new Bitmap(strip.Width, strip.Height))
             {
                 strip.DrawToBitmap(image, strip.ClientRectangle);
                 int x = active.Bounds.Left + active.Width / 2;
                 Check(image.GetPixel(x, FlatEdgeY(active, strip.AtBottom, 1)).ToArgb() == color.ToArgb(),
-                    "The active page stripe did not paint the Fall accent.");
+                    "The active page stripe did not paint the selected theme accent.");
             }
             var picker = strip.Items.OfType<PagePicker>().Single();
             picker.ShowDropDown();
@@ -303,14 +306,14 @@ internal static class AppearanceTests
             using (CheckBookmarkMenu(strip, chrome)) { }
         }
         enable.PerformClick();
-        Check(!fall.Enabled && !fall.Checked && ((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.NotebookColors,
-            "Disabling themes must remove the Fall styling.");
+        Check(!choice.Enabled && !choice.Checked && ((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.NotebookColors,
+            "Disabling themes must remove the custom styling.");
         enable.PerformClick();
-        Check(fall.Checked && strip.ActiveTabKey == selected, "Enabling themes lost the saved choice or selected page.");
+        Check(choice.Checked && strip.ActiveTabKey == selected, "Enabling themes lost the saved choice or selected page.");
         notebook.PerformClick();
-        Check(notebook.Checked && !fall.Checked && ((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.NotebookColors,
+        Check(notebook.Checked && !choice.Checked && ((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.NotebookColors,
             "Returning to Notebook Colors did not restore native colors.");
-        Console.WriteLine("PASS Fall on black, dark gray, colorful/light, white and high contrast, live theme switching, nested pickers and enable/disable.");
+        Console.WriteLine("PASS {0} on black, dark gray, colorful/light, white and high contrast, live theme switching, nested pickers and enable/disable.", theme);
     }
 
     internal static void CheckNotebookPicker(PageStrip strip, string longTitle)
@@ -406,7 +409,7 @@ internal static class AppearanceTests
                         new[] { 0x8EE4EA, 0xD6BEF2, 0x8FE497 }[index];
                     var fill = chrome.HighContrast ? SystemColors.Highlight : Color.FromArgb(255, Color.FromArgb(native));
                     var titleFill = chrome.HighContrast ? (row.Selected ? SystemColors.Highlight : SystemColors.Window) : row.SectionColor;
-                    if (palette.Theme == MoreTabsTheme.Fall && !chrome.HighContrast)
+                    if (palette.UsesCustomColors && !chrome.HighContrast)
                     {
                         fill = palette.SectionFill(Color.Empty, row.SectionName);
                         titleFill = palette.MutedSection(Color.Empty, row.SectionName);
@@ -428,7 +431,7 @@ internal static class AppearanceTests
                 {
                     var bounds = header.Bounds;
                     Color fill = chrome.HighContrast ? SystemColors.Highlight : header.Notebook.Color;
-                    if (palette.Theme == MoreTabsTheme.Fall) fill = palette.NotebookCover(Color.Empty, header.Notebook.GroupKey);
+                    if (palette.UsesCustomColors) fill = palette.NotebookCover(Color.Empty, header.Notebook.GroupKey);
                     int y = bounds.Top + bounds.Height / 2;
                     Check(!header.CanSelect && header.AccessibleName == header.Text &&
                         image.GetPixel(2, y).ToArgb() == fill.ToArgb() && image.GetPixel(menu.Width - 3, y).ToArgb() == fill.ToArgb(),

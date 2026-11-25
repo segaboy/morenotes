@@ -108,7 +108,7 @@ internal sealed class BookmarkHeader : ToolStripMenuItem
     protected override void OnPaint(PaintEventArgs e)
     {
         var palette = (TabRenderer)Owner.Renderer;
-        Color fill = Notebook != null && palette.Theme == MoreTabsTheme.Fall ?
+        Color fill = Notebook != null && palette.UsesCustomColors ?
             palette.NotebookCover(color, Notebook.GroupKey) : palette.NotebookFill(color);
         Color ink = palette.NotebookInk(fill);
         e.Graphics.Clear(fill);

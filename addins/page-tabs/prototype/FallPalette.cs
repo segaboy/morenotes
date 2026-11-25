@@ -9,11 +9,7 @@ internal static class FallPalette
 
     internal static Color Foliage(string key, bool darkSurface)
     {
-        // Stable across sessions. Recoloring a notebook or section never changes its Fall swatch.
-        uint hash = 2166136261;
-        foreach (char c in key ?? "") hash = unchecked((hash ^ c) * 16777619);
-        var colors = darkSurface ? dark : light;
-        return Color.FromArgb(255, Color.FromArgb(colors[hash % colors.Length]));
+        return TabRenderer.PickSwatch(key, darkSurface ? dark : light);
     }
 
     private static readonly PointF[] maple = {

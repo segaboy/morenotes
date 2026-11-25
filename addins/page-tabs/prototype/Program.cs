@@ -229,6 +229,12 @@ internal static class Program
                         Application.ExitThread(); return;
                     }
                     if (NativeLayout.IsIconic(layout.Frame)) return;
+                    Rectangle fileRow, fileSlot;
+                    if ((!layout.FrameEnabled || layout.HasFilePane) && layout.HoldFileRow(out fileRow, out fileSlot, paneOnly: layout.FrameEnabled))
+                    {
+                        strip.ShowReadOnlyRow(fileRow, fileSlot);
+                        return;
+                    }
                     bool resizing = activity.TrackingResize(layout.ClientBounds.Size);
                     timer.Interval = resizing ? resizeInterval : idleInterval;
                     if (resizing && layout.HasReservation && layout.FrameEnabled)
@@ -237,11 +243,16 @@ internal static class Program
                         if (!moving.IsEmpty) strip.FollowResize(moving, layout);
                         return;
                     }
-                    if (activity.Pending) return;
+                    if (activity.Pending && layout.FrameEnabled && strip.Host.Enabled && layout.StillReserved(strip.Host.StripBounds)) return;
                     Rectangle slot = layout.Reserve(true);
+                    if (slot.IsEmpty && layout.HoldFileRow(out fileRow, out fileSlot))
+                    {
+                        strip.ShowReadOnlyRow(fileRow, fileSlot);
+                        return;
+                    }
                     if (slot.IsEmpty && layout.AtBottom)
                     {
-                        // A newly opened frame pane can take the bottom edge. Modal views reject both positions.
+                        // A newly opened frame pane can take the bottom edge.
                         slot = layout.Reserve(true, false);
                         if (!slot.IsEmpty)
                         {
@@ -259,6 +270,7 @@ internal static class Program
                         }
                         return;
                     }
+                    layout.ReleaseFilePane();
                     strip.Attach(slot, layout);
                     strip.UpdateFocusShortcut();
                     if (!strip.ProcessMenuRequest()) strip.RefreshActive();

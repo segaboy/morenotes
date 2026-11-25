@@ -153,53 +153,87 @@ internal static class SavedSessionTests
             using (var ribbon = new Panel { Bounds = new Rectangle(0, 0, 640, 80) })
             using (var body = new Panel { Bounds = new Rectangle(0, 80, 640, 280) })
             using (var row = new Panel { Dock = DockStyle.Top, Height = 32 })
+            using (var file = new Panel { Visible = false, Bounds = frame.ClientRectangle })
+            using (var options = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
+                Bounds = new Rectangle(-15900, -15900, 240, 140) })
             {
                 frame.Controls.Add(ribbon);
                 frame.Controls.Add(body);
                 body.Controls.Add(row);
+                frame.Controls.Add(file);
                 frame.Show();
                 using (var layout = new NativeLayout(frame.Handle, body.Handle, ribbon.Handle, row.Handle))
                 using (var strip = new PageStrip(frame.Handle, source, Application.ExitThread, e => { throw e; }, new SessionStore(path)))
                 using (var closeHost = new Timer { Interval = 600 })
                 {
-                    strip.Attach(layout.Reserve(), layout);
+                    strip.Attach(layout.Reserve(false, attachment == 1), layout);
                     strip.RestoreOrSeed();
                     Check(strip.TabCount == 1 && strip.IsSelected("a1") == (attachment == 0), "New editor lost the prior working set.");
                     int phase = 0;
-                    bool hidden = false, modal = false, resumed = false;
-                    if (attachment == 0) row.Hide();
+                    bool hidden = false, backstage = false, modal = false, resumed = false, reusedDocument = false;
+                    var selected = strip.ActiveTabKey;
+                    row.Hide();
                     closeHost.Tick += delegate
                     {
-                        if (attachment == 0)
+                        if (phase++ == 0)
                         {
-                            if (phase == 0)
-                            {
-                                hidden = !strip.Visible && body.Top == ribbon.Bottom;
-                                frame.Enabled = false;
-                                row.Show();
-                                phase++;
-                                return;
-                            }
-                            if (phase == 1)
-                            {
-                                modal = !strip.Visible;
-                                frame.Enabled = true;
-                                phase++;
-                                return;
-                            }
-                            resumed = strip.Visible && layout.StillReserved(strip.Host.Bounds) && strip.IsSelected("a1");
+                            hidden = strip.Visible && !strip.Host.Enabled && !strip.Host.Bounds.IntersectsWith(body.Bounds);
+                            file.Show();
+                            file.BringToFront();
+                            return;
                         }
+                        if (phase == 2)
+                        {
+                            backstage = strip.Visible && layout.FileRowIsVisible(strip.Host.StripBounds) && !strip.Host.Enabled && file.Height + strip.Host.Height == frame.ClientSize.Height &&
+                                (layout.AtBottom ? file.Bottom == strip.Host.Top : file.Top == strip.Host.Bottom);
+                            options.ShowDialog(frame);
+                            return;
+                        }
+                        if (phase == 3)
+                        {
+                            modal = options.Visible && !layout.FrameEnabled && layout.FileRowIsVisible(strip.Host.StripBounds) &&
+                                !strip.Host.Enabled && !strip.Host.Bounds.IntersectsWith(file.Bounds);
+                            file.Hide();
+                            row.Show();
+                            return;
+                        }
+                        if (phase == 4)
+                        {
+                            modal &= strip.Visible && !strip.Host.Enabled && file.Bounds == frame.ClientRectangle;
+                            options.Close();
+                            return;
+                        }
+                        if (phase == 5)
+                        {
+                            resumed = strip.Visible && strip.Host.Enabled && layout.StillReserved(strip.Host.StripBounds);
+                            ribbon.Hide();
+                            row.Hide();
+                            body.Bounds = frame.ClientRectangle;
+                            return;
+                        }
+                        if (phase == 6)
+                        {
+                            reusedDocument = layout.FileRowIsVisible(strip.Host.StripBounds) && !strip.Host.Enabled &&
+                                !body.Bounds.IntersectsWith(strip.Host.Bounds) && body.Height + strip.Host.Height == frame.ClientSize.Height;
+                            ribbon.Show();
+                            row.Show();
+                            body.Bounds = Rectangle.FromLTRB(0, ribbon.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
+                            return;
+                        }
+                        resumed &= strip.Visible && strip.Host.Enabled && layout.StillReserved(strip.Host.StripBounds) &&
+                            strip.ActiveTabKey == selected && layout.AtBottom == (attachment == 1);
                         closeHost.Stop();
                         frame.Close();
                     };
                     closeHost.Start();
                     Check(Program.RunInteractive(layout, strip, null), "Losing the host did not request reattachment.");
-                    if (attachment == 0)
-                        Check(hidden && modal && resumed, "The strip did not pause and resume in the same editor after a hidden row and modal dialog.");
+                    Check(hidden && backstage && modal && resumed && reusedDocument, String.Format(
+                        "File/Options dock {0}: hidden navigation {1}, Backstage {2}, modal {3}, returned {4}, reused document {5}.",
+                        attachment, hidden, backstage, modal, resumed, reusedDocument));
                 }
             }
         }
-        Console.WriteLine("PASS resident loop released the row during a hidden editor and modal Options simulation, resumed the same tab, and reattached after closing the editor.");
+        Console.WriteLine("PASS File/Options kept both dock positions visible during Backstage and a disabled editor, restored File bounds, and resumed the same tab.");
     }
 
     internal static void ProcessPhase(Guid run, string phase)
@@ -309,8 +343,11 @@ internal static class SavedSessionTests
                     strip.RemoveBookmark(saved);
                     Check(strip.TabCount == 3 && store.Read().Bookmarks.Count == 0, "Removing a bookmark closed a tab.");
                     foreach (var tab in store.Read().Tabs) strip.CloseTab(tab);
+                    ((ToolStripMenuItem)settings[2].DropDownItems[2]).PerformClick();
                     break;
                 case "empty":
+                    Check(((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.RoboCop,
+                        "A fresh process did not restore the RoboCop theme.");
                     Check(strip.TabCount == 0 && store.Read().Bookmarks.Count == 0, "An intentionally empty session was reseeded.");
                     AppearanceTests.CheckGroupDividers(strip, 0);
                     break;

@@ -96,7 +96,7 @@ internal sealed class PageTabButton : ToolStripButton
         var size = base.GetPreferredSize(constrainingSize);
         var palette = Owner == null ? null : Owner.Renderer as TabRenderer;
         // All Fall tabs budget for the leaf so a change of selection doesn't narrow a title.
-        if (palette != null && palette.Theme == MoreTabsTheme.Fall) size.Width += HostChrome.Px(14, Dpi);
+        if (palette != null && palette.UsesCustomColors) size.Width += HostChrome.Px(14, Dpi);
         size.Width = Math.Max(HostChrome.Px(70, Dpi), Math.Min(size.Width, HostChrome.Px(184, Dpi)));
         if (WidthLimit > 0) size.Width = Math.Min(WidthLimit, size.Width);
         return size;
@@ -244,6 +244,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     private readonly bool contrast;
     private readonly bool dark;
     internal readonly MoreTabsTheme Theme;
+    internal bool UsesCustomColors { get { return Theme != MoreTabsTheme.NotebookColors; } }
     internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
     internal readonly bool DarkSections;
@@ -252,7 +253,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         get
         {
-            if (contrast || Theme == MoreTabsTheme.Fall) return this;
+            if (contrast || UsesCustomColors) return this;
             if (notebookMenu == null)
             {
                 int gray = dark ? 40 : 250;
@@ -309,6 +310,15 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             ActiveMarker = dark ? Color.FromArgb(250, 189, 93) : Color.FromArgb(163, 65, 29);
         }
         RoundedEdges = false;
+        if (theme == MoreTabsTheme.RoboCop && !highContrast)
+        {
+            Tab = Blend(Surface, Color.SteelBlue, dark ? 28 : 17);
+            Hover = Blend(Surface, Color.DeepSkyBlue, dark ? 33 : 23);
+            Active = Blend(Surface, Color.SteelBlue, 53);
+            ToolsBand = dark ? Color.FromArgb(55, 74, 93) : Color.FromArgb(180, 192, 205);
+            PinnedBand = dark ? Color.FromArgb(49, 104, 135) : Color.FromArgb(116, 161, 188);
+            ActiveMarker = dark ? Color.LightCyan : Color.MidnightBlue;
+        }
     }
     private static Color Blend(Color a, Color b, int percent)
     {
@@ -351,7 +361,17 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal Color NotebookCover(Color stored, string key = null)
     {
         if (contrast) return SystemColors.Highlight;
-        return Theme == MoreTabsTheme.Fall ? FallPalette.Foliage(key, dark) : SectionPalette.NotebookIcon(stored, dark);
+        return UsesCustomColors ? CustomColor(key) : SectionPalette.NotebookIcon(stored, dark);
+    }
+    private Color CustomColor(string key)
+    {
+        return Theme == MoreTabsTheme.RoboCop ? RoboCopArt.Steel(key, dark) : FallPalette.Foliage(key, dark);
+    }
+    internal static Color PickSwatch(string key, int[] colors)
+    {
+        uint hash = 2166136261;
+        foreach (char c in key ?? "") hash = unchecked((hash ^ c) * 16777619);
+        return Color.FromArgb(255, Color.FromArgb(colors[hash % colors.Length]));
     }
     internal Color NotebookInk(Color fill)
     {
@@ -360,13 +380,13 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal Color SectionFill(Color stored, string name = null)
     {
         if (contrast) return SystemColors.Highlight;
-        if (Theme == MoreTabsTheme.Fall) return FallPalette.Foliage(name ?? "Unknown section", dark);
+        if (UsesCustomColors) return CustomColor(name ?? "Unknown section");
         return stored.IsEmpty ? ActiveMarker : SectionPalette.Native(stored, DarkSections);
     }
     internal Color MutedSection(Color stored, string name = null)
     {
         if (contrast) return Active;
-        if (Theme == MoreTabsTheme.Fall) return Blend(SectionFill(stored, name), Surface, dark ? 60 : 69);
+        if (UsesCustomColors) return Blend(SectionFill(stored, name), Surface, dark ? 60 : 69);
         if (stored.IsEmpty) return Active;
         return SectionFill(stored).ToArgb() == stored.ToArgb() ? Blend(stored, Surface, 25) : stored;
     }
@@ -397,7 +417,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             // A ToolStripButton can supply a text rectangle wider than a capped tab.
             // Truncate against the visible title area, keeping the close target entirely clear.
             int left = tab.Padding.Left;
-            if (ShowLeaf(tab)) left = HostChrome.Px(24, Dpi);
+            if (ShowThemeIcon(tab)) left = HostChrome.Px(24, Dpi);
             e.TextRectangle = new Rectangle(left, 0, Math.Max(0, tab.CloseBounds.Left - left), tab.Height);
             e.TextFormat = (e.TextFormat & TextFormatFlags.RightToLeft) | TextFormatFlags.SingleLine |
                 TextFormatFlags.VerticalCenter | (e.ToolStrip is ToolStripDropDown ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter) |
@@ -460,12 +480,21 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         if (contrast) return Highlighted(tab) ? SystemColors.HighlightText : Ink;
         return SectionFill(tab.SectionColor, tab.SectionName);
     }
-    private bool ShowLeaf(PageTabButton tab)
+    private bool ShowThemeIcon(PageTabButton tab)
     {
-        return Theme == MoreTabsTheme.Fall && tab.Checked && tab.CloseBounds.Left >= HostChrome.Px(53, Dpi);
+        return UsesCustomColors && (Theme != MoreTabsTheme.RoboCop || !contrast) &&
+            tab.Checked && tab.CloseBounds.Left >= HostChrome.Px(53, Dpi);
     }
-    internal void PaintFallLeaves(Graphics g, int left, int right, int height)
+    internal void PaintThemeArt(Graphics g, int left, int right, int height)
     {
+        if (Theme == MoreTabsTheme.RoboCop)
+        {
+            int width = HostChrome.Px(RoboCopArt.Skyline.Width, Dpi), h = HostChrome.Px(RoboCopArt.Skyline.Height, Dpi);
+            int gap = HostChrome.Px(3, Dpi);
+            if (right - left >= width + 2 * gap && height >= h)
+                RoboCopArt.Draw(g, RoboCopArt.Skyline, new Rectangle(right - gap - width, (height - h) / 2, width, h));
+            return;
+        }
         float s = Dpi / 96f;
         if (right - left < 60 * s) return;
         float mid = height / 2f;
@@ -516,8 +545,17 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                     int stripe = HostChrome.Px(3, Dpi);
                     using (var marker = new SolidBrush(MarkerFor(page)))
                         e.Graphics.FillRectangle(marker, 0, bottom ? h - stripe : 0, w, stripe);
-                    if (ShowLeaf(page)) FallPalette.DrawLeaf(e.Graphics, HostChrome.Px(12, Dpi), page.Height / 2f,
-                        Dpi / 96f, 0, contrast ? SystemColors.HighlightText : ActiveMarker);
+                    if (ShowThemeIcon(page))
+                    {
+                        if (Theme == MoreTabsTheme.RoboCop)
+                        {
+                            int visorHeight = HostChrome.Px(RoboCopArt.Visor.Height, Dpi);
+                            RoboCopArt.Draw(e.Graphics, RoboCopArt.Visor, new Rectangle(HostChrome.Px(3, Dpi),
+                                (page.Height - visorHeight) / 2, HostChrome.Px(RoboCopArt.Visor.Width, Dpi), visorHeight));
+                        }
+                        else FallPalette.DrawLeaf(e.Graphics, HostChrome.Px(12, Dpi), page.Height / 2f,
+                            Dpi / 96f, 0, contrast ? SystemColors.HighlightText : ActiveMarker);
+                    }
                 }
             }
         }

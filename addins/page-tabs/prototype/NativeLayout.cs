@@ -21,7 +21,9 @@ internal sealed class NativeLayout : IDisposable
         chrome.Update(NavigationHeader, Dpi, force, VerticalTabs);
         return chrome;
     }
-    private Rectangle original, applied;
+    private Rectangle original, applied, editorSlot;
+    private IntPtr filePane;
+    private Rectangle fileFull, fileReduced;
     internal bool HasReservation { get { return !applied.IsEmpty; } }
     internal bool AtBottom { get; private set; }
     internal Rectangle RowBounds { get; private set; }
@@ -140,6 +142,60 @@ internal sealed class NativeLayout : IDisposable
     internal bool Alive { get { return IsWindow(Frame) && GetParent(Document) == Frame && GetParent(Ribbon) == Frame; } }
     internal bool FrameEnabled { get { return IsWindowEnabled(Frame); } }
 
+    // Backstage can put a frame-sized child in front of the page. Make physical space
+    // at its edge, and give that space back only if our dimensions are still in effect.
+    internal void ReleaseFilePane()
+    {
+        if (filePane != IntPtr.Zero && GetParent(filePane) == Frame && Bounds(filePane, Frame) == fileReduced)
+            Move(filePane, fileFull);
+        filePane = IntPtr.Zero;
+    }
+
+    internal bool HasFilePane { get { return filePane != IntPtr.Zero; } }
+    internal bool HoldFileRow(out Rectangle row, out Rectangle slot, bool paneOnly = false)
+    {
+        row = slot = Rectangle.Empty;
+        if (!Alive || applied.IsEmpty || editorSlot.IsEmpty) return false;
+        var client = ClientBounds;
+        var editor = Rectangle.Intersect(original, client);
+        if (editor.IsEmpty) return false;
+        var mid = new Point(editor.Left + editor.Width / 2, editor.Top + editor.Height / 2);
+        // Include disabled children: Options owns input while this frame is dimmed.
+        var front = ChildWindowFromPointEx(Frame, mid, 5);
+        if (filePane != IntPtr.Zero && front != filePane) ReleaseFilePane();
+        int height = HostChrome.StripHeight(Dpi, ShowCaptions, AtBottom);
+        var pane = front != IntPtr.Zero && front != Frame ? Bounds(front, Frame) : Rectangle.Empty;
+        var full = front == filePane && pane == fileReduced ? fileFull : pane;
+        int inset = HostChrome.Px(12, Dpi);
+        bool replacesPage = front != Document || (!IsWindowVisible(Ribbon) && full.Top < original.Top);
+        bool coversEditor = front != Frame && front != StripWindow && replacesPage &&
+            full.Left <= editor.Left + inset && full.Right >= editor.Right - inset && full.Top <= editor.Top + inset &&
+            full.Bottom >= editor.Bottom - inset && full.Height >= height * 3;
+        if (coversEditor)
+        {
+            var reduced = full;
+            reduced.Height -= height;
+            if (!AtBottom) reduced.Y += height;
+            row = Rectangle.Intersect(client, new Rectangle(full.Left, AtBottom ? reduced.Bottom : full.Top, full.Width, height));
+            slot = Rectangle.Intersect(row, Rectangle.FromLTRB(editorSlot.Left, row.Top, editorSlot.Right, row.Bottom));
+            if (row.Height != height || slot.Width < 120) return false;
+            if (pane != reduced) Move(front, reduced);
+            filePane = front; fileFull = full; fileReduced = reduced;
+            return Bounds(front, Frame) == reduced;
+        }
+        ReleaseFilePane();
+        if (paneOnly) return false;
+        // The dialog may leave the original editor visible, or hide its navigation.
+        // Keep its reserved row even when OneNote has just laid the full document out again.
+        var body = DocumentBounds;
+        if (body != applied && body != original) return false;
+        if (!client.Contains(editorSlot) || FreeBottom(editorSlot) < editorSlot.Bottom) return false;
+        if (body != applied) Move(Document, applied);
+        row = RowBounds;
+        slot = editorSlot;
+        return true;
+    }
+
     private static IEnumerable<Point> SamplePoints(Rectangle area, bool editor, uint dpi)
     {
         int y = area.Top + (editor ? Math.Min(area.Height / 2, HostChrome.Px(24, dpi)) : area.Height / 2);
@@ -242,6 +298,7 @@ internal sealed class NativeLayout : IDisposable
         if (DocumentBounds != next || (!follow && !SelectLandmark(next)) || RibbonBounds != ribbon)
             return Unavailable(waitForEditor, "OneNote did not preserve the reserved row.");
         RowBounds = row;
+        editorSlot = slot;
         WaitReason = null;
         return slot;
     }
@@ -265,6 +322,15 @@ internal sealed class NativeLayout : IDisposable
         var hit = ChildWindowFromPointEx(Frame, new Point(slot.Left + slot.Width / 2, slot.Top + slot.Height / 2), 7);
         if (IsWindowVisible(StripWindow) && hit == StripWindow) return;
         if (hit != Document && hit != Frame && hit != StripWindow) return;
+        ShowStripWithoutActivating();
+    }
+    internal bool FileRowIsVisible(Rectangle slot)
+    {
+        var hit = ChildWindowFromPointEx(Frame, new Point(slot.Left + slot.Width / 2, slot.Top + slot.Height / 2), 5);
+        return IsWindowVisible(StripWindow) && hit == StripWindow;
+    }
+    internal void ShowStripWithoutActivating()
+    {
         const uint showWithoutMovingOrActivating = 0x0040 | 0x0001 | 0x0002 | 0x0010;
         if (!SetWindowPos(StripWindow, IntPtr.Zero, 0, 0, 0, 0, showWithoutMovingOrActivating))
             throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -307,6 +373,7 @@ internal sealed class NativeLayout : IDisposable
 
     public void Dispose()
     {
+        ReleaseFilePane();
         if (!applied.IsEmpty && IsWindow(Frame) && GetParent(Document) == Frame)
         {
             Rectangle body = DocumentBounds;

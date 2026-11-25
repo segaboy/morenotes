@@ -264,6 +264,7 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolStripMenuItem enableThemes = new ToolStripMenuItem("Enable themes");
     private readonly ToolStripMenuItem notebookColors = new ToolStripMenuItem("Notebook Colors") { Tag = MoreTabsTheme.NotebookColors };
     private readonly ToolStripMenuItem fall = new ToolStripMenuItem("Fall") { Tag = MoreTabsTheme.Fall };
+    private readonly ToolStripMenuItem roboCop = new ToolStripMenuItem("RoboCop") { Tag = MoreTabsTheme.RoboCop };
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
@@ -318,10 +319,10 @@ internal sealed class PageStrip : ToolStrip
         OverflowButton.AccessibleName = OverflowButton.ToolTipText = "More commands";
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
-        themes.DropDownItems.AddRange(new ToolStripItem[] { notebookColors, fall, new ToolStripSeparator(), enableThemes });
+        themes.DropDownItems.AddRange(new ToolStripItem[] { notebookColors, fall, roboCop, new ToolStripSeparator(), enableThemes });
         options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, themes });
         options.DropDownOpening += delegate { openHomeAfterPicking = false; Perform(delegate { ApplyState(this.store.Read()); }); };
-        foreach (var item in new[] { groupTabs, showLabels, notebookColors, fall, enableThemes })
+        foreach (var item in new[] { groupTabs, showLabels, notebookColors, fall, roboCop, enableThemes })
         {
             var setting = item;
             setting.Click += delegate { Perform(delegate { ChangeOption(setting); }); };
@@ -363,7 +364,11 @@ internal sealed class PageStrip : ToolStrip
         ApplyAppearance(defaultChrome);
         ApplyState(this.store.Read());
     }
-    private void Perform(Action action) { try { action(); } catch (Exception e) { onError(e); } }
+    private void Perform(Action action)
+    {
+        if (Host != null && !Host.Enabled) return;
+        try { action(); } catch (Exception e) { onError(e); }
+    }
     private void AddCaption(NotebookTabLabel label)
     {
         label.MouseClick += delegate(object sender, MouseEventArgs e) {
@@ -424,6 +429,14 @@ internal sealed class PageStrip : ToolStrip
     {
         ReleaseFocusShortcut();
         Host.Hide();
+    }
+    internal void ShowReadOnlyRow(Rectangle row, Rectangle slot)
+    {
+        ReleaseFocusShortcut();
+        Host.Enabled = false;
+        Host.Place(row, slot);
+        Host.Show();
+        if (!attachedLayout.FileRowIsVisible(slot)) attachedLayout.ShowStripWithoutActivating();
     }
     protected override void OnHandleDestroyed(EventArgs e)
     {
@@ -543,10 +556,11 @@ internal sealed class PageStrip : ToolStrip
             layout.StripWindow = Host.Handle;
             layout.ShowCaptions = WantsCaptionRow;
             if (AtBottom != layout.AtBottom) SetDirection(layout.AtBottom);
-            ApplyAppearance(layout.Appearance(!Host.Visible));
+            ApplyAppearance(layout.Appearance(!Host.Visible || !Host.Enabled));
         }
         if (NativeLayout.GetParent(Host.Handle) != frame || NativeLayout.Bounds(Host.Handle, frame) != row || Host.StripBounds != slot)
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
+        Host.Enabled = true;
         Host.Show();
     }
     internal void FollowResize(Rectangle slot, NativeLayout layout)
@@ -721,9 +735,11 @@ internal sealed class PageStrip : ToolStrip
         showLabels.Enabled = state.GroupByNotebook;
         showLabels.Checked = WantsCaptionRow;
         themes.Checked = enableThemes.Checked = state.ThemesEnabled;
-        notebookColors.Enabled = fall.Enabled = state.ThemesEnabled;
-        notebookColors.Checked = state.ThemesEnabled && state.Theme == MoreTabsTheme.NotebookColors;
-        fall.Checked = state.ThemesEnabled && state.Theme == MoreTabsTheme.Fall;
+        foreach (var option in themes.DropDownItems.OfType<ToolStripMenuItem>().Where(item => item.Tag is MoreTabsTheme))
+        {
+            option.Enabled = state.ThemesEnabled;
+            option.Checked = state.ThemesEnabled && (MoreTabsTheme)option.Tag == state.Theme;
+        }
         useQuickNotes.Checked = state.NewNoteSectionId == null;
         chooseSection.Text = "New note location (" + (state.NewNoteSectionName ?? "Quick Notes").Replace("&", "&&") + ")";
         chooseHome.Text = "Home page (" + (state.HomePage == null ? "Choose a page" : state.HomePage.Caption.Replace("&", "&&")) + ")";
@@ -1030,7 +1046,7 @@ internal sealed class PageStrip : ToolStrip
             button.Text = page.BookmarkTitle;
             button.AccessibleName = page.Caption;
             button.ToolTipText = page.Caption + (slot.Pinned ? "\nPinned tab" : "") + "\nClick × to close this tab. Right-click for tab options.";
-            if (appearance.Theme == MoreTabsTheme.Fall && button.SectionName != (page.Location == null ? null : page.Location.SectionName))
+            if (appearance.UsesCustomColors && button.SectionName != (page.Location == null ? null : page.Location.SectionName))
                 button.Invalidate();
             button.Tag = slot;
         }
@@ -1111,7 +1127,7 @@ internal sealed class PageStrip : ToolStrip
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         base.OnPaintBackground(e);
-        if (appearance != null && appearance.Theme == MoreTabsTheme.Fall && !highContrast)
+        if (appearance != null && appearance.UsesCustomColors && !highContrast)
         {
             // Use only spare space. The ornament never takes width from a tab or covers a command.
             int left = 0, right = DisplayRectangle.Right;
@@ -1120,7 +1136,7 @@ internal sealed class PageStrip : ToolStrip
                 if (item.Alignment == ToolStripItemAlignment.Right) right = Math.Min(right, item.Bounds.Left);
                 else if (item != OverflowButton) left = Math.Max(left, item.Bounds.Right);
             }
-            appearance.PaintFallLeaves(e.Graphics, left, right, Height);
+            appearance.PaintThemeArt(e.Graphics, left, right, Height);
         }
         if (!WantsCaptionRow) return;
         // The caption and the tab strip have separate windows. Continue each visible
