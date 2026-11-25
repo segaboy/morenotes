@@ -1,4 +1,6 @@
 using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Xml;
@@ -20,8 +22,67 @@ internal sealed class PagePicker : StripMenuButton
         Overflow = ToolStripItemOverflow.Never;
         QuickNote = new ToolStripMenuItem("New Quick Note", null, delegate { quickNote(); });
         KeepCurrent = new ToolStripMenuItem("Keep current page in a tab", null, delegate { keepCurrent(); });
-        DropDownItems.AddRange(new ToolStripItem[] { new ToolStripSeparator(), QuickNote, KeepCurrent });
-        HierarchyPicker.Attach(this, pages, open, null);
+        HierarchyPicker.Attach(this, pages, open, null, new ToolStripSeparator(), QuickNote, KeepCurrent);
+    }
+}
+
+// Keep the native menu item for submenu navigation, keyboard selection and accessibility.
+internal sealed class NotebookPickerItem : ToolStripMenuItem
+{
+    private readonly Color cover;
+    internal NotebookPickerItem(BookmarkNotebook notebook, ToolStripDropDown menu)
+    {
+        cover = SectionPalette.NotebookIcon(notebook.Color);
+        ToolTipText = notebook.Name;
+        uint dpi = ((TabRenderer)menu.Renderer).Dpi;
+        AutoSize = false;
+        Size = new Size(menu.MinimumSize.Width - menu.Padding.Horizontal,
+            Math.Max(HostChrome.Px(28, dpi), menu.Font.Height + HostChrome.Px(6, dpi)));
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var palette = (TabRenderer)Owner.Renderer;
+        bool hot = Selected || Pressed;
+        Color background = hot ? palette.Hover : palette.Surface;
+        Color ink = hot && palette.HighContrast ? SystemColors.HighlightText : palette.Ink;
+        Color color = palette.HighContrast || cover.IsEmpty ? ink : cover;
+        var g = e.Graphics;
+        g.Clear(background);
+
+        int left = HostChrome.Px(8, palette.Dpi), height = HostChrome.Px(20, palette.Dpi);
+        var state = g.Save();
+        try
+        {
+            g.TranslateTransform(left, (Height - height) / 2);
+            g.ScaleTransform(height / 20f, height / 20f);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = new GraphicsPath())
+            using (var brush = new SolidBrush(color))
+            using (var detail = new SolidBrush(palette.HighContrast ? background : palette.NotebookInk(color)))
+            {
+                path.AddArc(0, 0, 4, 4, 180, 90);
+                path.AddArc(11, 0, 4, 4, 270, 90);
+                path.AddArc(11, 16, 4, 4, 0, 90);
+                path.AddArc(0, 16, 4, 4, 90, 90);
+                path.CloseFigure();
+                g.FillPath(brush, path);
+                if (Math.Abs(color.GetBrightness() - background.GetBrightness()) < .15f)
+                    using (var pen = new Pen(ink)) g.DrawPath(pen, path);
+                g.FillRectangle(detail, 4, 4, 7, 2);
+                for (int y = 5; y <= 13; y += 4) g.FillRectangle(brush, 16, y, 2, 3);
+            }
+        }
+        finally { g.Restore(state); }
+        int textLeft = HostChrome.Px(36, palette.Dpi);
+        int right = Math.Min(Width, Owner.ClientSize.Width - Bounds.Left) - left;
+        int arrow = HostChrome.Px(10, palette.Dpi);
+        var title = new Rectangle(textLeft, 0, Math.Max(0, right - arrow - textLeft), Height);
+        TextRenderer.DrawText(g, AccessibleName, Font, title, ink, TextFormatFlags.NoPrefix |
+            TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        if (hot)
+            palette.DrawArrow(new ToolStripArrowRenderEventArgs(g, this,
+                new Rectangle(right - arrow, 0, arrow, Height), ink, ArrowDirection.Right));
     }
 }
 
@@ -39,15 +100,24 @@ internal sealed class HierarchyPicker
         this.pickSection = pickSection;
     }
 
-    internal static void Attach(ToolStripDropDownItem root, IPages pages, Action<SavedPage> pickPage, Action<string, string> pickSection)
+    internal static void Attach(ToolStripDropDownItem root, IPages pages, Action<SavedPage> pickPage,
+        Action<string, string> pickSection, params ToolStripItem[] footer)
     {
         root.Enabled = pages != null;
-        int footer = root.DropDownItems.Count;
-        if (footer == 0) root.DropDownItems.Add("Loading...");
+        // Auto-generated dropdowns inherit the strip renderer even after a custom renderer is assigned.
+        var menu = new ToolStripDropDownMenu { ShowImageMargin = false, ShowItemToolTips = true };
+        root.DropDown = menu;
+        root.Disposed += delegate { menu.Dispose(); };
+        menu.Items.AddRange(footer);
+        if (footer.Length == 0) menu.Items.Add("Loading...");
         var picker = new HierarchyPicker(pages, pickPage, pickSection);
         root.DropDownOpening += delegate {
-            if (root.Owner != null) root.DropDown.Renderer = root.Owner.Renderer;
-            picker.Populate(root, "", null, null, "", footer);
+            var palette = ((TabRenderer)root.Owner.Renderer).NotebookMenu;
+            menu.Renderer = palette;
+            int width = HostChrome.Px(220, palette.Dpi);
+            menu.Font = root.Font;
+            menu.MinimumSize = menu.MaximumSize = new Size(width, 0);
+            picker.Populate(root, "", null, null, "", footer.Length);
         };
     }
 
@@ -70,7 +140,7 @@ internal sealed class HierarchyPicker
             {
                 foreach (var node in pages.PickerChildren(id))
                 {
-                    var item = MakeItem(node, notebook, section, path);
+                    var item = MakeItem(node, notebook, section, path, menu);
                     if (item != null) menu.Items.Insert(count++, item);
                 }
             }
@@ -84,7 +154,7 @@ internal sealed class HierarchyPicker
         finally { menu.ResumeLayout(true); }
     }
 
-    private ToolStripMenuItem MakeItem(XElement node, BookmarkNotebook notebook, BookmarkLocation section, string path)
+    private ToolStripMenuItem MakeItem(XElement node, BookmarkNotebook notebook, BookmarkLocation section, string path, ToolStripDropDown menu)
     {
         string id = (string)node.Attribute("ID"), name = (string)node.Attribute("name");
         if (String.IsNullOrEmpty(id)) return null;
@@ -109,7 +179,10 @@ internal sealed class HierarchyPicker
             default: return null;
         }
         if (String.IsNullOrWhiteSpace(name)) return null;
-        var item = new ToolStripMenuItem(name.Replace("&", "&&")) { AccessibleName = name, Tag = id };
+        var item = node.Name.LocalName == "Notebook" ? new NotebookPickerItem(notebook, menu) : new ToolStripMenuItem();
+        item.Text = name.Replace("&", "&&");
+        item.AccessibleName = name;
+        item.Tag = id;
         string location = path.Length == 0 ? name : path + " / " + name;
         if (node.Name.LocalName == "Page")
             item.Click += delegate { pickPage(new SavedPage(id, name + " / " + notebook.Name, pages.LinkFor(id), section)); };

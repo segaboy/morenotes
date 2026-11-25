@@ -192,6 +192,48 @@ internal static class AppearanceTests
         Console.WriteLine("PASS shared star and gear tab, settings dependencies, remembered preferences and reclaimed document height with pins.");
     }
 
+    internal static void CheckNotebookPicker(PageStrip strip, string longTitle)
+    {
+        var picker = strip.Items.OfType<PagePicker>().Single();
+        foreach (uint dpi in new uint[] { 96, 144, 192 })
+        foreach (var surface in new[] { Color.FromArgb(17, 12, 8), Color.WhiteSmoke, SystemColors.Window })
+        {
+            var chrome = new HostChrome { Dpi = dpi, Surface = surface, HighContrast = surface.IsSystemColor };
+            strip.ApplyAppearance(chrome);
+            picker.ShowDropDown();
+            try
+            {
+                var menu = picker.DropDown;
+                var rows = menu.Items.OfType<NotebookPickerItem>().ToArray();
+                var palette = (TabRenderer)menu.Renderer;
+                Check(rows.Length == 62 && rows[0].AccessibleName == "Atlas" && rows[1].AccessibleName == "Workshop" &&
+                    rows[2].AccessibleName == longTitle && rows[2].ToolTipText == longTitle && menu.ShowItemToolTips &&
+                    palette.Surface.ToArgb() == ((TabRenderer)strip.Renderer).NotebookMenu.Surface.ToArgb() &&
+                    menu.Width == HostChrome.Px(220, dpi) && rows[0].Height == HostChrome.Px(28, dpi) &&
+                    menu.Height < rows.Sum(row => row.Height) && rows.Last().HasDropDownItems,
+                    "Notebook order, compact dimensions, long names or the scrollable list changed at " + dpi + " DPI.");
+                using (var image = new Bitmap(menu.Width, menu.Height))
+                {
+                    menu.DrawToBitmap(image, menu.ClientRectangle);
+                    var expected = new[] { Color.FromArgb(0, 136, 240), palette.Ink, Color.FromArgb(49, 138, 117) };
+                    for (int i = 0; i < expected.Length; i++)
+                    {
+                        var b = rows[i].Bounds;
+                        int y = b.Top + b.Height / 2;
+                        Color ink = palette.HighContrast && rows[i].Selected ? SystemColors.HighlightText : palette.Ink;
+                        Color bg = rows[i].Selected ? palette.Hover : palette.Surface;
+                        Check(image.GetPixel(b.Left + HostChrome.Px(14, dpi), y).ToArgb() ==
+                            (palette.HighContrast ? ink : expected[i]).ToArgb() &&
+                            image.GetPixel(b.Left + HostChrome.Px(32, dpi), y).ToArgb() == bg.ToArgb(),
+                            "Missing notebook cover or neutral gap before the name at " + dpi + " DPI.");
+                    }
+                }
+            }
+            finally { picker.HideDropDown(); }
+        }
+        Console.WriteLine("PASS compact notebook picker, native and custom covers, nicknames, long lists and high contrast at 96, 144 and 192 DPI.");
+    }
+
     internal static Bitmap CheckBookmarkMenu(PageStrip strip, HostChrome chrome)
     {
         var pages = new[] { new SavedPage("b/design", "Design notes / B", ""), new SavedPage("a/maps", "Maps / Summer / A", ""),

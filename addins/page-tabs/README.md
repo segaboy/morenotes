@@ -49,6 +49,8 @@ Open **Settings → Visible tool buttons** to show or hide Bookmarks, Back, Forw
 
 Choose **Settings → Home page** to pick a page from any open notebook. Clicking Home before setup opens that picker and takes you to the page you select. Changing Home through Settings saves the destination for your next visit.
 
+![The notebook picker in the dark theme, with colored notebook covers, aligned names, and Quick Note commands below](media/notebook-picker.png)
+
 **New note** creates a page and opens it in a new focused tab. It uses the user's OneNote Quick Notes section by default. Choose **Settings → New note location** and select a section to change it, or **Use default Quick Notes** to reset it. The **+ → New Quick Note** command always uses Quick Notes.
 
 All three grouping and label options start enabled. Changes apply immediately. MoreTabs remembers your label and color choices when you turn grouping off and when you restart.
@@ -77,7 +79,7 @@ Following OneNote's page list, a link, or Back updates the page in the active ta
 
 Start `Run-MoreTabs.cmd` from the build output or use `-Mode Run` from desktop PowerShell. On first use, the strip starts with the displayed page. Subsequent runs restore the saved tab order, including an intentionally empty row. OneNote chooses its opening page. A matching tab highlights automatically.
 
-- Click **+**, choose an open notebook, browse its section groups and sections, then select a page. That page opens in a new, focused tab in the same OneNote window, even if another tab already displays it. Press **Esc** to back out of the picker.
+- Click **+** to see open notebooks in OneNote order, each with a colored notebook icon and its display name. Hover over a shortened name to read it in full. Choose a notebook, browse its section groups and sections, then select a page to open it in a new, focused tab. Press **Esc** to back out. The Home page and New note location pickers use the same notebook list.
 - The **+** menu also offers **New Quick Note** to create a page in your configured Quick Notes section and **Keep current page in a tab** to keep the page on screen.
 - Click **×** at the right edge of any page tab to close it, including pinned tabs and tabs in the overflow menu. You can also middle-click a tab, choose **Close tab** from its right-click menu, or press **Delete** while a page tab has keyboard focus. Closing a tab leaves the page in OneNote and preserves its bookmarks.
 - Right-click a MoreTabs tab and choose **Open in new tab** for a separate, focused, unpinned copy in the same window. In OneNote's own page list, right-click a single page title and look just above **Rename** for the same command. The native text menu also offers it. Right-clicking the page-list background offers **Open current page in new tab**.

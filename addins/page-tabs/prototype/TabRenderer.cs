@@ -125,6 +125,20 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
     internal readonly bool DarkSections;
+    private TabRenderer notebookMenu;
+    internal TabRenderer NotebookMenu
+    {
+        get
+        {
+            if (contrast) return this;
+            if (notebookMenu == null)
+            {
+                int gray = Luminance(Surface) < .25 ? 40 : 250;
+                notebookMenu = new TabRenderer(Color.FromArgb(gray, gray, gray), Dpi, false, DarkSections);
+            }
+            return notebookMenu;
+        }
+    }
     internal static int CornerRadius(uint dpi) { return HostChrome.Px(8, dpi); }
     internal TabRenderer(Color surface, uint dpi, bool highContrast, bool darkSections)
     {

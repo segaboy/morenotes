@@ -24,18 +24,19 @@ internal static class PrototypeTests
         internal bool RejectNextMenuNavigation;
         public string SelectedPage(string sourceId) { return ListSelection; }
         internal readonly List<string> PickerReads = new List<string>();
+        internal XElement[] ExtraNotebooks = new XElement[0];
         internal bool PickerUnavailable;
         internal Action DuringNavigation;
         public IEnumerable<XElement> PickerChildren(string parentId)
         {
             PickerReads.Add(parentId);
             if (PickerUnavailable) throw new System.Runtime.InteropServices.COMException("Fixture section unavailable");
-            var tree = XElement.Parse("<Notebooks><Notebook ID='a' name='Atlas'><Section ID='as' name='Projects'>" +
+            var tree = XElement.Parse("<Notebooks><Notebook ID='a' name='Atlas' color='#8AA8E4'><Section ID='as' name='Projects'>" +
                 "<Page ID='a/1' name='Dashboard'/></Section></Notebook><Notebook ID='b' name='B' nickname='Workshop'>" +
                 "<SectionGroup ID='bin' name='Recycle Bin' isRecycleBin='true'/><SectionGroup ID='g' name='Plans &amp; specs'>" +
                 "<Section ID='bs' name='Projects'><Page ID='b/1' name='Dashboard'/></Section>" +
                 "<Section ID='empty' name='Archive'/></SectionGroup></Notebook></Notebooks>");
-            return parentId == "" ? tree.Elements() : tree.Descendants().Single(x => (string)x.Attribute("ID") == parentId).Elements();
+            return parentId == "" ? tree.Elements().Concat(ExtraNotebooks) : tree.Descendants().Single(x => (string)x.Attribute("ID") == parentId).Elements();
         }
         internal Color BookBColor = Color.FromArgb(246,176,120);
         internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
@@ -489,6 +490,11 @@ internal static class PrototypeTests
             CheckTools(strip, source);
             CheckToolVisibility(strip);
             CheckActivationClicks(frame, strip);
+            string longTitle = "Gallery & workshop planning notes for the autumn exhibition";
+            source.ExtraNotebooks = Enumerable.Range(1, 60).Select(i => new XElement("Notebook",
+                new XAttribute("ID", "extra" + i), new XAttribute("name", i == 1 ? longTitle : "Notebook " + i),
+                new XAttribute("color", "#318A75"))).ToArray();
+            AppearanceTests.CheckNotebookPicker(strip, longTitle);
         }
     }
 
@@ -543,6 +549,7 @@ internal static class PrototypeTests
         int count = strip.TabCount, notes = source.NotesCreated;
         LeftClickItem(home);
         Check(homePicker.DropDown.Visible && source.Current == before, "First Home click must open the settings picker.");
+        Check(PickerItem(homePicker, "b") is NotebookPickerItem, "Home must use the same notebook list as +.");
         var section = ExpandPickerItem(ExpandPickerItem(ExpandPickerItem(homePicker, "b"), "g"), "bs");
         LeftClickItem(PickerItem(section, "b/1"));
         Check(source.Current == "b/1" && strip.ActiveTabKey == key && strip.TabCount == count,
@@ -561,6 +568,7 @@ internal static class PrototypeTests
             ", focus " + strip.ContainsFocus + ", selected item " + String.Join(", ", strip.Items.Cast<ToolStripItem>().Where(i => i.Selected).Select(i => i.AccessibleName)) + ".");
         LeftClickItem(gear);
         sectionPicker.ShowDropDown();
+        Check(PickerItem(sectionPicker, "b") is NotebookPickerItem, "New note location must use the same notebook list as +.");
         var group = ExpandPickerItem(ExpandPickerItem(sectionPicker, "b"), "g");
         var target = PickerItem(group, "bs");
         Check(!target.HasDropDownItems, "The new note destination picker must stop at sections.");

@@ -317,9 +317,9 @@ internal sealed class PageStrip : ToolStrip
             toolVisibility.DropDownItems.Add(toggle);
         }
         options.DropDownItems.AddRange(new ToolStripItem[] { new ToolStripSeparator(), toolVisibility, chooseHome, chooseSection });
-        chooseSection.DropDownItems.AddRange(new ToolStripItem[] { new ToolStripSeparator(), useQuickNotes });
         useQuickNotes.Click += delegate { Perform(delegate { SaveNoteSection(null, null); }); };
-        HierarchyPicker.Attach(chooseSection, pages, null, (id, name) => Perform(delegate { SaveNoteSection(id, name); }));
+        HierarchyPicker.Attach(chooseSection, pages, null, (id, name) => Perform(delegate { SaveNoteSection(id, name); }),
+            new ToolStripSeparator(), useQuickNotes);
         HierarchyPicker.Attach(chooseHome, pages, page => Perform(delegate {
             ApplyState(this.store.Change(s => { s.HomePage = page; return true; }));
             if (openHomeAfterPicking) GoHome();
@@ -570,7 +570,8 @@ internal sealed class PageStrip : ToolStrip
             appearance = new TabRenderer(chrome.Surface, chrome.Dpi, highContrast, chrome.DarkSections);
             Renderer = appearance;
             toolVisibility.DropDown.Renderer = appearance;
-            tabMenu.Renderer = bookmarks.DropDown.Renderer = options.DropDown.Renderer = add.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
+            tabMenu.Renderer = bookmarks.DropDown.Renderer = options.DropDown.Renderer = OverflowButton.DropDown.Renderer = appearance;
+            add.DropDown.Renderer = appearance.NotebookMenu;
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
             Host.Style(appearance);
