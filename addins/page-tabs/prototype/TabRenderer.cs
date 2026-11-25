@@ -19,6 +19,7 @@ internal sealed class BookmarkButton : StripMenuButton
 {
     internal BookmarkButton()
     {
+        Name = "Bookmarks";
         AccessibleName = ToolTipText = "Bookmarks";
         AutoToolTip = false;
         ShowDropDownArrow = false;
@@ -36,6 +37,7 @@ internal sealed class ToolButton : ToolStripButton
     internal readonly ToolIcon Icon;
     internal ToolButton(string name, ToolIcon icon) : base(name)
     {
+        Name = icon.ToString();
         Icon = icon;
         AccessibleName = ToolTipText = name;
         AutoToolTip = false;
@@ -375,7 +377,11 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         Color ink = TextColor(e.Item);
         try
         {
-            g.TranslateTransform((e.Item.Width - size) / 2, (e.Item.Height - size) / 2);
+            int left = (e.Item.Width - size) / 2;
+            var strip = e.ToolStrip as PageStrip;
+            if (icon == ToolIcon.Settings && strip != null && e.Item.Bounds.Left == strip.MenuTabBounds.Left)
+                left = Math.Max(0, strip.LeadingToolInset - HostChrome.Px(1, Dpi));
+            g.TranslateTransform(left, (e.Item.Height - size) / 2);
             g.ScaleTransform(size / 16f, size / 16f);
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.Half;

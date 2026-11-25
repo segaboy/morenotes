@@ -40,6 +40,8 @@ MoreTabs uses OneNote's notebook navigation background in both tab views. In hor
 
 The first rounded tab is labeled **Tools**. From left to right it holds Bookmarks, Settings, Back, Forward, Home, and New note. Back and Forward use OneNote's own page history in the associated window. A divider separates Tools from the page tabs.
 
+Open **Settings → Visible tool buttons** to show or hide Bookmarks, Back, Forward, Home, and New note individually. All five start enabled. Changes take effect immediately and carry over to the next session. The Settings gear always stays on the strip.
+
 Choose **Settings → Home page** to pick a page from any open notebook. Clicking Home before setup opens that picker and takes you to the page you select. Changing Home through Settings saves the destination for your next visit.
 
 **New note** creates a page and opens it in a new focused tab. It uses the user's OneNote Quick Notes section by default. Choose **Settings → New note location** and select a section to change it, or **Use default Quick Notes** to reset it. The **+ → New Quick Note** command always uses Quick Notes.

@@ -68,6 +68,7 @@ internal sealed class WorkingSet
     internal readonly List<SavedTab> Tabs = new List<SavedTab>();
     internal readonly List<SavedPage> Bookmarks = new List<SavedPage>();
     internal string Revision;
+    internal readonly HashSet<string> HiddenTools = new HashSet<string>(StringComparer.Ordinal);
     internal SavedPage HomePage;
     internal string NewNoteSectionId, NewNoteSectionName;
     internal bool ColorNotebookLabels = true, ShowNotebookLabels = true, GroupByNotebook = true;
@@ -179,6 +180,11 @@ internal sealed class SessionStore
         var options = root.Element("options");
         if (options != null)
         {
+            foreach (var tool in options.Elements("hiddenTool"))
+            {
+                string id = (string)tool.Attribute("id");
+                if (!String.IsNullOrEmpty(id)) state.HiddenTools.Add(id);
+            }
             state.ColorNotebookLabels = (bool?)options.Attribute("coloredLabels") ?? true;
             state.ShowNotebookLabels = (bool?)options.Attribute("showLabels") ?? true;
             state.GroupByNotebook = (bool?)options.Attribute("groupByNotebook") ?? true;
@@ -234,6 +240,7 @@ internal sealed class SessionStore
             var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
                 new XElement("options", new XAttribute("coloredLabels", state.ColorNotebookLabels),
                     new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook),
+                    state.HiddenTools.OrderBy(id => id, StringComparer.Ordinal).Select(id => new XElement("hiddenTool", new XAttribute("id", id))),
                     state.HomePage == null ? null : state.HomePage.ToXml(),
                     state.NewNoteSectionId == null ? null : new XElement("newNoteSection",
                         new XAttribute("id", state.NewNoteSectionId), new XAttribute("name", state.NewNoteSectionName))),

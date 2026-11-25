@@ -487,8 +487,46 @@ internal static class PrototypeTests
                 "Selecting New Quick Note from the picker did not create and focus exactly one new note.");
             Console.WriteLine("PASS left-click +, lazy notebook/section-group/page menus, cancellation, unavailable sections, duplicate titles and separate focused tabs.");
             CheckTools(strip, source);
+            CheckToolVisibility(strip);
             CheckActivationClicks(frame, strip);
         }
+    }
+
+    private static void CheckToolVisibility(PageStrip strip)
+    {
+        var gear = (StripMenuButton)strip.Items[1];
+        var menu = gear.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Visible tool buttons");
+        var toggles = menu.DropDownItems.OfType<ToolStripMenuItem>().ToArray();
+        Check(toggles.Select(i => i.Text).SequenceEqual(new[] { "Bookmarks", "Back", "Forward", "Home", "New note" }) &&
+            toggles.All(i => i.Checked), "Settings must offer exactly the five optional Tools buttons, all initially visible.");
+        int fullWidth = strip.MenuTabBounds.Width;
+        string key = strip.ActiveTabKey;
+        foreach (var toggle in toggles.Reverse())
+        {
+            LeftClickItem(gear);
+            menu.ShowDropDown();
+            LeftClickItem(toggle);
+            var visible = strip.Items.Cast<ToolStripItem>().TakeWhile(i => !(i is ToolStripSeparator)).Where(i => i.Available).ToArray();
+            Check(!toggle.Checked && !strip.Items.Cast<ToolStripItem>().Single(i => i.AccessibleName == toggle.Text).Available &&
+                strip.MenuTabBounds == Rectangle.Union(visible.First().Bounds, visible.Last().Bounds) &&
+                gear.Placement == ToolStripItemPlacement.Main, "Hiding " + toggle.Text + " left an incorrect Tools outline or checkmark.");
+        }
+        Check(strip.MenuTabBounds == gear.Bounds && gear.Width < fullWidth && strip.ActiveTabKey == key,
+            "Settings alone must keep its hit target and release the space used by hidden buttons.");
+        int width = strip.Host.Width;
+        strip.Host.Width = 170;
+        LeftClickItem(gear);
+        menu.ShowDropDown();
+        LeftClickItem(toggles.Single(i => i.Text == "Back"));
+        strip.OverflowButton.ShowDropDown();
+        var overflow = strip.Items.OfType<ToolButton>().Where(t => t.Available && t.GetCurrentParent() == strip.OverflowButton.DropDown).ToArray();
+        Check(overflow.Length == 1 && overflow[0].Name == "Back", "Hidden tools appeared in the overflow menu.");
+        strip.OverflowButton.HideDropDown();
+        strip.Host.Width = width;
+        foreach (var toggle in toggles.Where(i => !i.Checked)) toggle.PerformClick();
+        Check(toggles.All(i => i.Checked) && strip.MenuTabBounds.Width == fullWidth && strip.ActiveTabKey == key,
+            "Restoring the tools lost a button or changed the active tab.");
+        Console.WriteLine("PASS individual Tools checkboxes, gear-only layout, overflow and recovery.");
     }
 
     private static void CheckTools(PageStrip strip, TestPages source)

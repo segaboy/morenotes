@@ -217,9 +217,14 @@ internal static class SavedSessionTests
                     strip.CloseTab(store.Read().Tabs.Single(t => t.Page.Matches(b)));
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
                     ((ToolStripDropDownButton)strip.Items[1]).DropDownItems[0].PerformClick();
+                    var tools = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Visible tool buttons");
+                    tools.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Forward").PerformClick();
                     break;
                 case "restore":
                     var stored = store.Read();
+                    Check(stored.HiddenTools.SetEquals(new[] { "Forward" }) &&
+                        strip.Items.OfType<ToolButton>().All(t => t.Available == (t.Name != "Forward")),
+                        "A fresh process did not restore individual tool visibility.");
                     Check(stored.HomePage.Matches(stored.Bookmarks.Single()) && stored.NewNoteSectionId == "section-b" &&
                         stored.NewNoteSectionName == "B & C / Projects", "A restart lost the Tools destinations.");
                     var settings = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripItem>().Take(3).Cast<ToolStripMenuItem>().ToArray();
