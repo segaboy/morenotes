@@ -926,8 +926,19 @@ internal static class PrototypeTests
     {
         string selected = strip.ActiveTabKey;
         var arrow = strip.Host.MoveButton;
-        arrow.PerformClick();
-        Check(!strip.AtBottom && layout.StillReserved(strip.Host.Bounds), "A partial-width document allowed a bottom overlay.");
+        var top = strip.Host.Bounds;
+        using (var pane = new Panel { Bounds = Rectangle.FromLTRB(top.Right, top.Top, frame.ClientSize.Width, frame.ClientSize.Height) })
+        {
+            frame.Controls.Add(pane);
+            arrow.PerformClick();
+            Check(!strip.AtBottom && layout.StillReserved(top), "Bottom docking would have covered a pane beside the document.");
+            pane.Hide();
+            arrow.PerformClick();
+            Check(strip.AtBottom && strip.Host.Right == layout.RibbonBounds.Right && layout.DocumentBounds.Right == top.Right,
+                "A ribbon wider than the document lost its free right edge.");
+            arrow.PerformClick();
+            Check(strip.Host.Bounds == top, "Returning to the top changed the document-width strip.");
+        }
         var full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
         document.Bounds = full;
         strip.Attach(layout.Reserve(), layout);
@@ -973,12 +984,20 @@ internal static class PrototypeTests
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
             full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
             document.Bounds = full;
-            // Bring the ribbon to the same width a real host assigns on resize.
-            NativeLayout.Move(layout.Ribbon, new Rectangle(0, 0, full.Width, full.Top));
+            var ribbon = Rectangle.FromLTRB(11, 0, full.Right - 23, full.Top);
+            NativeLayout.Move(layout.Ribbon, ribbon);
             bottom = layout.Reserve();
             strip.Attach(bottom, layout);
-            Check(layout.StillReserved(bottom) && bottom.Bottom == full.Bottom && bottom.Width == full.Width,
-                "Resize lost the bottom dock.");
+            Check(layout.StillReserved(bottom) && bottom.Bottom == full.Bottom && bottom.Left == ribbon.Left && bottom.Right == ribbon.Right,
+                "The bottom strip did not follow both inset ribbon edges after resize.");
+            ribbon.X += 4;
+            NativeLayout.Move(layout.Ribbon, ribbon);
+            Check(!layout.StillReserved(bottom), "A ribbon-only move left the old reservation valid.");
+            bottom = layout.Reserve();
+            strip.Attach(bottom, layout);
+            layout.CheckHitTargets(strip.Host.Handle, bottom);
+            Check(bottom.Left == ribbon.Left && bottom.Right == ribbon.Right && layout.DocumentBounds.Width == full.Width,
+                "Following a shifted ribbon changed the document width.");
             strip.PauseForDialog();
             layout.ReleaseForDialog();
             Check(layout.DocumentBounds == full && !strip.Host.Visible, "Pausing left a bottom gap.");
@@ -986,7 +1005,8 @@ internal static class PrototypeTests
             Check(strip.AtBottom && layout.StillReserved(bottom), "Resuming did not restore bottom placement.");
             arrow.PerformClick();
             Check(!strip.AtBottom && !arrow.PointsUp && layout.StillReserved(strip.Host.Bounds) &&
-                strip.Host.Top == full.Top && layout.DocumentBounds.Bottom == full.Bottom && strip.ActiveTabKey == selected,
+                strip.Host.Top == full.Top && strip.Host.Left == full.Left && strip.Host.Right == full.Right &&
+                layout.DocumentBounds.Bottom == full.Bottom && strip.ActiveTabKey == selected,
                 "The up arrow did not restore top placement and the selected tab.");
             arrow.PerformClick();
             strip.PauseForDialog();
@@ -994,7 +1014,7 @@ internal static class PrototypeTests
             Check(layout.DocumentBounds == full, "Closing MoreTabs at the bottom left a gap.");
             strip.Attach(layout.Reserve(false, false), layout);
         }
-        Console.WriteLine("PASS down/up arrows, full-width bottom docking, native footer, overflow, resize, modal resume and original selection.");
+        Console.WriteLine("PASS ribbon-aligned bottom docking, inset and wider ribbons, occupied side pane, native footer, resize and top round trip.");
         return full;
     }
 

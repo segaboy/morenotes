@@ -64,6 +64,7 @@ internal static class Program
                 candidate.LandmarkBounds, candidate.DocumentBounds);
             if (mode == "measure")
             {
+                Console.WriteLine("Bottom strip horizontal bounds for this ribbon: {0}", candidate.RibbonFaceBounds);
                 var chrome = candidate.Appearance();
                 Console.WriteLine("Strip appearance: surface #{0:X6}, bookmark icon inset {1}px ({2}).",
                     chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, !chrome.Measured ? "fallback" :
@@ -175,7 +176,7 @@ internal static class Program
                         strip.Host.MoveButton.PerformClick();
                         if (strip.AtBottom || strip.Host.Bounds != slot || !layout.StillReserved(slot))
                             throw new InvalidOperationException("The up arrow did not restore the top row.");
-                        Console.WriteLine("PASS full-width bottom row {0} and return to the original top slot.", bottom);
+                        Console.WriteLine("PASS bottom row {0} aligned to the ribbon and return to the original top slot.", bottom);
                     }
                 }
                 if (mode == "verify" || mode == "handson")

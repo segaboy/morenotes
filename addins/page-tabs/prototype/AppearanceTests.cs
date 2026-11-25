@@ -42,6 +42,7 @@ internal static class AppearanceTests
             foreach (var surface in new[] { dark, Color.FromArgb(247, 247, 247), SystemColors.Window })
             {
                 bool contrast = surface.IsSystemColor;
+                CheckRibbonEdges(dpi, surface);
                 int inset = HostChrome.Px(contrast ? 4 : surface == dark ? 25 : 18, dpi);
                 var expected = new HostChrome { Dpi = dpi, Surface = surface, Inset = inset, HighContrast = contrast };
                 using (var row = new Bitmap(HostChrome.Px(48, dpi), HostChrome.Px(43, dpi)))
@@ -61,8 +62,12 @@ internal static class AppearanceTests
                     Check(HostChrome.ReadSectionBand(row, dpi, surface).IsEmpty, "A blank navigation row produced a section color.");
                     Check(!HostChrome.FindIcon(row, dpi, out measured, out left), "An empty row produced a false icon anchor.");
                 }
-                strip.Host.Size = new Size(HostChrome.Px(950, dpi), HostChrome.StripHeight(dpi));
+                strip.Host.Size = new Size(HostChrome.Px(950, dpi), HostChrome.StripHeight(dpi, true, strip.AtBottom));
                 strip.ApplyAppearance(expected);
+                int gap = strip.AtBottom ? HostChrome.Px(4, dpi) : 0;
+                Check(strip.Host.MoveButton.Top == gap && (strip.AtBottom ? strip.Host.Captions.Top : strip.Top) == gap &&
+                    strip.Host.MoveButton.Height == HostChrome.StripHeight(dpi) && strip.Host.BackColor == surface,
+                    "Content spacing must scale outside the caption, tabs and arrow without reducing their height.");
                 if (!contrast)
                 {
                     var ordinary = strip.Items.OfType<PageTabButton>().Select(t => t.Group).Where(g => g.Notebook != null);
@@ -121,6 +126,26 @@ internal static class AppearanceTests
         Console.WriteLine("PASS equal native-color tab stripes, muted selected fills and angled two-color bookmark rows at 96, 120, 144 and 192 DPI.");
         Console.WriteLine("PASS rounded notebook backings, contrasting caption text and spacing at all four scales.");
         Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
+    }
+
+    private static void CheckRibbonEdges(uint dpi, Color face)
+    {
+        int width = HostChrome.Px(24, dpi), left = HostChrome.Px(8, dpi), right = HostChrome.Px(5, dpi);
+        using (var edge = new Bitmap(width, 1))
+        using (var g = Graphics.FromImage(edge))
+        using (var brush = new SolidBrush(face))
+        {
+            g.Clear(face);
+            Check(HostChrome.RibbonInset(edge, false, dpi) == 0 && HostChrome.RibbonInset(edge, true, dpi) == 0,
+                "A flush ribbon acquired a gutter.");
+            g.Clear(Color.DimGray);
+            g.FillRectangle(brush, left, 0, width - left - right, 1);
+            var shadow = Color.FromArgb(100, 100, 100);
+            edge.SetPixel(left - 1, 0, shadow);
+            edge.SetPixel(width - right, 0, shadow);
+            Check(HostChrome.RibbonInset(edge, false, dpi) == left && HostChrome.RibbonInset(edge, true, dpi) == right,
+                "The measured ribbon span included its shadow or lost an asymmetric gutter.");
+        }
     }
 
     private static void CheckLongTitleSpacing(PageStrip strip, params PageTabButton[] tabs)
@@ -196,7 +221,9 @@ internal static class AppearanceTests
         labels.PerformClick();
         CheckGroupDividers(strip, 2);
         Check(!colors.Enabled && !colors.Checked && group.Checked && labels.Enabled && !labels.Checked &&
-            !strip.Host.Captions.Visible && !grouped[2].Group.Visible && strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false) &&
+            !strip.Host.Captions.Visible && !grouped[2].Group.Visible &&
+            strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false, strip.AtBottom) &&
+            strip.Top == HostChrome.ContentGap(layout.Dpi, strip.AtBottom) &&
             layout.DocumentBounds.Height == fullDocument + HostChrome.CaptionHeight(layout.Dpi) &&
             layout.StillReserved(strip.Host.Bounds), String.Format(
                 "Hiding captions with pins: colors {0}/{1}, grouping {2}, labels {3}/{4}, visible {5}/{6}, strip {7}px, document {8}px (was {9}px), reserved {10}.",

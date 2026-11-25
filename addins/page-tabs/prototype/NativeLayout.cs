@@ -52,7 +52,7 @@ internal sealed class NativeLayout : IDisposable
                 {
                     Rectangle top = Bounds(dock, frame);
                     observed.Add("ribbon dock " + top);
-                    if (top.Height <= 0 || top.Bottom != body.Top || top.Left > body.Left || top.Right < body.Right) continue;
+                    if (top.Height <= 0 || top.Bottom != body.Top || !OverlapsHorizontally(top, body)) continue;
                     var layout = new NativeLayout(frame, doc, dock);
                     if (layout.SelectLandmark(body)) result.Add(layout);
                 }
@@ -79,6 +79,8 @@ internal sealed class NativeLayout : IDisposable
     internal Rectangle DocumentBounds { get { return Bounds(Document, Frame); } }
     internal Rectangle LandmarkBounds { get { return Bounds(landmark, Frame); } }
     internal Rectangle RibbonBounds { get { return Bounds(Ribbon, Frame); } }
+    internal Rectangle RibbonFaceBounds { get { return chrome.RibbonFace(Ribbon, RibbonBounds, Dpi); } }
+    private static bool OverlapsHorizontally(Rectangle a, Rectangle b) { return Math.Max(a.Left, b.Left) < Math.Min(a.Right, b.Right); }
     private Rectangle ClientBounds
     {
         get
@@ -93,9 +95,9 @@ internal sealed class NativeLayout : IDisposable
         if (!Alive || slot.IsEmpty || DocumentBounds != applied || !SelectLandmark(applied)) return false;
         if (AtBottom)
         {
-            var client = ClientBounds;
-            return slot.Left == client.Left && slot.Right == client.Right && slot.Bottom == client.Bottom &&
-                slot.Top == applied.Bottom && applied.Top == RibbonBounds.Bottom;
+            var ribbon = RibbonFaceBounds;
+            return slot.Left == ribbon.Left && slot.Right == ribbon.Right && slot.Bottom == ClientBounds.Bottom &&
+                slot.Top == applied.Bottom && applied.Top == ribbon.Bottom;
         }
         return slot.Left == applied.Left && slot.Width == applied.Width && slot.Top == RibbonBounds.Bottom && slot.Bottom == applied.Top;
     }
@@ -104,15 +106,12 @@ internal sealed class NativeLayout : IDisposable
     {
         // Inspect child stacking inside the host, even when another app is in front.
         Rectangle target = LandmarkBounds;
-        Rectangle span = strip == IntPtr.Zero ? DocumentBounds : slot;
-        int ribbonY = RibbonBounds.Bottom - 1;
-        foreach (int x in new[] { span.Left + span.Width / 10, span.Left + span.Width / 2, span.Right - 1 - span.Width / 10 })
+        var ribbon = RibbonBounds;
+        CheckRow(ribbon, ribbon.Bottom - 1, Ribbon, "ribbon");
+        if (strip != IntPtr.Zero)
         {
-            CheckChildAt(Frame, new Point(x, ribbonY), Ribbon, "ribbon");
-            if (strip != IntPtr.Zero)
-                CheckChildAt(Frame, new Point(x, slot.Top + slot.Height / 2), strip, "tab strip");
-            if (AtBottom && strip != IntPtr.Zero)
-                CheckChildAt(Frame, new Point(x, slot.Top - 1), Document, "document above bottom strip");
+            CheckRow(slot, slot.Top + slot.Height / 2, strip, "tab strip");
+            if (AtBottom) CheckRow(DocumentBounds, slot.Top - 1, Document, "document above bottom strip");
         }
         foreach (var point in SamplePoints(target, VerticalTabs, Dpi))
         {
@@ -122,6 +121,11 @@ internal sealed class NativeLayout : IDisposable
             MapWindowPoints(Frame, Document, ref local, 1);
             CheckChildAt(Document, local, landmark, name);
         }
+    }
+    private void CheckRow(Rectangle span, int y, IntPtr expected, string row)
+    {
+        foreach (int x in new[] { span.Left + span.Width / 10, span.Left + span.Width / 2, span.Right - 1 - span.Width / 10 })
+            CheckChildAt(Frame, new Point(x, y), expected, row);
     }
     private static void CheckChildAt(IntPtr parent, Point p, IntPtr expected, string row)
     {
@@ -198,23 +202,27 @@ internal sealed class NativeLayout : IDisposable
         Rectangle body = DocumentBounds, ribbon = RibbonBounds;
         if (body.Top != ribbon.Bottom && (applied.IsEmpty || body.Top != applied.Top))
             return Unavailable(waitForEditor, "Unrecognized host layout. Cannot reserve a row.");
-        if (ribbon.Left > body.Left || ribbon.Right < body.Right || !SelectLandmark(body))
+        if (!OverlapsHorizontally(ribbon, body) || !SelectLandmark(body))
             return Unavailable(waitForEditor, "OneNote's navigation row or vertical page editor is hidden, covered or no longer aligned with the ribbon.");
         bool bottom = atBottom ?? AtBottom;
         var client = ClientBounds;
         // When the host has already laid out the full document, use its new edge. When our
         // previous bottom reservation is still in effect, put those pixels back before sizing again.
-        int fullBottom = AtBottom && !applied.IsEmpty && body.Bottom == applied.Bottom ?
-            FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, client.Bottom)) : body.Bottom;
+        int fullBottom = body.Bottom;
+        if (AtBottom && !applied.IsEmpty && body.Bottom == applied.Bottom)
+            fullBottom = bottom ? client.Bottom : FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, client.Bottom));
         var full = Rectangle.FromLTRB(body.Left, ribbon.Bottom, body.Right, fullBottom);
-        int height = HostChrome.StripHeight(Dpi, ShowCaptions);
+        int height = HostChrome.StripHeight(Dpi, ShowCaptions, bottom);
         if (height <= 0 || body.Width < 120 || full.Height < height * 3)
             return Unavailable(waitForEditor, "Insufficient usable document space.");
-        var slot = new Rectangle(full.Left, bottom ? full.Bottom - height : full.Top, full.Width, height);
-        if (bottom && (full.Left != client.Left || full.Right != client.Right || full.Bottom != client.Bottom ||
-            FreeBottom(slot) != slot.Bottom))
-            return Unavailable(waitForEditor, "Another OneNote layout or control occupies the full-width bottom row.");
+        var face = bottom ? chrome.RibbonFace(Ribbon, ribbon, Dpi) : ribbon;
+        var slot = bottom ? new Rectangle(face.Left, full.Bottom - height, face.Width, height) :
+            new Rectangle(full.Left, full.Top, full.Width, height);
+        if (bottom && (slot.Width < 120 || !client.Contains(slot) || slot.Bottom != client.Bottom || FreeBottom(slot) != slot.Bottom))
+            return Unavailable(waitForEditor, "OneNote does not have a free bottom row spanning the ribbon.");
         var next = Rectangle.FromLTRB(full.Left, bottom ? full.Top : slot.Bottom, full.Right, bottom ? slot.Top : full.Bottom);
+        if (bottom && next.Bottom > body.Bottom && FreeBottom(Rectangle.FromLTRB(body.Left, body.Bottom, body.Right, next.Bottom)) != next.Bottom)
+            return Unavailable(waitForEditor, "Another OneNote control occupies the space below the document.");
         if (next != body) Move(Document, next);
         original = full;
         applied = next;

@@ -573,6 +573,7 @@ internal sealed class PageStrip : ToolStrip
         notice.SetToolTip(Host.MoveButton, Host.MoveButton.AccessibleName);
         if (appearance != null)
         {
+            Host.Padding = new Padding(0, HostChrome.ContentGap(appearance.Dpi, bottom), 0, 0);
             PerformLayout();
             Invalidate();
         }
@@ -598,6 +599,7 @@ internal sealed class PageStrip : ToolStrip
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
             Host.Style(appearance);
+            Host.Padding = new Padding(0, HostChrome.ContentGap(chrome.Dpi, AtBottom), 0, 0);
             foreach (var label in labels.Values) StyleCaption(label);
             toolsLabel.GroupFill = appearance.ToolsBand;
             toolsLabel.ForeColor = highContrast ? SystemColors.ControlText : appearance.NotebookInk(appearance.ToolsBand);
