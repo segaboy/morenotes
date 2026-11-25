@@ -2,6 +2,11 @@
 [Bb]in/
 [Oo]bj/
 artifacts/
+*.exe
+*.dll
+*.msi
+*.msix
+*.msixbundle
 TestResults/
 *.user
 *.suo

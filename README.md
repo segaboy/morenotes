@@ -40,6 +40,14 @@ The gear lets you choose your Home page, set the destination for new notes, and 
 
 <img src="assets/brand/morenotes-logo.png" alt="MoreNotes collection logo" width="220">
 
-Each add-in lives under `addins/` and can be installed and updated independently. Its GitHub Release carries its installer and release notes. MoreTabs uses release tags of the form `page-tabs/vX.Y.Z`. The prototype currently builds from source.
+Each add-in lives under `addins/` and has its own versions. MoreTabs uses tags of the form `page-tabs/vX.Y.Z`. The prototype currently builds from source.
 
 [MoreNotes artwork](assets/brand) · [MoreTabs logo](addins/page-tabs/media/moretabs-logo.png)
+
+## Releases and downloads
+
+GitHub Releases will carry release notes and the source for each tagged version. Official prebuilt Windows installers will be sold through the MoreNotes storefront. Once an installer is available, its release notes will link to the storefront, and the storefront download will link back to the exact source used to build it.
+
+## License
+
+MoreNotes, including MoreTabs, is licensed under version 3 only of the GNU General Public License (`GPL-3.0-only`). The same license applies to official builds sold through the storefront. [Read the license](LICENSE).
