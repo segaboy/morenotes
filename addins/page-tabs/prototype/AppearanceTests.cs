@@ -402,6 +402,52 @@ internal static class AppearanceTests
             Check((items[i + 1] is ToolStripSeparator) == endsGroup, "A divider is missing or splits tabs from the same group.");
         }
     }
+    private static void CheckPinAppearance(NotebookTabLabel label, Color fill, Color ink,
+        int textTop, int textBottom, uint dpi)
+    {
+        var pin = label.Pin;
+        var control = pin.Bounds;
+        int difference = Math.Abs(ink.R - fill.R) + Math.Abs(ink.G - fill.G) + Math.Abs(ink.B - fill.B);
+        Check(control.Height == label.Height && control.Width == HostChrome.Px(18, dpi), "The pin lost its full click target.");
+        using (var band = new Bitmap(label.Width, label.Height))
+        using (var pixels = new Bitmap(pin.Width, pin.Height))
+        {
+            bool original = pin.Checked;
+            try
+            {
+                pin.Visible = false;
+                label.DrawToBitmap(band, label.ClientRectangle);
+                pin.Visible = true;
+                foreach (bool active in new[] { false, true })
+                {
+                    pin.Checked = active;
+                    pin.DrawToBitmap(pixels, pin.ClientRectangle);
+                    int top = pin.Height, bottom = -1;
+                    for (int y = 0; y < pin.Height; y++)
+                        for (int x = 0; x < pin.Width; x++)
+                        {
+                            Color pixel = pixels.GetPixel(x, y);
+                            if (y <= 1 || y >= pin.Height - 2 || x <= 1 || x >= pin.Width - 2)
+                            {
+                                Color background = band.GetPixel(control.Left + x, control.Top + y);
+                                Check(pixel.ToArgb() == background.ToArgb(), String.Format(
+                                    "Pin edge mismatch at {0} DPI on {1}, x={2}, y={3}: actual {4:X8}, band {5:X8}, fill {6:X8}, surface {7:X8}.",
+                                    dpi, label.Text, x, y, pixel.ToArgb(), background.ToArgb(), fill.ToArgb(), label.BackColor.ToArgb()));
+                            }
+                            if (x < HostChrome.Px(3, dpi) || x >= pin.Width - HostChrome.Px(3, dpi)) continue;
+                            if (Math.Abs(pixel.R-fill.R) + Math.Abs(pixel.G-fill.G) + Math.Abs(pixel.B-fill.B) < difference / 3) continue;
+                            top = Math.Min(top, y);
+                            bottom = Math.Max(bottom, y);
+                        }
+                    // GDI text and the antialiased pin can round the ends to adjacent pixels.
+                    Check(bottom >= top && Math.Abs(top - textTop) <= 2 && Math.Abs(bottom - textBottom) <= 2 &&
+                        Math.Abs((bottom - top) - (textBottom - textTop)) <= 2,
+                        "Pin ink " + top + ".." + bottom + " must match " + label.Text + " ink " + textTop + ".." + textBottom + " at " + dpi + " DPI.");
+                }
+            }
+            finally { pin.Checked = original; pin.Visible = true; }
+        }
+    }
     private static Bitmap CheckStrip(PageStrip strip, HostChrome chrome)
     {
         strip.PerformLayout();
@@ -527,6 +573,8 @@ internal static class AppearanceTests
                         }
                     Check(solidInk && Math.Abs((firstInk - box.Top) - (box.Bottom - 1 - lastInk)) <= HostChrome.Px(3, chrome.Dpi),
                         "Caption ink falls off center for " + label.Text + " at " + chrome.Dpi + " DPI: " + firstInk + ".." + lastInk + " in " + box.Height + " pixels.");
+                    if (label.Pin != null)
+                        CheckPinAppearance(label, fill, ink, firstInk - box.Top, lastInk - box.Top, chrome.Dpi);
                 }
             }
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;

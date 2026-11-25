@@ -675,7 +675,7 @@ internal sealed class PageStrip : ToolStrip
         {
             label.GroupFill = fill;
             PerformLayout();
-            label.Invalidate();
+            label.Invalidate(true);
             Invalidate();
         }
     }

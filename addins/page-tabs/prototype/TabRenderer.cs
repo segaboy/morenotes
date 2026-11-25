@@ -94,24 +94,52 @@ internal sealed class PageTabButton : ToolStripButton
 
 internal sealed class NotebookPinButton : CheckBox
 {
+    private Font measuredFont;
+    private string measuredCaption;
+    private RectangleF captionInk;
+
     internal NotebookPinButton()
     {
         AutoSize = AutoCheck = TabStop = false;
         SetStyle(ControlStyles.Selectable, false);
-        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
-        BackColor = Color.Transparent;
+        SetStyle(ControlStyles.Opaque | ControlStyles.OptimizedDoubleBuffer, true);
         Cursor = Cursors.Hand;
         AccessibleRole = AccessibleRole.CheckButton;
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        float scale = Math.Min(Width / 18f, Height / 16f);
-        if (scale <= 0) return;
+        var label = (NotebookTabLabel)Parent;
         var g = e.Graphics;
+        g.Clear(label.BackColor);
         var saved = g.Save();
+        g.TranslateTransform(-Left, -Top);
+        label.PaintBand(g);
+        g.Restore(saved);
+
+        // Measure the letters once per caption/font. The line box also contains space
+        // above the capitals and below the baseline that the pin should not fill.
+        if (measuredFont != label.Font || measuredCaption != label.Text)
+        {
+            measuredFont = label.Font;
+            measuredCaption = label.Text;
+            using (var letters = new GraphicsPath())
+            using (var format = StringFormat.GenericTypographic)
+            {
+                letters.AddString(measuredCaption, measuredFont.FontFamily, (int)measuredFont.Style,
+                    measuredFont.Size, PointF.Empty, format);
+                if (letters.PointCount == 0)
+                    letters.AddString("H", measuredFont.FontFamily, (int)measuredFont.Style, measuredFont.Size, PointF.Empty, format);
+                captionInk = letters.GetBounds();
+            }
+        }
+        float scale = Math.Min((Width - 2) / 11f, Math.Min(Height - 2, captionInk.Height) / 13f);
+        if (scale <= 0) return;
+        saved = g.Save();
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.TranslateTransform(Width / 2f, Height / 2f);
+        float lineTop = (Height - label.Padding.Vertical - measuredFont.Height) / 2f;
+        float centerY = lineTop + captionInk.Top + captionInk.Height / 2f;
+        g.TranslateTransform(Width / 2f, centerY + (Checked ? -0.3f : 0.65f) * scale);
         g.ScaleTransform(scale, scale);
         if (!Checked) g.RotateTransform(32);
         using (var pen = new Pen(ForeColor, 1.25f) { LineJoin = LineJoin.Round, EndCap = LineCap.Round })
@@ -152,20 +180,22 @@ internal sealed class NotebookTabLabel : Label
             Controls.Add(Pin);
         }
     }
+    internal void PaintBand(Graphics graphics)
+    {
+        if (GroupFill.IsEmpty) return;
+        var saved = graphics.Save();
+        using (var shape = TabRenderer.TabOutline(Width, Height, cornerRadius, Parent.Dock == DockStyle.Top))
+        using (var brush = new SolidBrush(GroupFill))
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.PixelOffsetMode = PixelOffsetMode.Half;
+            graphics.FillPath(brush, shape);
+        }
+        graphics.Restore(saved);
+    }
     protected override void OnPaint(PaintEventArgs e)
     {
-        if (!GroupFill.IsEmpty)
-        {
-            var saved = e.Graphics.Save();
-            using (var shape = TabRenderer.TabOutline(Width, Height, cornerRadius, Parent.Dock == DockStyle.Top))
-            using (var brush = new SolidBrush(GroupFill))
-            {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
-                e.Graphics.FillPath(brush, shape);
-            }
-            e.Graphics.Restore(saved);
-        }
+        PaintBand(e.Graphics);
         var title = new Rectangle(Padding.Left, 0, Math.Max(0, Width - Padding.Horizontal), Height - Padding.Vertical);
         TextFormatFlags horizontal = TextFormatFlags.Left;
         if (TextAlign == ContentAlignment.MiddleCenter)
