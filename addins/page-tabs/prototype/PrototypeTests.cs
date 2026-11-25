@@ -925,6 +925,8 @@ internal static class PrototypeTests
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern void NotifyWinEvent(uint kind, IntPtr window, int obj, int child);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     private static void CheckLiveResize(bool bottom)
     {
         using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
@@ -940,6 +942,7 @@ internal static class PrototypeTests
             frame.Show();
             var source = new TestPages();
             source.Navigate("a/1");
+            using (var shadow = new RibbonShadowFixture(frame.Handle, new Rectangle(0, ribbon.Bottom, 720, 6)))
             using (var layout = new NativeLayout(frame.Handle, body.Handle, ribbon.Handle, row.Handle))
             using (var strip = new PageStrip(frame.Handle, source, delegate {}, e => { throw e; }))
             {
@@ -983,11 +986,18 @@ internal static class PrototypeTests
                             body.Visible = step != 1;
                             // The navigation child can trail the new document width until after the mouse is released.
                             row.Width = body.Width - 30;
+                            // Office can batch these operations on the foreign strip as well as its own children.
+                            var prior = NativeLayout.Bounds(strip.Host.Handle, frame.Handle);
+                            SendMessage(strip.Host.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
+                            if (!SetWindowPos(strip.Host.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0094) ||
+                                NativeLayout.Bounds(strip.Host.Handle, frame.Handle) != prior || !strip.Host.Visible)
+                                throw new InvalidOperationException("The native resize batch hid or zeroed the docked HWND.");
                         }
                         else if (step == sizes.Length)
                         {
                             row.Width = body.Width;
                             NotifyWinEvent(11, frame.Handle, 0, 0);
+                            SendMessage(strip.Host.Handle, 0x000B, new IntPtr(1), IntPtr.Zero);
                         }
                         else
                         {

@@ -265,6 +265,7 @@ internal sealed class PageStrip : ToolStrip
     private readonly ToolStripMenuItem notebookColors = new ToolStripMenuItem("Notebook Colors") { Tag = MoreTabsTheme.NotebookColors };
     private readonly ToolStripMenuItem fall = new ToolStripMenuItem("Fall") { Tag = MoreTabsTheme.Fall };
     private readonly ToolStripMenuItem roboCop = new ToolStripMenuItem("RoboCop") { Tag = MoreTabsTheme.RoboCop };
+    private readonly ToolStripMenuItem alf = new ToolStripMenuItem("ALF") { Tag = MoreTabsTheme.ALF };
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
@@ -319,10 +320,10 @@ internal sealed class PageStrip : ToolStrip
         OverflowButton.AccessibleName = OverflowButton.ToolTipText = "More commands";
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
-        themes.DropDownItems.AddRange(new ToolStripItem[] { notebookColors, fall, roboCop, new ToolStripSeparator(), enableThemes });
+        themes.DropDownItems.AddRange(new ToolStripItem[] { notebookColors, fall, roboCop, alf, new ToolStripSeparator(), enableThemes });
         options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, themes });
         options.DropDownOpening += delegate { openHomeAfterPicking = false; Perform(delegate { ApplyState(this.store.Read()); }); };
-        foreach (var item in new[] { groupTabs, showLabels, notebookColors, fall, roboCop, enableThemes })
+        foreach (var item in new[] { groupTabs, showLabels, notebookColors, fall, roboCop, alf, enableThemes })
         {
             var setting = item;
             setting.Click += delegate { Perform(delegate { ChangeOption(setting); }); };
@@ -536,6 +537,11 @@ internal sealed class PageStrip : ToolStrip
     }
     [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    internal static bool NativeSizingLoop(uint thread)
+    {
+        var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+        return thread != 0 && GetGUIThreadInfo(thread, ref info) && (info.Flags & 2) != 0; // GUI_INMOVESIZE
+    }
     internal static bool MenuInputActive(IntPtr frame, uint thread)
     {
         var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
@@ -562,6 +568,7 @@ internal sealed class PageStrip : ToolStrip
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
         Host.Enabled = true;
         Host.Show();
+        if (layout != null) layout.KeepStripVisible(slot);
     }
     internal void FollowResize(Rectangle slot, NativeLayout layout)
     {

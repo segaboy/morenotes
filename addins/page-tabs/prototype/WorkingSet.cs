@@ -63,7 +63,7 @@ internal sealed class SavedTab
     internal SavedTab(string key, SavedPage page, bool pinned = false) { Key = key; Page = page; Pinned = pinned; }
 }
 
-internal enum MoreTabsTheme { NotebookColors, Fall, RoboCop }
+internal enum MoreTabsTheme { NotebookColors, Fall, RoboCop, ALF }
 
 internal sealed class WorkingSet
 {
@@ -259,6 +259,7 @@ internal sealed class SessionStore
             {
                 case "Fall": state.Theme = MoreTabsTheme.Fall; break;
                 case "RoboCop": state.Theme = MoreTabsTheme.RoboCop; break;
+                case "ALF": state.Theme = MoreTabsTheme.ALF; break;
             }
             state.ShowNotebookLabels = (bool?)options.Attribute("showLabels") ?? true;
             state.GroupByNotebook = (bool?)options.Attribute("groupByNotebook") ?? true;

@@ -222,14 +222,21 @@ internal static class Program
                 try
                 {
                     if (System.Threading.Volatile.Read(ref cancel) != 0) { Application.ExitThread(); return; }
+                    if (NativeLayout.IsIconic(layout.Frame)) return;
+                    Rectangle fileRow, fileSlot;
                     if (!layout.Alive)
                     {
+                        // File can replace an editor child before opening its owned Options dialog.
+                        // Keep the dock on the same frame until an editor is ready for reattachment.
+                        if (layout.HoldFileRow(out fileRow, out fileSlot, paneOnly: layout.FrameEnabled))
+                        {
+                            strip.ShowReadOnlyRow(fileRow, fileSlot);
+                            return;
+                        }
                         if (observe != null) throw new InvalidOperationException("OneNote closed or replaced the measured layout during the test.");
                         detached = true;
                         Application.ExitThread(); return;
                     }
-                    if (NativeLayout.IsIconic(layout.Frame)) return;
-                    Rectangle fileRow, fileSlot;
                     if ((!layout.FrameEnabled || layout.HasFilePane) && layout.HoldFileRow(out fileRow, out fileSlot, paneOnly: layout.FrameEnabled))
                     {
                         strip.ShowReadOnlyRow(fileRow, fileSlot);

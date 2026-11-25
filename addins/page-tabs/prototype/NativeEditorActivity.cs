@@ -74,7 +74,7 @@ internal sealed class NativeEditorActivity : NativeWindow, IDisposable
             clientSize = currentSize;
             settleUntil = DateTime.UtcNow.AddMilliseconds(120);
         }
-        return movingOrSizing || DateTime.UtcNow < settleUntil;
+        return movingOrSizing || DateTime.UtcNow < settleUntil || PageStrip.NativeSizingLoop(thread);
     }
     protected override void WndProc(ref Message m)
     {

@@ -319,6 +319,15 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             PinnedBand = dark ? Color.FromArgb(49, 104, 135) : Color.FromArgb(116, 161, 188);
             ActiveMarker = dark ? Color.LightCyan : Color.MidnightBlue;
         }
+        if (theme == MoreTabsTheme.ALF && !highContrast)
+        {
+            Tab = Blend(Surface, Color.Sienna, dark ? 28 : 14);
+            Hover = Blend(Surface, Color.CadetBlue, dark ? 42 : 27);
+            Active = Blend(Surface, Color.Peru, 49);
+            ToolsBand = dark ? Color.FromArgb(97, 69, 60) : Color.FromArgb(218, 188, 158);
+            PinnedBand = dark ? Color.FromArgb(57, 109, 109) : Color.FromArgb(136, 191, 177);
+            ActiveMarker = dark ? Color.PaleTurquoise : Color.Teal;
+        }
     }
     private static Color Blend(Color a, Color b, int percent)
     {
@@ -365,7 +374,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     private Color CustomColor(string key)
     {
-        return Theme == MoreTabsTheme.RoboCop ? RoboCopArt.Steel(key, dark) : FallPalette.Foliage(key, dark);
+        return Theme == MoreTabsTheme.Fall ? FallPalette.Foliage(key, dark) : ThemeSprites.Swatch(Theme, key, dark);
     }
     internal static Color PickSwatch(string key, int[] colors)
     {
@@ -482,17 +491,18 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     private bool ShowThemeIcon(PageTabButton tab)
     {
-        return UsesCustomColors && (Theme != MoreTabsTheme.RoboCop || !contrast) &&
+        return UsesCustomColors && (Theme == MoreTabsTheme.Fall || !contrast) &&
             tab.Checked && tab.CloseBounds.Left >= HostChrome.Px(53, Dpi);
     }
     internal void PaintThemeArt(Graphics g, int left, int right, int height)
     {
-        if (Theme == MoreTabsTheme.RoboCop)
+        if (Theme != MoreTabsTheme.Fall)
         {
-            int width = HostChrome.Px(RoboCopArt.Skyline.Width, Dpi), h = HostChrome.Px(RoboCopArt.Skyline.Height, Dpi);
+            var art = ThemeSprites.Scenery(Theme);
+            int width = HostChrome.Px(art.Width, Dpi), h = HostChrome.Px(art.Height, Dpi);
             int gap = HostChrome.Px(3, Dpi);
             if (right - left >= width + 2 * gap && height >= h)
-                RoboCopArt.Draw(g, RoboCopArt.Skyline, new Rectangle(right - gap - width, (height - h) / 2, width, h));
+                ThemeSprites.Draw(g, art, new Rectangle(right - gap - width, (height - h) / 2, width, h));
             return;
         }
         float s = Dpi / 96f;
@@ -547,11 +557,12 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                         e.Graphics.FillRectangle(marker, 0, bottom ? h - stripe : 0, w, stripe);
                     if (ShowThemeIcon(page))
                     {
-                        if (Theme == MoreTabsTheme.RoboCop)
+                        if (Theme != MoreTabsTheme.Fall)
                         {
-                            int visorHeight = HostChrome.Px(RoboCopArt.Visor.Height, Dpi);
-                            RoboCopArt.Draw(e.Graphics, RoboCopArt.Visor, new Rectangle(HostChrome.Px(3, Dpi),
-                                (page.Height - visorHeight) / 2, HostChrome.Px(RoboCopArt.Visor.Width, Dpi), visorHeight));
+                            var icon = ThemeSprites.TabIcon(Theme);
+                            int iconHeight = HostChrome.Px(icon.Height, Dpi);
+                            ThemeSprites.Draw(e.Graphics, icon, new Rectangle(HostChrome.Px(3, Dpi),
+                                (page.Height - iconHeight) / 2, HostChrome.Px(icon.Width, Dpi), iconHeight));
                         }
                         else FallPalette.DrawLeaf(e.Graphics, HostChrome.Px(12, Dpi), page.Height / 2f,
                             Dpi / 96f, 0, contrast ? SystemColors.HighlightText : ActiveMarker);

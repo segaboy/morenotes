@@ -1,12 +1,17 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 // The arrow has its own column to the right of the ToolStrip's built-in overflow menu.
 internal sealed class StripHost : Panel
 {
     private readonly IntPtr frame;
+    private Rectangle reservedRow;
+    private bool settingBounds;
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowPos { public IntPtr Window, After; public int X, Y, Width, Height; public uint Flags; }
     internal event Action<string> OpenPage;
     internal Rectangle StripBounds
     {
@@ -15,7 +20,12 @@ internal sealed class StripHost : Panel
     internal void Place(Rectangle row, Rectangle strip)
     {
         var padding = new Padding(strip.Left - row.Left, Padding.Top, row.Right - strip.Right, 0);
-        if (Bounds == row && Padding == padding) return;
+        reservedRow = row;
+        if (Bounds == row && Padding == padding)
+        {
+            if (IsHandleCreated && NativeLayout.Bounds(Handle, frame) != row) NativeLayout.Move(Handle, row);
+            return;
+        }
         SuspendLayout();
         try { Padding = padding; Bounds = row; }
         finally { ResumeLayout(true); }
@@ -43,8 +53,33 @@ internal sealed class StripHost : Panel
     {
         get { var cp = base.CreateParams; cp.Parent = frame; cp.Style |= 0x40000000; return cp; }
     }
+    protected override void SetVisibleCore(bool value)
+    {
+        if (!value) reservedRow = Rectangle.Empty;
+        base.SetVisibleCore(value);
+    }
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        settingBounds = true;
+        try { base.SetBoundsCore(x, y, width, height, specified); }
+        finally { settingBounds = false; }
+    }
     protected override void WndProc(ref Message message)
     {
+        if (!reservedRow.IsEmpty && !Disposing)
+        {
+            // Office lays out its frame children in a batch. It may temporarily hide, zero
+            // or freeze them while the sizing loop is still consuming mouse messages.
+            if (message.Msg == 0x000B && message.WParam == IntPtr.Zero) return; // WM_SETREDRAW(FALSE)
+            if (message.Msg == 0x0046 && !settingBounds) // WM_WINDOWPOSCHANGING
+            {
+                var pos = (WindowPos)Marshal.PtrToStructure(message.LParam, typeof(WindowPos));
+                pos.Flags &= ~0x0080u; // SWP_HIDEWINDOW
+                pos.X = reservedRow.X; pos.Y = reservedRow.Y;
+                pos.Width = reservedRow.Width; pos.Height = reservedRow.Height;
+                Marshal.StructureToPtr(pos, message.LParam, false);
+            }
+        }
         if (message.Msg == 0x0084 && Padding.Horizontal != 0) // WM_NCHITTEST
         {
             int x = PointToClient(new Point(unchecked((int)message.LParam.ToInt64()))).X;

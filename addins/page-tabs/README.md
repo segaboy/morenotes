@@ -75,6 +75,10 @@ Open **Settings → Themes** to choose an appearance. **Notebook Colors** is the
 
 ![RoboCop on dark and light OneNote surfaces, with the visor and Detroit skyline](robocop-appearance.png)
 
+**ALF** pairs Gordon Shumway's copper fur with seafoam, dusty rose, and amber. His pixel-art profile marks the active tab. A ringed planet and a tiny saucer appear beside **+** when there is room. Bookmarks and pickers use the same palette. Windows high contrast uses system colors and omits both sprites.
+
+![ALF in dark and light appearances, with Gordon on the active tab and a saucer beside the page picker](alf-appearance.png)
+
 With **Notebook Colors** and grouping enabled, each notebook band matches the cover color of its icon in OneNote's navigation. The band and notebook picker use the same 16 standard light and dark cover colors, verified against OneNote build `16.0.20719.20000`. For example, a notebook stored as `#AB9CB7` appears as `#5B2D90` in a light theme and `#B973D3` in a dark theme. Custom colors use the notebook's stored RGB.
 
 The notebook color spans the caption and the space behind its visible tabs. Each end of the band has the same padding as the gap between two tabs. A thin, darker outline separates each page tab from the band. The notebook name is vertically centered in the caption, with black or white text chosen for contrast. The band is rounded along the edge facing the page, below the tabs when docked at the top and above them when docked at the bottom. Hover over a clipped caption to read its full name.
@@ -98,6 +102,8 @@ Every open page tab has a full-width stripe in its section's theme color. The st
 The stored section RGB and the painted section tab can differ. MoreTabs maps the 16 standard section colors to the Fluent light and dark palettes from desktop OneNote build `16.0.20715.20004`. It checks the selected section's band along the bottom of native navigation to identify the palette when visible. On that build at 96 DPI, a section stored as `#91BAAE` painted a `#006168` band in dark mode.
 
 When you open **File → Options**, MoreTabs keeps the tab strip visible in the OneNote window. It reserves space at the edge of the File view while the page editor is unavailable. Page commands pause while Options has focus. Closing Options and returning to the editor restores the selected tab, dock position, and current OneNote colors. The Windows regression test exercises both docks with a full-frame File pane and an owned modal dialog.
+
+On the 64-bit Windows desktop host with OneNote build `16.0.20719.20000` at 96 DPI, a disabled `DropShadow` window extended six pixels below the ribbon. MoreTabs excludes this decorative window when checking for free space. The resize and Options fixtures reproduce that native window, including a host resize while the Options dialog is open. The resize test also sends native requests to freeze, hide, and zero-size the docked strip during the drag.
 
 Following OneNote's page list, a link, or Back updates the page in the active tab. With grouping enabled, an unpinned tab moves to the destination notebook's group. A pinned tab stays under **Pinned**. Two tabs can display the same page. Clicking either tab selects that specific tab for subsequent navigation. Bookmarks keep pointing to the page you bookmarked.
 

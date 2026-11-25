@@ -57,7 +57,7 @@ internal static class SavedSessionTests
         Directory.CreateDirectory(directory);
         try
         {
-            foreach (string phase in new[] { "save", "restore", "empty", "overflow", "pin-groups", "reopen-groups" })
+            foreach (string phase in new[] { "save", "restore", "empty", "alf-restart", "overflow", "pin-groups", "reopen-groups" })
             {
                 var start = new ProcessStartInfo(Application.ExecutablePath, "sessiontest " + run.ToString("D") + " " + phase) {
                     UseShellExecute = false, CreateNoWindow = true
@@ -162,6 +162,7 @@ internal static class SavedSessionTests
                 body.Controls.Add(row);
                 frame.Controls.Add(file);
                 frame.Show();
+                using (var shadow = new RibbonShadowFixture(frame.Handle, new Rectangle(0, ribbon.Bottom, 640, 6)))
                 using (var layout = new NativeLayout(frame.Handle, body.Handle, ribbon.Handle, row.Handle))
                 using (var strip = new PageStrip(frame.Handle, source, Application.ExitThread, e => { throw e; }, new SessionStore(path)))
                 using (var closeHost = new Timer { Interval = 600 })
@@ -195,11 +196,16 @@ internal static class SavedSessionTests
                                 !strip.Host.Enabled && !strip.Host.Bounds.IntersectsWith(file.Bounds);
                             file.Hide();
                             row.Show();
+                            // The owner can relayout on entry to Options while input remains disabled.
+                            frame.ClientSize = new Size(664, 376);
+                            ribbon.Width = frame.ClientSize.Width;
+                            body.Bounds = Rectangle.FromLTRB(0, ribbon.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
                             return;
                         }
                         if (phase == 4)
                         {
-                            modal &= strip.Visible && !strip.Host.Enabled && file.Bounds == frame.ClientRectangle;
+                            modal &= strip.Visible && !strip.Host.Enabled && file.Size == new Size(640, 360) &&
+                                strip.Host.Width == frame.ClientSize.Width && !strip.Host.Bounds.IntersectsWith(body.Bounds);
                             options.Close();
                             return;
                         }
@@ -350,6 +356,11 @@ internal static class SavedSessionTests
                         "A fresh process did not restore the RoboCop theme.");
                     Check(strip.TabCount == 0 && store.Read().Bookmarks.Count == 0, "An intentionally empty session was reseeded.");
                     AppearanceTests.CheckGroupDividers(strip, 0);
+                    ((ToolStripMenuItem)((ToolStripDropDownButton)strip.Items[1]).DropDownItems[2]).DropDownItems[3].PerformClick();
+                    break;
+                case "alf-restart":
+                    Check(((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.ALF && strip.TabCount == 0,
+                        "The ALF theme did not survive a restart.");
                     break;
                 default: throw new ArgumentException("Unknown session fixture phase.");
             }

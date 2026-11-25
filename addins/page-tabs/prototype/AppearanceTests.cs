@@ -192,7 +192,8 @@ internal static class AppearanceTests
         var notebook = (ToolStripMenuItem)themes.DropDownItems[0];
         var fall = (ToolStripMenuItem)themes.DropDownItems[1];
         var roboCop = (ToolStripMenuItem)themes.DropDownItems[2];
-        var colors = (ToolStripMenuItem)themes.DropDownItems[4];
+        var alf = (ToolStripMenuItem)themes.DropDownItems[3];
+        var colors = (ToolStripMenuItem)themes.DropDownItems[5];
         Check(group.Checked && labels.Checked && themes.Text == "Themes" && notebook.Text == "Notebook Colors" && fall.Text == "Fall" && roboCop.Text == "RoboCop" &&
             notebook.Checked && !fall.Checked && colors.Checked, "The Themes submenu must open with Notebook Colors selected.");
         gear.HideDropDown();
@@ -200,7 +201,7 @@ internal static class AppearanceTests
         var grouped = strip.Items.OfType<PageTabButton>().ToArray();
         var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
         colors.PerformClick();
-        Check(!notebook.Enabled && !fall.Enabled && !roboCop.Enabled && !themes.Checked, "Themes off must disable all palette choices.");
+        Check(!notebook.Enabled && !fall.Enabled && !roboCop.Enabled && !alf.Enabled && !themes.Checked, "Themes off must disable all palette choices.");
         CheckGroupDividers(strip, 2);
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
@@ -261,6 +262,7 @@ internal static class AppearanceTests
             "High contrast must preserve the theme preference and use system caption colors.");
         CheckCustomTheme(strip, layout, notebook, fall, colors);
         CheckCustomTheme(strip, layout, notebook, roboCop, colors);
+        CheckCustomTheme(strip, layout, notebook, alf, colors);
         strip.Attach(layout.Reserve(), layout);
         Console.WriteLine("PASS shared star and gear tab, settings dependencies, remembered preferences and reclaimed document height with pins.");
     }

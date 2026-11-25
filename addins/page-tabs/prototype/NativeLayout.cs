@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 
 // Experimental native window classes observed in OneNote build 16.0.20715.20004.
 internal sealed class NativeLayout : IDisposable
@@ -155,7 +156,7 @@ internal sealed class NativeLayout : IDisposable
     internal bool HoldFileRow(out Rectangle row, out Rectangle slot, bool paneOnly = false)
     {
         row = slot = Rectangle.Empty;
-        if (!Alive || applied.IsEmpty || editorSlot.IsEmpty) return false;
+        if (!IsWindow(Frame) || applied.IsEmpty || editorSlot.IsEmpty) return false;
         var client = ClientBounds;
         var editor = Rectangle.Intersect(original, client);
         if (editor.IsEmpty) return false;
@@ -163,6 +164,11 @@ internal sealed class NativeLayout : IDisposable
         // Include disabled children: Options owns input while this frame is dimmed.
         var front = ChildWindowFromPointEx(Frame, mid, 5);
         if (filePane != IntPtr.Zero && front != filePane) ReleaseFilePane();
+        if (front != Document && FrameEnabled && HasClass(front, "OneNote::MainWindow"))
+        {
+            ReleaseFilePane();
+            return false; // An ordinary replacement editor must go through discovery and COM binding.
+        }
         int height = HostChrome.StripHeight(Dpi, ShowCaptions, AtBottom);
         var pane = front != IntPtr.Zero && front != Frame ? Bounds(front, Frame) : Rectangle.Empty;
         var full = front == filePane && pane == fileReduced ? fileFull : pane;
@@ -187,10 +193,20 @@ internal sealed class NativeLayout : IDisposable
         if (paneOnly) return false;
         // The dialog may leave the original editor visible, or hide its navigation.
         // Keep its reserved row even when OneNote has just laid the full document out again.
-        var body = DocumentBounds;
-        if (body != applied && body != original) return false;
+        bool ownsDocument = GetParent(Document) == Frame;
+        var body = ownsDocument ? DocumentBounds : Rectangle.Empty;
+        if (ownsDocument && body != applied && body != original)
+        {
+            // Windows may resize the owner as the modal dialog opens (for example at a new DPI).
+            // Recompute the slot from this frame instead of discarding both old rectangles.
+            if (FrameEnabled || !Alive) return false;
+            slot = Reserve(true, resizing: true, modal: true);
+            if (slot.IsEmpty) return false;
+            row = RowBounds;
+            return true;
+        }
         if (!client.Contains(editorSlot) || FreeBottom(editorSlot) < editorSlot.Bottom) return false;
-        if (body != applied) Move(Document, applied);
+        if (ownsDocument && body != applied) Move(Document, applied);
         row = RowBounds;
         slot = editorSlot;
         return true;
@@ -254,12 +270,12 @@ internal sealed class NativeLayout : IDisposable
             TryUseLandmark(workspace, editor, true, dpi);
     }
 
-    internal Rectangle Reserve(bool waitForEditor = false, bool? atBottom = null, bool resizing = false)
+    internal Rectangle Reserve(bool waitForEditor = false, bool? atBottom = null, bool resizing = false, bool modal = false)
     {
         // A previously verified editor can briefly hide its children while processing WM_SIZE.
         // Only use that reservation for the same native document and an enabled frame.
-        bool follow = resizing && HasReservation && GetParent(landmark) == Document;
-        if (!Alive || !FrameEnabled || (!follow && (!IsWindowVisible(Ribbon) || !IsWindowVisible(Document))))
+        bool follow = resizing && HasReservation;
+        if (!Alive || (!FrameEnabled && !modal) || (!follow && (!IsWindowVisible(Ribbon) || !IsWindowVisible(Document))))
             return Unavailable(waitForEditor, "OneNote replaced, disabled or hid a required layout window.");
         Rectangle body = DocumentBounds, ribbon = RibbonBounds;
         if (body.Top != ribbon.Bottom && (applied.IsEmpty || body.Top != applied.Top))
@@ -348,9 +364,17 @@ internal sealed class NativeLayout : IDisposable
         foreach (IntPtr child in Children(Frame, null))
         {
             if (child == Document || child == StripWindow) continue;
+            // OneNote's disabled DropShadow straddles the lower ribbon edge, including
+            // the first pixels of our top slot. It is chrome, not an occupied control.
+            if (!IsWindowEnabled(child) && HasClass(child, "DropShadow")) continue;
             var other = Bounds(child, Frame);
             if (other.Width > 0 && other.Height > 0) yield return other;
         }
+    }
+    private static bool HasClass(IntPtr child, string expected)
+    {
+        var name = new StringBuilder(64);
+        return GetClassName(child, name, name.Capacity) > 0 && name.ToString() == expected;
     }
     private Rectangle Unavailable(bool waitForEditor, string reason)
     {
@@ -415,6 +439,7 @@ internal sealed class NativeLayout : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string name, string title);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool GetWindowRect(IntPtr window, out RECT bounds);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool GetClientRect(IntPtr window, out RECT bounds);
