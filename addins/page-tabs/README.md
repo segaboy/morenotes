@@ -8,6 +8,8 @@ MoreTabs adds persistent page tabs, pins, and bookmarks to OneNote on Windows de
 
 [Watch MoreTabs in action](../../README.md#switch-notebooks-with-a-click)
 
+[Can MoreTabs work inside OneNote for Mac?](macos-feasibility.md)
+
 ## Run the prototype
 
 With OneNote desktop open in normal editing view, run these commands from the repository root in Windows PowerShell. The first builds the prototype and the second starts it.
