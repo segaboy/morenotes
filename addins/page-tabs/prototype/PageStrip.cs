@@ -577,11 +577,13 @@ internal sealed class PageStrip : ToolStrip
             ForeColor = appearance.Ink;
             Host.Style(appearance);
             foreach (var label in labels.Values) StyleCaption(label);
-            toolsLabel.ForeColor = appearance.Ink;
+            toolsLabel.GroupFill = appearance.ToolsBand;
+            toolsLabel.ForeColor = highContrast ? SystemColors.ControlText : appearance.NotebookInk(appearance.ToolsBand);
+            toolsLabel.Invalidate();
             if (state != null) RefreshOptions();
         }
         // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
-        int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), chrome.Inset);
+        int iconPadding = Math.Min(HostChrome.Px(8, chrome.Dpi), Math.Max(0, chrome.Inset - TabMargin(chrome.Dpi).Horizontal));
         var inset = new Padding(chrome.Inset - iconPadding, 0, HostChrome.Px(2, chrome.Dpi), 0);
         if (Padding != inset) Padding = inset;
         if (bookmarks.Padding.Left != iconPadding) bookmarks.Padding = new Padding(iconPadding, 0, 0, 0);
@@ -632,8 +634,7 @@ internal sealed class PageStrip : ToolStrip
     {
         uint dpi = appearance.Dpi;
         divider.AutoSize = false;
-        // Tools have no side margins. Match the first tab's inset on the Tools side.
-        divider.Margin = divider == bookmarkDivider ? new Padding(TabMargin(dpi).Left, 0, 0, 0) : Padding.Empty;
+        divider.Margin = Padding.Empty;
         divider.Size = new Size(2 * HostChrome.Px(4, dpi) + 1, HostChrome.Px(25, dpi));
         divider.Overflow = ToolStripItemOverflow.Never;
     }
@@ -1041,7 +1042,7 @@ internal sealed class PageStrip : ToolStrip
         if (!WantsCaptionRow) return;
         // The caption and the tab strip have separate windows. Continue each visible
         // caption's fill across the tab row before WinForms paints the individual tabs.
-        foreach (var label in labels.Values)
+        foreach (var label in Host.Captions.Controls.OfType<NotebookTabLabel>())
         {
             if (!label.Visible || label.GroupFill.IsEmpty) continue;
             using (var fill = new SolidBrush(label.GroupFill))
@@ -1051,7 +1052,7 @@ internal sealed class PageStrip : ToolStrip
     private void AlignNotebookCaptions()
     {
         var tools = MenuTabBounds;
-        toolsLabel.Align(tools.Left, tools.Right, Host.Captions.Height, appearance.Dpi);
+        toolsLabel.Align(tools.Left, tools.Right, Host.Captions.Height, appearance.Dpi, GroupEndPadding(toolsLabel));
         // Use the final main-row item bounds. Overflow pages and notebook names consume no caption width.
         var visible = Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
         foreach (var label in labels.Values)
@@ -1077,12 +1078,20 @@ internal sealed class PageStrip : ToolStrip
         foreach (var tab in tabs) tab.WidthLimit = 0;
         var visible = new HashSet<ToolStripItem>();
         var visibleGroups = new HashSet<NotebookTabLabel>();
+        var margin = TabMargin(appearance.Dpi);
+        // Reserve the band's right padding before the divider. The left padding fits in the notebook icon inset.
+        bookmarkDivider.Margin = new Padding(margin.Left + GroupEndPadding(toolsLabel), 0, 0, 0);
         // With the star hidden the gear is the first icon and alone may have to span the Tools caption.
         options.TabWidth = bookmarks.Available ? HostChrome.Px(25, appearance.Dpi) : Math.Max(bookmarks.TabWidth, HostChrome.Px(34, appearance.Dpi));
+        if (!bookmarks.Available && WantsCaptionRow)
+        {
+            int captionWidth = TextRenderer.MeasureText(toolsLabel.Text, toolsLabel.Font, Size.Empty,
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
+            options.TabWidth = Math.Max(options.TabWidth, captionWidth + 2 * TabRenderer.CornerRadius(appearance.Dpi));
+        }
         int space = DisplayRectangle.Width - ItemWidth(options) - ItemWidth(bookmarkDivider) - ItemWidth(add);
         if (bookmarks.Available) space -= ItemWidth(bookmarks);
         int dividerWidth = bookmarkDivider.Width;
-        var margin = TabMargin(appearance.Dpi);
         var groups = tabs.ToLookup(t => t.Group);
         var groupWidths = groups.ToDictionary(g => g.Key, g => dividerWidth + 2 * GroupEndPadding(g.Key));
         var tools = toolGroup.OfType<ToolButton>().Where(t => t.Available).ToArray();

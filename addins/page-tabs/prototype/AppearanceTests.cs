@@ -155,12 +155,15 @@ internal static class AppearanceTests
         gear.HideDropDown();
         var selected = strip.ActiveTabKey;
         var grouped = strip.Items.OfType<PageTabButton>().ToArray();
+        var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
         colors.PerformClick();
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
             strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = surface });
-            Check(grouped.All(t => t.Group.GroupFill.IsEmpty && t.Group.ForeColor == ((TabRenderer)strip.Renderer).Ink),
-                "Turning off notebook colors must restore the theme background and caption text.");
+            var palette = (TabRenderer)strip.Renderer;
+            Check(grouped.All(t => t.Group.GroupFill.IsEmpty && t.Group.ForeColor == palette.Ink) &&
+                tools.GroupFill == palette.ToolsBand && tools.ForeColor == palette.NotebookInk(palette.ToolsBand),
+                "Turning off notebook colors must preserve the neutral Tools band across theme changes.");
         }
         colors.PerformClick();
         using (var image = new Bitmap(strip.Width, strip.Height))
@@ -418,8 +421,14 @@ internal static class AppearanceTests
                 "The new-tab button must have a centered plus and the same dock-facing shape as the page tabs.");
             var band = strip.Host.Captions;
             var tools = band.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
-            Check(tools.Visible && tools.ForeColor == palette.Ink && tools.Font.Style == FontStyle.Regular &&
-                tools.Left == star.Bounds.Left && tools.Padding.Left == TabRenderer.CornerRadius(chrome.Dpi) && tools.Right == strip.MenuTabBounds.Right &&
+            int toolsPad = 2 * edge;
+            Color toolsFill = palette.ToolsBand;
+            Color toolsInk = chrome.HighContrast ? SystemColors.ControlText : palette.NotebookInk(toolsFill);
+            Check(tools.Visible && tools.ForeColor == toolsInk && tools.Font.Style == FontStyle.Regular && tools.GroupFill == toolsFill &&
+                (chrome.HighContrast ? toolsFill == SystemColors.Control : toolsFill.R == toolsFill.G && toolsFill.G == toolsFill.B &&
+                    toolsFill.ToArgb() != palette.Surface.ToArgb()) &&
+                tools.Left == Math.Max(0, star.Bounds.Left - toolsPad) && tools.Left + tools.Padding.Left == star.Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) &&
+                tools.Right == strip.MenuTabBounds.Right + toolsPad &&
                 strip.Items.OfType<ToolButton>().All(t => t.Bounds.Top == star.Bounds.Top && t.Height == star.Height),
                 "Tools misalignment at " + chrome.Dpi + " DPI: label " + tools.Bounds + ", group " + strip.MenuTabBounds +
                 ", star " + star.Bounds + ", first command " + strip.Items.OfType<ToolButton>().First().Bounds + ".");
@@ -428,6 +437,13 @@ internal static class AppearanceTests
             using (var captions = new Bitmap(band.Width, band.Height))
             {
                 band.DrawToBitmap(captions, band.ClientRectangle);
+                int toolsOuter = bottom ? 0 : band.Height - 1, toolsJoin = bottom ? band.Height - 1 : 0;
+                Check(captions.GetPixel(tools.Left, toolsOuter).ToArgb() == palette.Surface.ToArgb() &&
+                    captions.GetPixel(tools.Right - 1, toolsOuter).ToArgb() == palette.Surface.ToArgb() &&
+                    captions.GetPixel(tools.Right - 1, toolsJoin).ToArgb() == toolsFill.ToArgb() &&
+                    captions.GetPixel(tools.Left + tools.Width / 2, toolsOuter).ToArgb() == toolsFill.ToArgb() &&
+                    bitmap.GetPixel(tools.Right - 1, strip.Height / 2).ToArgb() == toolsFill.ToArgb(),
+                    "Tools must have one continuous neutral band, rounded toward the editor.");
                 foreach (var group in strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).GroupBy(t => t.Group))
                 {
                     var label = group.Key;
@@ -482,15 +498,26 @@ internal static class AppearanceTests
                 "The bookmark star must have a solid yellow center.");
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + 2 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(starCenter, star.Bounds.Bottom - 3 * edge).ToArgb() == starBackground.ToArgb() &&
-                bitmap.GetPixel(star.Bounds.Left, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
-                bitmap.GetPixel(strip.MenuTabBounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(star.Bounds.Left, FlatEdgeY(star, !bottom, 0)).ToArgb() == toolsFill.ToArgb() &&
+                bitmap.GetPixel(strip.MenuTabBounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == toolsFill.ToArgb() &&
                 bitmap.GetPixel(star.Bounds.Right - 1, FlatEdgeY(star, !bottom, 2 * edge)).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(gear.Bounds.Left, FlatEdgeY(star, !bottom, 2 * edge)).ToArgb() == gearBackground.ToArgb(),
                 "Only the two outside corners of the shared Tools tab should be rounded.");
+            if (!chrome.HighContrast)
+            {
+                var inactive = strip.Items.OfType<PageTabButton>().First(t => !t.Checked && !t.Selected && t.Placement == ToolStripItemPlacement.Main);
+                int middle = star.Bounds.Top + star.Height / 2;
+                var border = bitmap.GetPixel(inactive.Bounds.Left, middle).ToArgb();
+                Check(bitmap.GetPixel(star.Bounds.Left, middle).ToArgb() == border &&
+                    bitmap.GetPixel(strip.MenuTabBounds.Right - 1, middle).ToArgb() == border &&
+                    bitmap.GetPixel(gear.Bounds.Left, FlatEdgeY(star, bottom, 0)).ToArgb() == border &&
+                    bitmap.GetPixel(gear.Bounds.Left, FlatEdgeY(star, !bottom, 0)).ToArgb() == border,
+                    "The shared Tools perimeter must match the inactive page tab outline.");
+            }
             // Read through the two side points, ignoring very faint antialiasing pixels.
             int armY = star.Bounds.Top + star.Height / 2 - HostChrome.Px(2, chrome.Dpi);
             int starLeft = -1;
-            for (int x = star.Bounds.Left + 1; x < star.Bounds.Right && starLeft < 0; x++)
+            for (int x = star.Bounds.Left + edge; x < star.Bounds.Right && starLeft < 0; x++)
                 for (int y = armY - edge; y <= armY + edge; y++)
                 {
                     Color c = bitmap.GetPixel(x, y);
@@ -510,7 +537,7 @@ internal static class AppearanceTests
                 {
                     var leftTab = left as PageTabButton;
                     var rightTab = right as PageTabButton;
-                    int leftGap = x - (leftTab == null ? left.Bounds.Right : leftTab.Group.Right);
+                    int leftGap = x - (leftTab == null ? tools.Right : leftTab.Group.Right);
                     int rightGap = (rightTab == null ? right.Bounds.Left : rightTab.Group.Left) - x - 1;
                     Check(leftGap > 0 && leftGap == rightGap, "Divider gaps in pixels: left " + leftGap + ", right " + rightGap);
                     for (int gap = 1; gap <= leftGap; gap++)

@@ -535,6 +535,10 @@ internal static class PrototypeTests
         }
         Check(strip.MenuTabBounds == gear.Bounds && gear.Width < fullWidth && strip.ActiveTabKey == key,
             "Settings alone must keep its hit target and release the space used by hidden buttons.");
+        var caption = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
+        int textWidth = TextRenderer.MeasureText(caption.Text, caption.Font, Size.Empty, TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
+        Check(caption.Visible && caption.Width - caption.Padding.Horizontal >= textWidth,
+            "The complete Tools label must fit when Settings is the only button.");
         int width = strip.Host.Width;
         strip.Host.Width = 170;
         LeftClickItem(gear);
@@ -777,7 +781,7 @@ internal static class PrototypeTests
                 "Tab overflow displaced the far-right move button.");
             var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToArray();
             var toolsLabel = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
-            Check(toolsLabel.Visible && toolsLabel.Right == strip.MenuTabBounds.Right &&
+            Check(toolsLabel.Visible && toolsLabel.Right == strip.MenuTabBounds.Right + 2 * HostChrome.Px(1, layout.Dpi) &&
                 strip.Items.OfType<ToolButton>().All(t => t.Placement == ToolStripItemPlacement.Overflow),
                 "A narrow window must keep the Tools caption aligned and its commands available in overflow.");
             var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible && l != toolsLabel).ToArray();

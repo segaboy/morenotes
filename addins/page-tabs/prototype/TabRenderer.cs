@@ -135,16 +135,16 @@ internal sealed class NotebookTabLabel : Label
     internal void Align(int left, int right, int height, uint dpi, int endPadding = 0)
     {
         cornerRadius = TabRenderer.CornerRadius(dpi);
-        int inset = cornerRadius + endPadding;
+        int bandLeft = Math.Max(0, left - endPadding);
         // The menu font leaves more space above its visible glyphs than below them.
-        Padding = new Padding(inset, 0, GroupFill.IsEmpty ? 0 : inset, 2 * HostChrome.Px(1, dpi));
-        Bounds = Rectangle.FromLTRB(left - endPadding, 0, right + endPadding, height);
+        Padding = new Padding(cornerRadius + left - bandLeft, 0, GroupFill.IsEmpty ? 0 : cornerRadius + endPadding, 2 * HostChrome.Px(1, dpi));
+        Bounds = Rectangle.FromLTRB(bandLeft, 0, right + endPadding, height);
     }
 }
 
 internal sealed class TabRenderer : ToolStripProfessionalRenderer
 {
-    internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker;
+    internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker, ToolsBand;
     private readonly bool contrast;
     internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
@@ -190,6 +190,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         MutedInk = highContrast ? Ink : Blend(Ink, Surface, 13);
         Tab = highContrast ? Surface : Blend(Surface, toward, 9);
         Active = highContrast ? SystemColors.Highlight : Blend(Surface, toward, 22);
+        int gray = (299 * Active.R + 587 * Active.G + 114 * Active.B) / 1000;
+        ToolsBand = highContrast ? SystemColors.Control : Color.FromArgb(gray, gray, gray);
         Color accent = dark ? Color.FromArgb(207, 169, 255) : Color.FromArgb(99, 48, 160);
         double a = Luminance(accent), b = Luminance(Active);
         if ((Math.Max(a, b) + .05) / (Math.Min(a, b) + .05) < 3)
@@ -346,7 +348,8 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         try
         {
             var strip = e.Item.Owner as PageStrip;
-            if (page == null && strip != null && !(e.Item is PagePicker))
+            bool sharedTools = page == null && strip != null && !(e.Item is PagePicker);
+            if (sharedTools)
             {
                 // The tools share an outline while retaining individual hit targets.
                 Rectangle both = strip.MenuTabBounds;
@@ -360,15 +363,15 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             using (var fill = new SolidBrush(Background(e.Item)))
             {
                 if (shape.PointCount == 0) return;
-                if (page != null && !contrast)
+                if ((page != null || sharedTools) && !contrast)
                 {
                     int edge = HostChrome.Px(1, Dpi);
                     e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
-                    using (var border = new SolidBrush(Blend(fill.Color, Color.Black, 25)))
+                    using (var border = new SolidBrush(Blend(sharedTools ? Tab : fill.Color, Color.Black, 25)))
                         e.Graphics.FillPath(border, shape);
                     var saved = e.Graphics.Save();
-                    e.Graphics.TranslateTransform(edge, bottom ? edge : 0);
-                    using (var body = TabOutline(w - 2 * edge, h - edge, CornerRadius(Dpi) - edge, bottom))
+                    e.Graphics.TranslateTransform(edge, edge);
+                    using (var body = TabOutline(w - 2 * edge, h - 2 * edge, CornerRadius(Dpi) - edge, bottom))
                         e.Graphics.FillPath(fill, body);
                     e.Graphics.Restore(saved);
                 }
