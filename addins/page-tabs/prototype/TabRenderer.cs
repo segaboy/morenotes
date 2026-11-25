@@ -59,7 +59,7 @@ internal sealed class PageTabButton : ToolStripButton
     internal Color SectionColor { get; set; }
     internal DateTime NextColorCheck { get; set; }
     internal uint Dpi = 96;
-    internal int CloseWidth { get { return HostChrome.Px(28, Dpi); } }
+    internal int CloseWidth { get { return HostChrome.Px(28, Dpi) + 2 * HostChrome.Px(1, Dpi); } }
     internal Rectangle CloseBounds { get { return Rectangle.FromLTRB(Math.Max(0, Width - CloseWidth), 0, Width, Height); } }
     internal bool CloseHovered { get; private set; }
     protected override void OnMouseMove(MouseEventArgs e)
@@ -104,6 +104,7 @@ internal sealed class NotebookTabLabel : Label
     internal BookmarkNotebook Notebook;
     internal ToolStripSeparator Divider;
     internal Color GroupFill { get; set; }
+    private int cornerRadius;
     private const TextFormatFlags Flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
     internal NotebookTabLabel()
     {
@@ -117,7 +118,7 @@ internal sealed class NotebookTabLabel : Label
         if (!GroupFill.IsEmpty)
         {
             var saved = e.Graphics.Save();
-            using (var shape = TabRenderer.TabOutline(Width, Height, Padding.Left, Parent.Dock == DockStyle.Top))
+            using (var shape = TabRenderer.TabOutline(Width, Height, cornerRadius, Parent.Dock == DockStyle.Top))
             using (var brush = new SolidBrush(GroupFill))
             {
                 e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -126,15 +127,18 @@ internal sealed class NotebookTabLabel : Label
             }
             e.Graphics.Restore(saved);
         }
-        var title = new Rectangle(Padding.Left, 0, Math.Max(0, Width - Padding.Horizontal), Height);
+        var title = new Rectangle(Padding.Left, 0, Math.Max(0, Width - Padding.Horizontal), Height - Padding.Vertical);
         TextRenderer.DrawText(e.Graphics, Text, Font, title, ForeColor,
             Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
-    internal void Align(int left, int right, int height, int inset)
+    internal void Align(int left, int right, int height, uint dpi, int endPadding = 0)
     {
-        Padding = new Padding(inset, 0, GroupFill.IsEmpty ? 0 : inset, 0);
-        Bounds = Rectangle.FromLTRB(left, 0, right, height);
+        cornerRadius = TabRenderer.CornerRadius(dpi);
+        int inset = cornerRadius + endPadding;
+        // The menu font leaves more space above its visible glyphs than below them.
+        Padding = new Padding(inset, 0, GroupFill.IsEmpty ? 0 : inset, 2 * HostChrome.Px(1, dpi));
+        Bounds = Rectangle.FromLTRB(left - endPadding, 0, right + endPadding, height);
     }
 }
 
@@ -356,7 +360,19 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             using (var fill = new SolidBrush(Background(e.Item)))
             {
                 if (shape.PointCount == 0) return;
-                e.Graphics.FillPath(fill, shape);
+                if (page != null && !contrast)
+                {
+                    int edge = HostChrome.Px(1, Dpi);
+                    e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
+                    using (var border = new SolidBrush(Blend(fill.Color, Color.Black, 25)))
+                        e.Graphics.FillPath(border, shape);
+                    var saved = e.Graphics.Save();
+                    e.Graphics.TranslateTransform(edge, bottom ? edge : 0);
+                    using (var body = TabOutline(w - 2 * edge, h - edge, CornerRadius(Dpi) - edge, bottom))
+                        e.Graphics.FillPath(fill, body);
+                    e.Graphics.Restore(saved);
+                }
+                else e.Graphics.FillPath(fill, shape);
                 if (contrast)
                     using (var border = new Pen(Ink) { Alignment = PenAlignment.Inset }) e.Graphics.DrawPath(border, shape);
                 if (page != null)

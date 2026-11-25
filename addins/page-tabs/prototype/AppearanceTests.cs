@@ -131,7 +131,8 @@ internal static class AppearanceTests
                     for (int y = cy - HostChrome.Px(5, tab.Dpi); y <= cy + HostChrome.Px(5, tab.Dpi); y++)
                         for (int dx = HostChrome.Px(6, tab.Dpi); dx <= HostChrome.Px(12, tab.Dpi); dx++)
                             Check(image.GetPixel(cx - dx, y).ToArgb() == fill && image.GetPixel(cx + dx, y).ToArgb() == fill,
-                                "The long title or tab edge crowds the close icon at " + tab.Dpi + " DPI.");
+                                String.Format("Close spacing at {0} DPI, bottom={1}, tab {2}, dx {3}, y {4}: {5:X8}/{6:X8}, expected {7:X8}.",
+                                    tab.Dpi, strip.AtBottom, tab.Bounds, dx, y, image.GetPixel(cx-dx,y).ToArgb(), image.GetPixel(cx+dx,y).ToArgb(), fill));
                 }
             }
         }
@@ -166,9 +167,11 @@ internal static class AppearanceTests
         {
             strip.DrawToBitmap(image, strip.ClientRectangle);
             var firstTab = grouped[0];
-            Check(firstTab.Group == grouped[1].Group && grouped[1].Bounds.Left > firstTab.Bounds.Right &&
+            int gap = grouped[1].Bounds.Left - firstTab.Bounds.Right;
+            Check(firstTab.Group == grouped[1].Group && gap > 0 &&
+                firstTab.Bounds.Left - firstTab.Group.Left == gap && firstTab.Group.Right - grouped[1].Bounds.Right == gap &&
                 image.GetPixel(firstTab.Bounds.Right, strip.Height / 2).ToArgb() == firstTab.Group.Notebook.Color.ToArgb(),
-                "The notebook backing did not bridge the gap between two tabs in the same group.");
+                "The colored band must leave exactly one inter-tab gap at each end of a two-tab group.");
         }
         TogglePin(strip, grouped[2], true);
         int fullDocument = layout.DocumentBounds.Height;
@@ -429,10 +432,14 @@ internal static class AppearanceTests
                 {
                     var label = group.Key;
                     var box = label.Bounds;
-                    Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
-                        label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left && label.Padding.Left == TabRenderer.CornerRadius(chrome.Dpi) && box.Right == group.Last().Bounds.Right &&
-                        box.Height == label.Font.Height, "A notebook caption did not fit its tabs on one compact line.");
                     bool colored = !chrome.HighContrast && label.Notebook != null && !label.Notebook.Color.IsEmpty;
+                    int pad = colored ? 2 * edge : 0;
+                    Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
+                        label.Font.Size < first.Font.Size && box.Left + pad == group.First().Bounds.Left &&
+                        label.Padding.Left == pad + TabRenderer.CornerRadius(chrome.Dpi) && box.Right - pad == group.Last().Bounds.Right &&
+                        box.Height == label.Font.Height + HostChrome.Px(3, chrome.Dpi) &&
+                        (bottom ? group.First().Bounds.Top == 0 : group.First().Bounds.Bottom == strip.Height),
+                        "The caption must center in the full space between the tab and band edges, with equal end padding.");
                     Color fill = colored ? label.Notebook.Color : palette.Surface;
                     Color ink = colored ? palette.NotebookInk(fill) : palette.Ink;
                     int outer = bottom ? box.Top : box.Bottom - 1, seam = bottom ? box.Bottom - 1 : box.Top;
@@ -446,11 +453,26 @@ internal static class AppearanceTests
                             label.Text, chrome.Dpi, bottom, captions.GetPixel(box.Left, outer).ToArgb(), captions.GetPixel(box.Right - 1, outer).ToArgb(),
                             captions.GetPixel(box.Right - 1, seam).ToArgb(), captions.GetPixel(inside.X, inside.Y).ToArgb(),
                             bitmap.GetPixel(box.Right - 1, bottom ? 0 : strip.Height - 1).ToArgb(), palette.Surface.ToArgb(), fill.ToArgb()));
-                    bool found = false;
-                    for (int x = box.Left + label.Padding.Left; x < box.Right - label.Padding.Right && !found; x++)
-                        for (int y = box.Top; y < box.Bottom && !found; y++)
-                            found = captions.GetPixel(x, y).ToArgb() == ink.ToArgb();
-                    Check(found, "The notebook caption did not render in its contrasting text color.");
+                    if (colored)
+                        for (int i = 0; i < pad; i++)
+                            Check(bitmap.GetPixel(box.Left + i, strip.Height / 2).ToArgb() == fill.ToArgb() &&
+                                bitmap.GetPixel(box.Right - 1 - i, strip.Height / 2).ToArgb() == fill.ToArgb(),
+                                "The notebook fill must be visible at both ends of its tab row.");
+                    int firstInk = box.Bottom, lastInk = -1;
+                    bool solidInk = false;
+                    int inkDistance = Math.Abs(ink.R-fill.R) + Math.Abs(ink.G-fill.G) + Math.Abs(ink.B-fill.B);
+                    for (int x = box.Left + label.Padding.Left; x < box.Right - label.Padding.Right; x++)
+                        for (int y = box.Top; y < box.Bottom; y++)
+                        {
+                            Color pixel = captions.GetPixel(x, y);
+                            if (pixel.ToArgb() == ink.ToArgb()) solidInk = true;
+                            int distance = Math.Abs(pixel.R-fill.R) + Math.Abs(pixel.G-fill.G) + Math.Abs(pixel.B-fill.B);
+                            if (distance < inkDistance / 3) continue;
+                            firstInk = Math.Min(firstInk, y);
+                            lastInk = Math.Max(lastInk, y);
+                        }
+                    Check(solidInk && Math.Abs((firstInk - box.Top) - (box.Bottom - 1 - lastInk)) <= HostChrome.Px(3, chrome.Dpi),
+                        "Caption ink falls off center for " + label.Text + " at " + chrome.Dpi + " DPI: " + firstInk + ".." + lastInk + " in " + box.Height + " pixels.");
                 }
             }
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
@@ -486,7 +508,10 @@ internal static class AppearanceTests
                 int y = divider.Bounds.Top + divider.Height / 2;
                 if (left.Placement == ToolStripItemPlacement.Main && right.Placement == ToolStripItemPlacement.Main)
                 {
-                    int leftGap = x - left.Bounds.Right, rightGap = right.Bounds.Left - x - 1;
+                    var leftTab = left as PageTabButton;
+                    var rightTab = right as PageTabButton;
+                    int leftGap = x - (leftTab == null ? left.Bounds.Right : leftTab.Group.Right);
+                    int rightGap = (rightTab == null ? right.Bounds.Left : rightTab.Group.Left) - x - 1;
                     Check(leftGap > 0 && leftGap == rightGap, "Divider gaps in pixels: left " + leftGap + ", right " + rightGap);
                     for (int gap = 1; gap <= leftGap; gap++)
                         Check(bitmap.GetPixel(x - gap, y).ToArgb() == palette.Surface.ToArgb() &&
@@ -504,6 +529,15 @@ internal static class AppearanceTests
                         Check(bitmap.GetPixel(x, FlatEdgeY(tab, bottom, y)).ToArgb() == marker.ToArgb(),
                             "Missing full-width section color on " + (tab.Checked ? "active" : "inactive") + " tab.");
                 Color fill = tab.Checked ? palette.MutedSection(tab.SectionColor) : tab.Selected ? palette.Hover : palette.Tab;
+                if (!chrome.HighContrast)
+                {
+                    int midY = tab.Bounds.Top + tab.Height / 2;
+                    Color border = bitmap.GetPixel(tab.Bounds.Left, midY);
+                    Check(border.GetBrightness() < fill.GetBrightness() &&
+                        bitmap.GetPixel(tab.Bounds.Right - 1, midY).ToArgb() == border.ToArgb() &&
+                        bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, FlatEdgeY(tab, !bottom, 0)).ToArgb() == border.ToArgb(),
+                        "Each page tab needs a darker outline on both sides and along its rounded edge.");
+                }
                 var close = tab.CloseBounds;
                 int cx = tab.Bounds.Left + close.Left + (close.Width - 1) / 2, cy = tab.Bounds.Top + (close.Height - 1) / 2;
                 int arm = HostChrome.Px(2, chrome.Dpi);

@@ -551,7 +551,7 @@ internal sealed class PageStrip : ToolStrip
         {
             var margin = TabMargin(appearance.Dpi);
             SetMenuTabMargins(margin);
-            foreach (var tab in buttons.Values) tab.Margin = margin;
+            PerformLayout();
             Invalidate();
         }
     }
@@ -619,7 +619,7 @@ internal sealed class PageStrip : ToolStrip
     private Padding TabMargin(uint dpi)
     {
         int side = HostChrome.Px(1, dpi);
-        int gap = HostChrome.Px(3, dpi);
+        int gap = WantsCaptionRow ? 0 : HostChrome.Px(3, dpi);
         return new Padding(side, AtBottom ? gap : 0, side, AtBottom ? 0 : gap);
     }
     private void SetMenuTabMargins(Padding margin)
@@ -653,6 +653,7 @@ internal sealed class PageStrip : ToolStrip
         if (label.GroupFill != fill)
         {
             label.GroupFill = fill;
+            PerformLayout();
             label.Invalidate();
             Invalidate();
         }
@@ -934,6 +935,7 @@ internal sealed class PageStrip : ToolStrip
     }
     private void UpdateTabItems()
     {
+        SetMenuTabMargins(TabMargin(appearance.Dpi));
         foreach (var id in buttons.Keys.Where(id => !state.Tabs.Any(t => t.Key == id)).ToArray())
         {
             if (id == activeKey) activeKey = null;
@@ -1049,8 +1051,7 @@ internal sealed class PageStrip : ToolStrip
     private void AlignNotebookCaptions()
     {
         var tools = MenuTabBounds;
-        int inset = TabRenderer.CornerRadius(appearance.Dpi);
-        toolsLabel.Align(tools.Left, tools.Right, Host.Captions.Height, inset);
+        toolsLabel.Align(tools.Left, tools.Right, Host.Captions.Height, appearance.Dpi);
         // Use the final main-row item bounds. Overflow pages and notebook names consume no caption width.
         var visible = Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
         foreach (var label in labels.Values)
@@ -1058,15 +1059,17 @@ internal sealed class PageStrip : ToolStrip
             var tabs = visible[label];
             var first = tabs.FirstOrDefault();
             if (first == null || !WantsCaptionRow) { label.Hide(); continue; }
-            label.Align(first.Bounds.Left, tabs.Last().Bounds.Right, Host.Captions.Height, inset);
+            label.Align(first.Bounds.Left, tabs.Last().Bounds.Right, Host.Captions.Height, appearance.Dpi, GroupEndPadding(label));
             label.Show();
         }
     }
     private static int ItemWidth(ToolStripItem item)
     {
-        var tab = item as PageTabButton;
-        if (tab != null) return tab.StripSize(Size.Empty).Width + tab.Margin.Horizontal;
         return (item.AutoSize ? item.GetPreferredSize(Size.Empty).Width : item.Width) + item.Margin.Horizontal;
+    }
+    private int GroupEndPadding(NotebookTabLabel label)
+    {
+        return WantsCaptionRow && !label.GroupFill.IsEmpty ? TabMargin(appearance.Dpi).Horizontal : 0;
     }
     private void FitNotebookGroups()
     {
@@ -1079,29 +1082,47 @@ internal sealed class PageStrip : ToolStrip
         int space = DisplayRectangle.Width - ItemWidth(options) - ItemWidth(bookmarkDivider) - ItemWidth(add);
         if (bookmarks.Available) space -= ItemWidth(bookmarks);
         int dividerWidth = bookmarkDivider.Width;
+        var margin = TabMargin(appearance.Dpi);
+        var groups = tabs.ToLookup(t => t.Group);
+        var groupWidths = groups.ToDictionary(g => g.Key, g => dividerWidth + 2 * GroupEndPadding(g.Key));
         var tools = toolGroup.OfType<ToolButton>().Where(t => t.Available).ToArray();
         int toolsWidth = tools.Sum(tool => ItemWidth(tool));
         int overflowWidth = Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
-        bool collapseTools = tools.Length > 0 && space - toolsWidth < overflowWidth + (tabs.Count == 0 ? 0 : HostChrome.Px(70, appearance.Dpi) + dividerWidth);
+        bool collapseTools = tools.Length > 0 && space - toolsWidth < overflowWidth +
+            (tabs.Count == 0 ? 0 : HostChrome.Px(70, appearance.Dpi) + margin.Horizontal + groupWidths.Values.Max());
         foreach (var tool in tools) tool.Overflow = collapseTools ? ToolStripItemOverflow.Always : ToolStripItemOverflow.Never;
         if (!collapseTools) space -= toolsWidth;
-        if (collapseTools || tabs.Sum(tab => ItemWidth(tab)) + labels.Count * dividerWidth + ItemWidth(stop) > space) space -= overflowWidth;
+        if (collapseTools || tabs.Sum(t => t.StripSize(Size.Empty).Width + margin.Horizontal) + groupWidths.Values.Sum() + ItemWidth(stop) > space) space -= overflowWidth;
         PageTabButton active;
-        if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null)
+        int activeGroupWidth;
+        if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null &&
+            groupWidths.TryGetValue(active.Group, out activeGroupWidth))
         {
-            int content = space - active.Margin.Horizontal - dividerWidth;
+            int content = space - margin.Horizontal - activeGroupWidth;
             if (content >= HostChrome.Px(48, appearance.Dpi)) active.WidthLimit = content;
         }
         // Reserve the selected page first, then fit other pages in the order they appear on the strip.
         foreach (var tab in tabs.OrderByDescending(t => ((SavedTab)t.Tag).Key == activeKey))
         {
-            int cost = ItemWidth(tab) + (visibleGroups.Contains(tab.Group) ? 0 : dividerWidth);
+            int cost = tab.StripSize(Size.Empty).Width + margin.Horizontal +
+                (visibleGroups.Contains(tab.Group) ? 0 : groupWidths[tab.Group]);
             if (cost > space) continue;
             visible.Add(tab);
             visibleGroups.Add(tab.Group);
             space -= cost;
         }
-        foreach (var tab in tabs) tab.Overflow = visible.Contains(tab) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
+        foreach (var group in groups)
+        {
+            var first = group.FirstOrDefault(t => visible.Contains(t));
+            var last = group.LastOrDefault(t => visible.Contains(t));
+            int pad = GroupEndPadding(group.Key);
+            foreach (var tab in group)
+            {
+                tab.Margin = new Padding(margin.Left + (tab == first ? pad : 0), margin.Top,
+                    margin.Right + (tab == last ? pad : 0), margin.Bottom);
+                tab.Overflow = visible.Contains(tab) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
+            }
+        }
         foreach (var label in labels.Values) label.Divider.Available = visibleGroups.Contains(label);
         stop.Overflow = space >= ItemWidth(stop) ? ToolStripItemOverflow.Never : ToolStripItemOverflow.Always;
     }

@@ -46,7 +46,8 @@ internal sealed class StripHost : Panel
     {
         BackColor = MoveButton.BackColor = palette.Surface;
         Captions.BackColor = palette.Surface;
-        Captions.Height = HostChrome.CaptionHeight(palette.Dpi);
+        // Center the names in all of the space between the tab edge and the edge of the band.
+        Captions.Height = HostChrome.CaptionHeight(palette.Dpi) + HostChrome.Px(3, palette.Dpi);
         MoveButton.ForeColor = palette.Ink;
         MoveButton.FlatAppearance.MouseOverBackColor = palette.Hover;
         MoveButton.FlatAppearance.MouseDownBackColor = palette.Active;

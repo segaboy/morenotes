@@ -42,7 +42,7 @@ internal static class PrototypeTests
             return parentId == "" ? tree.Elements().Concat(ExtraNotebooks) : tree.Descendants().Single(x => (string)x.Attribute("ID") == parentId).Elements();
         }
         internal Color BookBColor = Color.FromArgb(246,176,120);
-        internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
+        internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.FromArgb(232, 209, 153));
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
         public Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> ids, bool refresh = false)
         {
@@ -166,7 +166,7 @@ internal static class PrototypeTests
                             renamed[0].Notebook.Id != renamed[1].Notebook.Id && renamed[1].Notebook.Color == Color.Orchid,
                             "Renaming or recoloring a notebook merged distinct notebooks with the same name.");
                         var beforeRename = strip.Items.OfType<PageTabButton>().Select(t => t.Bounds).ToArray();
-                        source.BookB = new BookmarkNotebook("b", "Workshop projects and reference material", Color.Goldenrod);
+                        source.BookB = new BookmarkNotebook("b", "Workshop projects and reference material", previousBook.Color);
                         foreach (var tab in strip.Items.OfType<PageTabButton>()) tab.NextColorCheck = DateTime.MinValue;
                         strip.RefreshActive();
                         var singlePageCaption = renamed[1];
@@ -784,6 +784,12 @@ internal static class PrototypeTests
             AppearanceTests.CheckGroupDividers(strip, headers.Length);
             Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left + TabRenderer.CornerRadius(t.Dpi) && t.Group.Right >= t.Bounds.Right) &&
                 headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
+            foreach (var group in visible.GroupBy(t => t.Group))
+            {
+                int pad = group.Key.GroupFill.IsEmpty ? 0 : 2 * HostChrome.Px(1, layout.Dpi);
+                Check(group.First().Bounds.Left - group.Key.Left == pad && group.Key.Right - group.Last().Bounds.Right == pad,
+                    "A partially visible group must keep its padding around the tabs still on the strip.");
+            }
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
             full = Rectangle.FromLTRB(0, layout.RibbonBounds.Bottom, frame.ClientSize.Width, frame.ClientSize.Height);
             document.Bounds = full;
