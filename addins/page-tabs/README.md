@@ -39,7 +39,7 @@ MoreTabs starts below the Quick Access Toolbar. Click the down arrow at the far 
 
 MoreTabs uses OneNote's notebook navigation background in both tab views. In horizontal view it also aligns the star with the native notebook icon. In vertical view it samples the upper-left notebook navigation header and uses a DPI-scaled inset. The strip refreshes as the theme changes. While the header is hidden or covered, it keeps the last measured color. Until the first measurement it uses the Office or Windows theme setting. Windows high-contrast colors take precedence.
 
-![MoreTabs docked at the top, with two pinned pages and unpinned notebook groups](appearance.png)
+![MoreTabs docked at the top, with a pinned page and a colored backing behind each notebook group](appearance.png)
 
 ![MoreTabs docked at the bottom, with notebook captions above the tabs](appearance-bottom.png)
 
@@ -61,9 +61,11 @@ All three grouping and label options start enabled. Changes apply immediately. M
 | --- | --- |
 | **Group tabs by notebook** | Unpinned tabs return to saved tab order. Both label options are grayed out and OneNote gets the whole caption row back. |
 | **Show notebook labels** | Tabs stay grouped. All captions, including **Pinned**, disappear and OneNote gets the whole row back. The label color option is grayed out. |
-| **Use notebook colors for labels** | Notebook names use the theme's regular text color. Windows high contrast uses system text colors and disables this option. |
+| **Use notebook colors for labels** | The notebook bands disappear and the labels use the theme's regular text color. Windows high contrast uses the system background and text colors. |
 
-With grouping on, each notebook group starts at its first open tab in saved order. Tabs within each group keep their order. Captions sit below the tabs when docked at the top and above them when docked at the bottom. The smaller, regular-weight names start just past the first visible tab's rounded corner. Hover over a clipped caption to read its full name. Notebook IDs distinguish notebooks with the same name.
+With grouping on, the notebook color spans the caption and the space behind its visible tabs. Black or white caption text is chosen for contrast. The band is rounded along the edge facing the page, below the tabs when docked at the top and above them when docked at the bottom. The name starts one corner radius in from the first visible tab. Hover over a clipped caption to read its full name. Tools and Pinned use the theme background.
+
+Groups appear in order of their first open tab. Tabs within a group keep their saved order. Notebook IDs distinguish notebooks with the same name.
 
 The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 
@@ -109,7 +111,7 @@ Run the launcher with `-Mode HandsOn` in a desktop PowerShell window. Wait for t
 
 ### Live desktop verification
 
-On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. A subsequent live run also pinned and unpinned a tab while preserving the selection. The notebook icon started 25 pixels into the navigation row on a `#110C08` background. The preview above is a controlled render using those measurements. Controlled tests checked that the star's visible edge matches the notebook icon in dark, light and high-contrast palettes at 96, 120, 144 and 192 DPI.
+On November 24, 2026, the live verifier passed in OneNote `16.0.20715.20004` (x64) at 96 DPI. The verifier renamed a Quick Note, navigated its tab to the Dashboard page already open in a different tab, and returned to the renamed note. A subsequent live run also pinned and unpinned a tab while preserving the selection. The notebook icon started 25 pixels into the navigation row on a `#110C08` background. Controlled tests checked that the star's visible edge matches the notebook icon in dark, light and high-contrast palettes at 96, 120, 144 and 192 DPI.
 
 On November 24, 2026, prototype `bb88678` passed `Verify` in Windows desktop OneNote `16.0.20715.20004` (x64) at 96 DPI. The COM window handle belonged to a child of the measured editor frame. Matching its top-level ancestor selected the correct editor.
 

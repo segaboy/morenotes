@@ -541,6 +541,7 @@ internal sealed class PageStrip : ToolStrip
     {
         AtBottom = bottom;
         Host.Captions.Dock = bottom ? DockStyle.Top : DockStyle.Bottom;
+        Host.Captions.Invalidate(true);
         DefaultDropDownDirection = bottom ? ToolStripDropDownDirection.AboveRight : ToolStripDropDownDirection.BelowRight;
         Host.MoveButton.PointsUp = bottom;
         Host.MoveButton.Invalidate();
@@ -647,7 +648,14 @@ internal sealed class PageStrip : ToolStrip
     }
     private void StyleCaption(NotebookTabLabel label)
     {
-        label.ForeColor = appearance.HighContrast || !state.ColorNotebookLabels || label.Notebook == null || label.Notebook.Color.IsEmpty ? appearance.Ink : label.Notebook.Color;
+        Color fill = !appearance.HighContrast && state.ColorNotebookLabels && label.Notebook != null ? label.Notebook.Color : Color.Empty;
+        label.ForeColor = fill.IsEmpty ? appearance.Ink : appearance.NotebookInk(fill);
+        if (label.GroupFill != fill)
+        {
+            label.GroupFill = fill;
+            label.Invalidate();
+            Invalidate();
+        }
     }
     internal bool WantsCaptionRow { get { return state != null && state.GroupByNotebook && state.ShowNotebookLabels; } }
     private void RefreshOptions()
@@ -1025,10 +1033,24 @@ internal sealed class PageStrip : ToolStrip
         base.OnLayout(e);
         if (appearance != null && Host != null) AlignNotebookCaptions();
     }
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        base.OnPaintBackground(e);
+        if (!WantsCaptionRow) return;
+        // The caption and the tab strip have separate windows. Continue each visible
+        // caption's fill across the tab row before WinForms paints the individual tabs.
+        foreach (var label in labels.Values)
+        {
+            if (!label.Visible || label.GroupFill.IsEmpty) continue;
+            using (var fill = new SolidBrush(label.GroupFill))
+                e.Graphics.FillRectangle(fill, label.Left, 0, label.Width, Height);
+        }
+    }
     private void AlignNotebookCaptions()
     {
         var tools = MenuTabBounds;
-        toolsLabel.Bounds = Rectangle.FromLTRB(tools.Left + TabRenderer.CornerRadius(appearance.Dpi), 0, tools.Right, Host.Captions.Height);
+        int inset = TabRenderer.CornerRadius(appearance.Dpi);
+        toolsLabel.Align(tools.Left, tools.Right, Host.Captions.Height, inset);
         // Use the final main-row item bounds. Overflow pages and notebook names consume no caption width.
         var visible = Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
         foreach (var label in labels.Values)
@@ -1036,8 +1058,7 @@ internal sealed class PageStrip : ToolStrip
             var tabs = visible[label];
             var first = tabs.FirstOrDefault();
             if (first == null || !WantsCaptionRow) { label.Hide(); continue; }
-            label.Bounds = Rectangle.FromLTRB(first.Bounds.Left + TabRenderer.CornerRadius(first.Dpi), 0,
-                tabs.Last().Bounds.Right, Host.Captions.Height);
+            label.Align(first.Bounds.Left, tabs.Last().Bounds.Right, Host.Captions.Height, inset);
             label.Show();
         }
     }

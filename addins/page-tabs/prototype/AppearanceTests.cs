@@ -58,6 +58,13 @@ internal static class AppearanceTests
                 }
                 strip.Host.Size = new Size(HostChrome.Px(950, dpi), HostChrome.StripHeight(dpi));
                 strip.ApplyAppearance(expected);
+                if (!contrast)
+                {
+                    var ordinary = strip.Items.OfType<PageTabButton>().Select(t => t.Group).Where(g => g.Notebook != null);
+                    Check(ordinary.Single(g => g.Text == "Atlas").ForeColor.ToArgb() == Color.White.ToArgb() &&
+                        ordinary.Single(g => g.Text == "Workshop").ForeColor.ToArgb() == Color.Black.ToArgb(),
+                        "Dark and light notebook bands must choose white and black caption text respectively.");
+                }
                 foreach (var selected in new[] { schedule, original })
                 {
                     selected.PerformClick();
@@ -99,7 +106,7 @@ internal static class AppearanceTests
         CheckOptions(strip, layout);
         Console.WriteLine("PASS long regular and bold titles leave clear space around the close icon at all four scales.");
         Console.WriteLine("PASS equal native-color tab stripes, muted selected fills and angled two-color bookmark rows at 96, 120, 144 and 192 DPI.");
-        Console.WriteLine("PASS compact notebook captions span the visible tabs in each group and use the notebook color at all four scales.");
+        Console.WriteLine("PASS rounded notebook backings, contrasting caption text and spacing at all four scales.");
         Console.WriteLine("PASS bookmark groups sort by notebook, retain page order and align section-color labels and page titles across groups.");
     }
 
@@ -151,9 +158,18 @@ internal static class AppearanceTests
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
             strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = surface });
-            Check(grouped.All(t => t.Group.ForeColor == ((TabRenderer)strip.Renderer).Ink), "Default caption ink ignored the theme.");
+            Check(grouped.All(t => t.Group.GroupFill.IsEmpty && t.Group.ForeColor == ((TabRenderer)strip.Renderer).Ink),
+                "Turning off notebook colors must restore the theme background and caption text.");
         }
         colors.PerformClick();
+        using (var image = new Bitmap(strip.Width, strip.Height))
+        {
+            strip.DrawToBitmap(image, strip.ClientRectangle);
+            var firstTab = grouped[0];
+            Check(firstTab.Group == grouped[1].Group && grouped[1].Bounds.Left > firstTab.Bounds.Right &&
+                image.GetPixel(firstTab.Bounds.Right, strip.Height / 2).ToArgb() == firstTab.Group.Notebook.Color.ToArgb(),
+                "The notebook backing did not bridge the gap between two tabs in the same group.");
+        }
         TogglePin(strip, grouped[2], true);
         int fullDocument = layout.DocumentBounds.Height;
         labels.PerformClick();
@@ -400,7 +416,7 @@ internal static class AppearanceTests
             var band = strip.Host.Captions;
             var tools = band.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
             Check(tools.Visible && tools.ForeColor == palette.Ink && tools.Font.Style == FontStyle.Regular &&
-                tools.Left == star.Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) && tools.Right == strip.MenuTabBounds.Right &&
+                tools.Left == star.Bounds.Left && tools.Padding.Left == TabRenderer.CornerRadius(chrome.Dpi) && tools.Right == strip.MenuTabBounds.Right &&
                 strip.Items.OfType<ToolButton>().All(t => t.Bounds.Top == star.Bounds.Top && t.Height == star.Height),
                 "Tools misalignment at " + chrome.Dpi + " DPI: label " + tools.Bounds + ", group " + strip.MenuTabBounds +
                 ", star " + star.Bounds + ", first command " + strip.Items.OfType<ToolButton>().First().Bounds + ".");
@@ -414,16 +430,27 @@ internal static class AppearanceTests
                     var label = group.Key;
                     var box = label.Bounds;
                     Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
-                        label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) && box.Right == group.Last().Bounds.Right &&
+                        label.Font.Size < first.Font.Size && box.Left == group.First().Bounds.Left && label.Padding.Left == TabRenderer.CornerRadius(chrome.Dpi) && box.Right == group.Last().Bounds.Right &&
                         box.Height == label.Font.Height, "A notebook caption did not fit its tabs on one compact line.");
-                    Color ink = chrome.HighContrast || label.Notebook == null || label.Notebook.Color.IsEmpty ? palette.Ink : label.Notebook.Color;
-                    Check(captions.GetPixel(box.Right - 1, box.Top).ToArgb() == palette.Surface.ToArgb(),
-                        "Notebook labels should use the strip background.");
+                    bool colored = !chrome.HighContrast && label.Notebook != null && !label.Notebook.Color.IsEmpty;
+                    Color fill = colored ? label.Notebook.Color : palette.Surface;
+                    Color ink = colored ? palette.NotebookInk(fill) : palette.Ink;
+                    int outer = bottom ? box.Top : box.Bottom - 1, seam = bottom ? box.Bottom - 1 : box.Top;
+                    var inside = new Point(box.Right - label.Padding.Right - 2 * edge, outer + (bottom ? edge : -edge));
+                    Check(captions.GetPixel(box.Left, outer).ToArgb() == palette.Surface.ToArgb() &&
+                        captions.GetPixel(box.Right - 1, outer).ToArgb() == palette.Surface.ToArgb() &&
+                        captions.GetPixel(box.Right - 1, seam).ToArgb() == fill.ToArgb() &&
+                        captions.GetPixel(inside.X, inside.Y).ToArgb() == fill.ToArgb() &&
+                        bitmap.GetPixel(box.Right - 1, bottom ? 0 : strip.Height - 1).ToArgb() == fill.ToArgb(),
+                        String.Format("Notebook backing for {0} at {1} DPI (bottom={2}): corners {3:X8}/{4:X8}, seam {5:X8}, outer {6:X8}, strip {7:X8}; expected surface {8:X8}, fill {9:X8}.",
+                            label.Text, chrome.Dpi, bottom, captions.GetPixel(box.Left, outer).ToArgb(), captions.GetPixel(box.Right - 1, outer).ToArgb(),
+                            captions.GetPixel(box.Right - 1, seam).ToArgb(), captions.GetPixel(inside.X, inside.Y).ToArgb(),
+                            bitmap.GetPixel(box.Right - 1, bottom ? 0 : strip.Height - 1).ToArgb(), palette.Surface.ToArgb(), fill.ToArgb()));
                     bool found = false;
-                    for (int x = box.Left; x < box.Right && !found; x++)
+                    for (int x = box.Left + label.Padding.Left; x < box.Right - label.Padding.Right && !found; x++)
                         for (int y = box.Top; y < box.Bottom && !found; y++)
                             found = captions.GetPixel(x, y).ToArgb() == ink.ToArgb();
-                    Check(found, "The notebook caption did not render in its notebook color.");
+                    Check(found, "The notebook caption did not render in its contrasting text color.");
                 }
             }
             Color starBackground = star.Pressed ? palette.Active : star.Selected ? palette.Hover : palette.Tab;
@@ -489,8 +516,9 @@ internal static class AppearanceTests
                     bitmap.GetPixel(tab.Bounds.Left + tab.Width / 2, FlatEdgeY(tab, !bottom, 2 * edge)).ToArgb() == fill.ToArgb(),
                     "Tab body fill does not match its selection state.");
             }
-            Check(bitmap.GetPixel(b.Left + edge - 1, FlatEdgeY(active, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
-                bitmap.GetPixel(b.Right - edge, FlatEdgeY(active, !bottom, 0)).ToArgb() == palette.Surface.ToArgb(),
+            Color behind = active.Group.GroupFill.IsEmpty ? palette.Surface : active.Group.GroupFill;
+            Check(bitmap.GetPixel(b.Left + edge - 1, FlatEdgeY(active, !bottom, 0)).ToArgb() == behind.ToArgb() &&
+                bitmap.GetPixel(b.Right - edge, FlatEdgeY(active, !bottom, 0)).ToArgb() == behind.ToArgb(),
                 "The active tab's corners facing the editor are not rounded.");
             return bitmap;
         }

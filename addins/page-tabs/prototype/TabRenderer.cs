@@ -103,6 +103,7 @@ internal sealed class NotebookTabLabel : Label
 {
     internal BookmarkNotebook Notebook;
     internal ToolStripSeparator Divider;
+    internal Color GroupFill { get; set; }
     private const TextFormatFlags Flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
     internal NotebookTabLabel()
     {
@@ -113,8 +114,27 @@ internal sealed class NotebookTabLabel : Label
     }
     protected override void OnPaint(PaintEventArgs e)
     {
-        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ForeColor,
+        if (!GroupFill.IsEmpty)
+        {
+            var saved = e.Graphics.Save();
+            using (var shape = TabRenderer.TabOutline(Width, Height, Padding.Left, Parent.Dock == DockStyle.Top))
+            using (var brush = new SolidBrush(GroupFill))
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
+                e.Graphics.FillPath(brush, shape);
+            }
+            e.Graphics.Restore(saved);
+        }
+        var title = new Rectangle(Padding.Left, 0, Math.Max(0, Width - Padding.Horizontal), Height);
+        TextRenderer.DrawText(e.Graphics, Text, Font, title, ForeColor,
             Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    internal void Align(int left, int right, int height, int inset)
+    {
+        Padding = new Padding(inset, 0, GroupFill.IsEmpty ? 0 : inset, 0);
+        Bounds = Rectangle.FromLTRB(left, 0, right, height);
     }
 }
 
@@ -140,6 +160,20 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         }
     }
     internal static int CornerRadius(uint dpi) { return HostChrome.Px(8, dpi); }
+    internal static GraphicsPath TabOutline(int width, int height, int radius, bool bottomDock)
+    {
+        var shape = new GraphicsPath();
+        int diameter = Math.Min(2 * radius, Math.Min(width, 2 * height));
+        if (diameter < 2) return shape;
+        int flat = bottomDock ? height : 0;
+        int arcTop = bottomDock ? 0 : height - diameter;
+        int turn = bottomDock ? -90 : 90;
+        shape.AddLine(0, flat, width, flat);
+        shape.AddArc(width - diameter, arcTop, diameter, diameter, 0, turn);
+        shape.AddArc(0, arcTop, diameter, diameter, turn, turn);
+        shape.CloseFigure();
+        return shape;
+    }
     internal TabRenderer(Color surface, uint dpi, bool highContrast, bool darkSections)
     {
         DarkSections = darkSections;
@@ -316,29 +350,21 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                 e.Graphics.TranslateTransform(both.Left - e.Item.Bounds.Left, 0);
                 w = both.Width;
             }
-            int diameter = Math.Min(2 * CornerRadius(Dpi), Math.Min(w, h));
-            if (diameter < 2) return;
-            if (strip != null && strip.AtBottom)
-            {
-                e.Graphics.TranslateTransform(0, h);
-                e.Graphics.ScaleTransform(1, -1);
-            }
+            bool bottom = strip != null && strip.AtBottom;
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var shape = new GraphicsPath())
+            using (var shape = TabOutline(w, h, CornerRadius(Dpi), bottom))
             using (var fill = new SolidBrush(Background(e.Item)))
             {
-                shape.AddLine(0, 0, w, 0);
-                shape.AddArc(w - diameter, h - diameter, diameter, diameter, 0, 90);
-                shape.AddArc(0, h - diameter, diameter, diameter, 90, 90);
-                shape.CloseFigure();
+                if (shape.PointCount == 0) return;
                 e.Graphics.FillPath(fill, shape);
                 if (contrast)
                     using (var border = new Pen(Ink) { Alignment = PenAlignment.Inset }) e.Graphics.DrawPath(border, shape);
                 if (page != null)
                 {
                     e.Graphics.SmoothingMode = SmoothingMode.None;
+                    int stripe = HostChrome.Px(3, Dpi);
                     using (var marker = new SolidBrush(MarkerFor(page)))
-                        e.Graphics.FillRectangle(marker, 0, 0, w, HostChrome.Px(3, Dpi));
+                        e.Graphics.FillRectangle(marker, 0, bottom ? h - stripe : 0, w, stripe);
                 }
             }
         }
