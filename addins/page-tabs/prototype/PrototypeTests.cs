@@ -46,7 +46,7 @@ internal static class PrototypeTests
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
         public Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> ids, bool refresh = false)
         {
-            var a = new BookmarkNotebook("a", "Atlas", Color.MidnightBlue);
+            var a = new BookmarkNotebook("a", "Atlas", Color.FromArgb(138, 168, 228));
             var b = BookB;
             var personal = new BookmarkNotebook("personal", "Personal", Color.Coral);
             return ids.Distinct().ToDictionary(id => id, id => id.StartsWith("personal/") ? new BookmarkLocation(personal, "Quick Notes", SectionColor(id)) :

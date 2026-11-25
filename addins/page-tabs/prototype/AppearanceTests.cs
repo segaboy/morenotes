@@ -62,9 +62,17 @@ internal static class AppearanceTests
                 if (!contrast)
                 {
                     var ordinary = strip.Items.OfType<PageTabButton>().Select(t => t.Group).Where(g => g.Notebook != null);
-                    Check(ordinary.Single(g => g.Text == "Atlas").ForeColor.ToArgb() == Color.White.ToArgb() &&
-                        ordinary.Single(g => g.Text == "Workshop").ForeColor.ToArgb() == Color.Black.ToArgb(),
-                        "Dark and light notebook bands must choose white and black caption text respectively.");
+                    var atlas = ordinary.Single(g => g.Text == "Atlas");
+                    var workshop = ordinary.Single(g => g.Text == "Workshop");
+                    Color blue = surface == dark ? Color.FromArgb(0, 136, 240) : Color.FromArgb(0, 79, 139);
+                    Check(atlas.GroupFill.ToArgb() == blue.ToArgb() && workshop.GroupFill.ToArgb() == Color.FromArgb(198, 163, 119).ToArgb() &&
+                        atlas.ForeColor.ToArgb() == (surface == dark ? Color.Black : Color.White).ToArgb() && workshop.ForeColor.ToArgb() == Color.Black.ToArgb(),
+                        "Notebook bands must use the native blue and tan covers and contrast text against the displayed RGB.");
+                    var palette = (TabRenderer)strip.Renderer;
+                    Color purple = surface == dark ? Color.FromArgb(185, 115, 211) : Color.FromArgb(91, 45, 144);
+                    Check(palette.NotebookCover(Color.FromArgb(171, 156, 183)).ToArgb() == purple.ToArgb() &&
+                        palette.NotebookCover(Color.Orchid) == Color.Orchid && palette.NotebookCover(Color.Empty).IsEmpty,
+                        "Purple Mist must use the cover for this theme; custom and missing notebook RGBs must round-trip.");
                 }
                 foreach (var selected in new[] { schedule, original })
                 {
@@ -176,7 +184,7 @@ internal static class AppearanceTests
             int gap = grouped[1].Bounds.Left - firstTab.Bounds.Right;
             Check(firstTab.Group == grouped[1].Group && gap > 0 &&
                 firstTab.Bounds.Left - firstTab.Group.Left == gap && firstTab.Group.Right - grouped[1].Bounds.Right == gap &&
-                image.GetPixel(firstTab.Bounds.Right, strip.Height / 2).ToArgb() == firstTab.Group.Notebook.Color.ToArgb(),
+                image.GetPixel(firstTab.Bounds.Right, strip.Height / 2).ToArgb() == Color.FromArgb(0, 136, 240).ToArgb(),
                 "The colored band must leave exactly one inter-tab gap at each end of a two-tab group.");
         }
         TogglePin(strip, grouped[2], true);
@@ -240,7 +248,8 @@ internal static class AppearanceTests
                 using (var image = new Bitmap(menu.Width, menu.Height))
                 {
                     menu.DrawToBitmap(image, menu.ClientRectangle);
-                    var expected = new[] { Color.FromArgb(0, 136, 240), palette.Ink, Color.FromArgb(49, 138, 117) };
+                    Color blue = surface == Color.WhiteSmoke ? Color.FromArgb(0, 79, 139) : Color.FromArgb(0, 136, 240);
+                    var expected = new[] { blue, palette.Ink, Color.FromArgb(49, 138, 117) };
                     for (int i = 0; i < expected.Length; i++)
                     {
                         var b = rows[i].Bounds;
@@ -476,7 +485,7 @@ internal static class AppearanceTests
                         box.Height == label.Font.Height + HostChrome.Px(3, chrome.Dpi) &&
                         (bottom ? group.First().Bounds.Top == 0 : group.First().Bounds.Bottom == strip.Height),
                         "The caption must center in the full space between the tab and band edges, with equal end padding.");
-                    Color fill = !colored ? palette.Surface : pinned ? palette.PinnedBand : label.Notebook.Color;
+                    Color fill = !colored ? palette.Surface : pinned ? palette.PinnedBand : palette.NotebookCover(label.Notebook.Color);
                     if (pinned && colored)
                         Check(fill.ToArgb() != palette.ToolsBand.ToArgb(), "The Pinned and Tools bands must be distinct.");
                     Color ink = colored ? palette.NotebookInk(fill) : palette.Ink;

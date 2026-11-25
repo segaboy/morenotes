@@ -62,7 +62,7 @@ internal sealed class PickerRow : ToolStripMenuItem
         if (kind != PickerRowKind.Page)
         {
             int height = HostChrome.Px(20, palette.Dpi);
-            Color color = kind == PickerRowKind.Notebook ? SectionPalette.NotebookIcon(storedColor) : palette.SectionFill(storedColor);
+            Color color = kind == PickerRowKind.Notebook ? palette.NotebookCover(storedColor) : palette.SectionFill(storedColor);
             if (palette.HighContrast || storedColor.IsEmpty) color = ink;
             DrawIcon(g, left, height, palette, color, ink, background);
         }

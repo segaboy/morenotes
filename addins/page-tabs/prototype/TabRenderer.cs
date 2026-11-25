@@ -153,6 +153,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
 {
     internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker, ToolsBand, PinnedBand;
     private readonly bool contrast;
+    private readonly bool dark;
     internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
     internal readonly bool DarkSections;
@@ -164,7 +165,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             if (contrast) return this;
             if (notebookMenu == null)
             {
-                int gray = Luminance(Surface) < .25 ? 40 : 250;
+                int gray = dark ? 40 : 250;
                 notebookMenu = new TabRenderer(Color.FromArgb(gray, gray, gray), Dpi, false, DarkSections);
             }
             return notebookMenu;
@@ -191,7 +192,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         Dpi = dpi;
         contrast = highContrast;
         Surface = highContrast ? SystemColors.Window : surface;
-        bool dark = 299 * surface.R + 587 * surface.G + 114 * surface.B < 138000;
+        dark = 299 * surface.R + 587 * surface.G + 114 * surface.B < 138000;
         Ink = highContrast ? SystemColors.WindowText : dark ? Color.White : Color.FromArgb(30, 30, 30);
         Color toward = dark ? Color.White : Color.Black;
         MutedInk = highContrast ? Ink : Blend(Ink, Surface, 13);
@@ -246,6 +247,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     {
         return contrast ? SystemColors.Highlight : notebookColor.IsEmpty ? Active : notebookColor;
     }
+    internal Color NotebookCover(Color stored) { return SectionPalette.NotebookIcon(stored, dark); }
     internal Color NotebookInk(Color fill)
     {
         return contrast ? SystemColors.HighlightText : Luminance(fill) > 0.179 ? Color.Black : Color.White;

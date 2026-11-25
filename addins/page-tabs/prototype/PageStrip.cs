@@ -652,7 +652,7 @@ internal sealed class PageStrip : ToolStrip
         if (UseNotebookColors)
         {
             if (label.Pinned) fill = appearance.PinnedBand;
-            else if (label.Notebook != null) fill = label.Notebook.Color;
+            else if (label.Notebook != null) fill = appearance.NotebookCover(label.Notebook.Color);
         }
         label.ForeColor = fill.IsEmpty ? appearance.Ink : appearance.NotebookInk(fill);
         if (label.GroupFill != fill)
