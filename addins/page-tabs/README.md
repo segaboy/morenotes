@@ -63,9 +63,11 @@ All three grouping and label options start enabled. Changes apply immediately. M
 | **Show notebook labels** | Tabs stay grouped. All captions, including **Pinned**, disappear and OneNote gets the whole row back. The label color option is grayed out. |
 | **Use notebook colors for labels** | The notebook bands disappear and the labels use the theme's regular text color. Windows high contrast uses the system background and text colors. |
 
-With grouping on, the notebook color spans the caption and the space behind its visible tabs. Each end of the colored band has the same padding as the gap between two tabs. A thin, darker outline separates each page tab from the band. The notebook name is vertically centered in the caption, with black or white text chosen for contrast. The band is rounded along the edge facing the page, below the tabs when docked at the top and above them when docked at the bottom. The name starts one corner radius in from the first visible tab. Hover over a clipped caption to read its full name.
+With grouping on, the notebook color spans the caption and the space behind its visible tabs. Each end of the colored band has the same padding as the gap between two tabs. A thin, darker outline separates each page tab from the band. The notebook name is vertically centered in the caption, with black or white text chosen for contrast. The band is rounded along the edge facing the page, below the tabs when docked at the top and above them when docked at the bottom. Hover over a clipped caption to read its full name.
 
-The Tools buttons share the outline of an inactive page tab. A neutral gray band wraps the buttons and their label, follows the OneNote theme, and resizes to fit the visible tools. Windows high contrast uses the system control and text colors. Pinned uses the strip background.
+Group labels start left-aligned. Left-click any notebook name, **Tools**, or **Pinned** to center all labels. Click again to align them right, then again to return them to the left. MoreTabs remembers the alignment across windows and restarts.
+
+The Tools buttons share the outline of an inactive page tab. A neutral gray band wraps the buttons and their label, follows the OneNote theme, and resizes to fit the visible tools. With colored labels on, **Pinned** has a gold band in light themes and an amber band in dark themes. Each pinned tab retains its page's section stripe. Windows high contrast uses system colors.
 
 Groups appear in order of their first open tab. Tabs within a group keep their saved order. Notebook IDs distinguish notebooks with the same name.
 

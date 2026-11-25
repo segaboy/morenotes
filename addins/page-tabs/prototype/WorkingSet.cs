@@ -72,6 +72,18 @@ internal sealed class WorkingSet
     internal SavedPage HomePage;
     internal string NewNoteSectionId, NewNoteSectionName;
     internal bool ColorNotebookLabels = true, ShowNotebookLabels = true, GroupByNotebook = true;
+    internal ContentAlignment LabelAlignment = ContentAlignment.MiddleLeft;
+
+    internal bool CycleLabelAlignment()
+    {
+        switch (LabelAlignment)
+        {
+            case ContentAlignment.MiddleLeft: LabelAlignment = ContentAlignment.MiddleCenter; break;
+            case ContentAlignment.MiddleCenter: LabelAlignment = ContentAlignment.MiddleRight; break;
+            default: LabelAlignment = ContentAlignment.MiddleLeft; break;
+        }
+        return true;
+    }
 
     internal bool KeepTab(SavedPage page, string preferred, out string key)
     {
@@ -188,6 +200,11 @@ internal sealed class SessionStore
             state.ColorNotebookLabels = (bool?)options.Attribute("coloredLabels") ?? true;
             state.ShowNotebookLabels = (bool?)options.Attribute("showLabels") ?? true;
             state.GroupByNotebook = (bool?)options.Attribute("groupByNotebook") ?? true;
+            switch ((string)options.Attribute("labelAlignment"))
+            {
+                case "MiddleCenter": state.LabelAlignment = ContentAlignment.MiddleCenter; break;
+                case "MiddleRight": state.LabelAlignment = ContentAlignment.MiddleRight; break;
+            }
             var home = options.Element("page");
             if (home != null) state.HomePage = ReadPage(home);
             var section = options.Element("newNoteSection");
@@ -240,6 +257,7 @@ internal sealed class SessionStore
             var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
                 new XElement("options", new XAttribute("coloredLabels", state.ColorNotebookLabels),
                     new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook),
+                    new XAttribute("labelAlignment", state.LabelAlignment),
                     state.HiddenTools.OrderBy(id => id, StringComparer.Ordinal).Select(id => new XElement("hiddenTool", new XAttribute("id", id))),
                     state.HomePage == null ? null : state.HomePage.ToXml(),
                     state.NewNoteSectionId == null ? null : new XElement("newNoteSection",

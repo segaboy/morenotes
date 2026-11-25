@@ -337,7 +337,8 @@ internal sealed class PageStrip : ToolStrip
         stripClose = new TabCloseInput(this, closePageTab);
         overflowClose = new TabCloseInput(OverflowButton.DropDown, closePageTab);
         Host = new StripHost(frame, this);
-        Host.Captions.Controls.Add(toolsLabel);
+        AddCaption(toolsLabel);
+        notice.SetToolTip(toolsLabel, toolsLabel.AccessibleDescription);
         Host.OpenPage += delegate(string id) { Perform(delegate { OpenPageInNewTab(id); }); };
         Host.MoveButton.Click += delegate { Perform(MoveStrip); };
         SetDirection(false);
@@ -346,6 +347,14 @@ internal sealed class PageStrip : ToolStrip
         ApplyState(this.store.Read());
     }
     private void Perform(Action action) { try { action(); } catch (Exception e) { onError(e); } }
+    private void AddCaption(NotebookTabLabel label)
+    {
+        label.MouseClick += delegate(object sender, MouseEventArgs e) {
+            if (e.Button == MouseButtons.Left)
+                Perform(delegate { ApplyState(store.Change(s => s.CycleLabelAlignment())); });
+        };
+        Host.Captions.Controls.Add(label);
+    }
     private void BindTool(ToolButton button, Action action)
     {
         // Finish the mouse-up and dismiss any overflow menu before changing focus or opening a picker.
@@ -639,7 +648,12 @@ internal sealed class PageStrip : ToolStrip
     }
     private void StyleCaption(NotebookTabLabel label)
     {
-        Color fill = UseNotebookColors && label.Notebook != null ? label.Notebook.Color : Color.Empty;
+        Color fill = Color.Empty;
+        if (UseNotebookColors)
+        {
+            if (label.Pinned) fill = appearance.PinnedBand;
+            else if (label.Notebook != null) fill = label.Notebook.Color;
+        }
         label.ForeColor = fill.IsEmpty ? appearance.Ink : appearance.NotebookInk(fill);
         if (label.GroupFill != fill)
         {
@@ -927,6 +941,7 @@ internal sealed class PageStrip : ToolStrip
     }
     private void UpdateTabItems()
     {
+        toolsLabel.TextAlign = state.LabelAlignment;
         foreach (var id in buttons.Keys.Where(id => !state.Tabs.Any(t => t.Key == id)).ToArray())
         {
             if (id == activeKey) activeKey = null;
@@ -984,16 +999,17 @@ internal sealed class PageStrip : ToolStrip
                 NotebookTabLabel label;
                 if (!labels.TryGetValue(key, out label))
                 {
-                    labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false, Divider = new ToolStripSeparator() });
+                    labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false, Pinned = pinned, Divider = new ToolStripSeparator() });
                     SizeDivider(label.Divider);
-                    Host.Captions.Controls.Add(label);
+                    AddCaption(label);
                 }
+                label.TextAlign = state.LabelAlignment;
                 label.Notebook = !pinned && state.GroupByNotebook ? group.First().Book : null;
                 string caption = pinned ? "Pinned" : label.Notebook == null ? "" : label.Notebook.Name;
                 if (label.Text != caption)
                 {
                     label.Text = label.AccessibleName = caption;
-                    notice.SetToolTip(label, label.Text);
+                    notice.SetToolTip(label, label.Text + Environment.NewLine + label.AccessibleDescription);
                 }
                 StyleCaption(label);
                 foreach (var entry in group)

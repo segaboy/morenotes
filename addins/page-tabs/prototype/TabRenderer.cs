@@ -102,6 +102,7 @@ internal sealed class PageTabButton : ToolStripButton
 internal sealed class NotebookTabLabel : Label
 {
     internal BookmarkNotebook Notebook;
+    internal bool Pinned;
     internal ToolStripSeparator Divider;
     internal Color GroupFill { get; set; }
     private int cornerRadius;
@@ -109,9 +110,12 @@ internal sealed class NotebookTabLabel : Label
     internal NotebookTabLabel()
     {
         AccessibleRole = AccessibleRole.StaticText;
+        AccessibleDescription = "Click to cycle all group labels through left, center, and right alignment.";
+        TextAlign = ContentAlignment.MiddleLeft;
+        Cursor = Cursors.Hand;
         TabStop = false;
         UseMnemonic = false;
-        SetStyle(ControlStyles.Selectable, false);
+        SetStyle(ControlStyles.Selectable | ControlStyles.StandardDoubleClick, false);
     }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -128,8 +132,11 @@ internal sealed class NotebookTabLabel : Label
             e.Graphics.Restore(saved);
         }
         var title = new Rectangle(Padding.Left, 0, Math.Max(0, Width - Padding.Horizontal), Height - Padding.Vertical);
+        TextFormatFlags horizontal = TextFormatFlags.Left;
+        if (TextAlign == ContentAlignment.MiddleCenter) horizontal = TextFormatFlags.HorizontalCenter;
+        if (TextAlign == ContentAlignment.MiddleRight) horizontal = TextFormatFlags.Right;
         TextRenderer.DrawText(e.Graphics, Text, Font, title, ForeColor,
-            Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            Flags | horizontal | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
     internal void Align(int left, int right, int height, uint dpi, int endPadding = 0)
@@ -137,14 +144,14 @@ internal sealed class NotebookTabLabel : Label
         cornerRadius = TabRenderer.CornerRadius(dpi);
         int bandLeft = Math.Max(0, left - endPadding);
         // The menu font leaves more space above its visible glyphs than below them.
-        Padding = new Padding(cornerRadius + left - bandLeft, 0, GroupFill.IsEmpty ? 0 : cornerRadius + endPadding, 2 * HostChrome.Px(1, dpi));
+        Padding = new Padding(cornerRadius + left - bandLeft, 0, cornerRadius + endPadding, 2 * HostChrome.Px(1, dpi));
         Bounds = Rectangle.FromLTRB(bandLeft, 0, right + endPadding, height);
     }
 }
 
 internal sealed class TabRenderer : ToolStripProfessionalRenderer
 {
-    internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker, ToolsBand;
+    internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker, ToolsBand, PinnedBand;
     private readonly bool contrast;
     internal bool HighContrast { get { return contrast; } }
     internal readonly uint Dpi;
@@ -192,6 +199,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         Active = highContrast ? SystemColors.Highlight : Blend(Surface, toward, 22);
         int gray = (299 * Active.R + 587 * Active.G + 114 * Active.B) / 1000;
         ToolsBand = highContrast ? SystemColors.Control : Color.FromArgb(gray, gray, gray);
+        PinnedBand = highContrast ? Color.Empty : dark ? Color.FromArgb(128, 89, 28) : Color.FromArgb(232, 197, 120);
         Color accent = dark ? Color.FromArgb(207, 169, 255) : Color.FromArgb(99, 48, 160);
         double a = Luminance(accent), b = Luminance(Active);
         if ((Math.Max(a, b) + .05) / (Math.Min(a, b) + .05) < 3)

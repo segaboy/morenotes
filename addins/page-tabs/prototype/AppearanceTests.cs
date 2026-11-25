@@ -32,6 +32,7 @@ internal static class AppearanceTests
         Check(schedule.Group == original.Group && schedule.Group.Text == "Pinned" && schedule.Group.Notebook == null,
             "Pins from different notebooks must share one Pinned caption.");
         TogglePin(strip, original, false);
+        CheckCaptionAlignment(strip);
         var dark = Color.FromArgb(17, 12, 8);
         foreach (uint dpi in new uint[] { 96, 120, 144, 192 })
             foreach (var surface in new[] { dark, Color.FromArgb(247, 247, 247), SystemColors.Window })
@@ -466,7 +467,8 @@ internal static class AppearanceTests
                 {
                     var label = group.Key;
                     var box = label.Bounds;
-                    bool colored = !chrome.HighContrast && label.Notebook != null && !label.Notebook.Color.IsEmpty;
+                    bool pinned = group.All(t => ((SavedTab)t.Tag).Pinned);
+                    bool colored = !chrome.HighContrast && (pinned || label.Notebook != null && !label.Notebook.Color.IsEmpty);
                     int pad = colored ? 2 * edge : 0;
                     Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
                         label.Font.Size < first.Font.Size && box.Left + pad == group.First().Bounds.Left &&
@@ -474,7 +476,9 @@ internal static class AppearanceTests
                         box.Height == label.Font.Height + HostChrome.Px(3, chrome.Dpi) &&
                         (bottom ? group.First().Bounds.Top == 0 : group.First().Bounds.Bottom == strip.Height),
                         "The caption must center in the full space between the tab and band edges, with equal end padding.");
-                    Color fill = colored ? label.Notebook.Color : palette.Surface;
+                    Color fill = !colored ? palette.Surface : pinned ? palette.PinnedBand : label.Notebook.Color;
+                    if (pinned && colored)
+                        Check(fill.ToArgb() != palette.ToolsBand.ToArgb(), "The Pinned and Tools bands must be distinct.");
                     Color ink = colored ? palette.NotebookInk(fill) : palette.Ink;
                     int outer = bottom ? box.Top : box.Bottom - 1, seam = bottom ? box.Bottom - 1 : box.Top;
                     var inside = new Point(box.Right - label.Padding.Right - 2 * edge, outer + (bottom ? edge : -edge));
@@ -602,6 +606,42 @@ internal static class AppearanceTests
             return bitmap;
         }
         catch { bitmap.Dispose(); throw; }
+    }
+
+    private static void CheckCaptionAlignment(PageStrip strip)
+    {
+        var labels = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible).ToArray();
+        var tools = labels.Single(l => l.Text == "Tools");
+        var pinned = labels.Single(l => l.Pinned);
+        var notebook = labels.First(l => l.Notebook != null);
+        var bounds = labels.Select(l => l.Bounds).ToArray();
+        string active = strip.ActiveTabKey;
+        var expected = new[] { ContentAlignment.MiddleLeft, ContentAlignment.MiddleCenter, ContentAlignment.MiddleRight, ContentAlignment.MiddleLeft };
+        var sources = new[] { tools, notebook, pinned, tools };
+        for (int i = 0; i < expected.Length; i++)
+        {
+            PrototypeTests.ClickCaption(sources[i], right: i == 0);
+            Check(labels.All(l => l.TextAlign == expected[i]) && labels.Select(l => l.Bounds).SequenceEqual(bounds) && active == strip.ActiveTabKey,
+                "Clicking " + sources[i].Text + " must give every label " + expected[i] + " alignment without moving or selecting tabs.");
+            using (var image = new Bitmap(tools.Width, tools.Height))
+            {
+                tools.DrawToBitmap(image, tools.ClientRectangle);
+                int left = tools.Width, right = -1;
+                for (int x = tools.Padding.Left; x < tools.Width - tools.Padding.Right; x++)
+                    for (int y = 0; y < tools.Height; y++)
+                        if (image.GetPixel(x, y).ToArgb() == tools.ForeColor.ToArgb())
+                        {
+                            left = Math.Min(left, x);
+                            right = Math.Max(right, x);
+                        }
+                int leftSpace = left - tools.Padding.Left, rightSpace = tools.Width - tools.Padding.Right - right - 1;
+                int tolerance = HostChrome.Px(3, ((TabRenderer)strip.Renderer).Dpi);
+                Check(right >= left && (expected[i] == ContentAlignment.MiddleCenter ? Math.Abs(leftSpace - rightSpace) <= tolerance :
+                    expected[i] == ContentAlignment.MiddleRight ? rightSpace <= tolerance : leftSpace <= tolerance),
+                    "Painted Tools text missed its " + expected[i] + " alignment.");
+            }
+        }
+        Console.WriteLine("PASS all group labels cycle together on left click and stay put on right click.");
     }
 
     internal static void Live(PageStrip strip, NativeLayout layout, string fixtureDirectory)

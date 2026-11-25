@@ -101,6 +101,7 @@ internal static class SavedSessionTests
             "<notebook id='a' name='Field book' color='#2468AC'/></page></bookmarks></workingSet>");
         var store = new SessionStore(path);
         var legacy = store.Read();
+        Check(legacy.LabelAlignment == ContentAlignment.MiddleLeft, "Existing sessions must start with left-aligned labels.");
         var first = legacy.Tabs[0];
         var second = legacy.Tabs[1];
         var oldBookmark = legacy.Bookmarks.Single();
@@ -216,12 +217,16 @@ internal static class SavedSessionTests
                     store.Change(s => { s.HomePage = b; s.NewNoteSectionId = "section-b"; s.NewNoteSectionName = "B & C / Projects"; return true; });
                     strip.CloseTab(store.Read().Tabs.Single(t => t.Page.Matches(b)));
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
+                    PrototypeTests.ClickCaption(strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Pinned));
                     ((ToolStripDropDownButton)strip.Items[1]).DropDownItems[0].PerformClick();
                     var tools = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Visible tool buttons");
                     tools.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Forward").PerformClick();
                     break;
                 case "restore":
                     var stored = store.Read();
+                    Check(stored.LabelAlignment == ContentAlignment.MiddleCenter &&
+                        strip.Host.Captions.Controls.OfType<NotebookTabLabel>().All(l => l.TextAlign == ContentAlignment.MiddleCenter),
+                        "Restarting MoreTabs must restore the shared label alignment.");
                     Check(stored.HiddenTools.SetEquals(new[] { "Forward" }) &&
                         strip.Items.OfType<ToolButton>().All(t => t.Available == (t.Name != "Forward")),
                         "A fresh process did not restore individual tool visibility.");

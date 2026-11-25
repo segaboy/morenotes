@@ -392,6 +392,17 @@ internal static class PrototypeTests
         Application.DoEvents();
     }
 
+    internal static void ClickCaption(NotebookTabLabel label, bool right = false)
+    {
+        var center = label.PointToScreen(new Point(label.Width / 2, label.Height / 2));
+        var screenPoint = (IntPtr)((center.Y << 16) | (center.X & 0xffff));
+        Check(SendMessage(label.Handle, 0x0084, IntPtr.Zero, screenPoint) == (IntPtr)1,
+            "Windows must recognize the " + label.Text + " label as a mouse target.");
+        var point = (IntPtr)(((label.Height / 2) << 16) | (label.Width / 2));
+        SendMessage(label.Handle, right ? 0x0204 : 0x0201, (IntPtr)(right ? 2 : 1), point);
+        SendMessage(label.Handle, right ? 0x0205 : 0x0202, IntPtr.Zero, point);
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern int GetMessagePos();
     [System.Runtime.InteropServices.DllImport("user32.dll")]
