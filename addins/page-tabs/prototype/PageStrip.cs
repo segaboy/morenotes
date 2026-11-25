@@ -531,7 +531,8 @@ internal sealed class PageStrip : ToolStrip
     internal void Attach(Rectangle slot, NativeLayout layout = null)
     {
         attachedLayout = layout;
-        Host.Bounds = slot;
+        var row = layout == null ? slot : layout.RowBounds;
+        Host.Place(row, slot);
         if (layout != null)
         {
             layout.StripWindow = Host.Handle;
@@ -539,13 +540,13 @@ internal sealed class PageStrip : ToolStrip
             if (AtBottom != layout.AtBottom) SetDirection(layout.AtBottom);
             ApplyAppearance(layout.Appearance(!Host.Visible));
         }
-        if (NativeLayout.GetParent(Host.Handle) != frame || NativeLayout.Bounds(Host.Handle, frame) != slot)
+        if (NativeLayout.GetParent(Host.Handle) != frame || NativeLayout.Bounds(Host.Handle, frame) != row || Host.StripBounds != slot)
             throw new InvalidOperationException("The strip did not attach within the reserved row.");
         Host.Show();
     }
     internal void FollowResize(Rectangle slot, NativeLayout layout)
     {
-        Host.Bounds = slot;
+        Host.Place(layout.RowBounds, slot);
         if (appearance.Dpi != layout.Dpi) ApplyAppearance(layout.Appearance());
         if (!Host.Visible) Host.Show();
         layout.KeepStripVisible(slot);
@@ -581,7 +582,7 @@ internal sealed class PageStrip : ToolStrip
         notice.SetToolTip(Host.MoveButton, Host.MoveButton.AccessibleName);
         if (appearance != null)
         {
-            Host.Padding = new Padding(0, HostChrome.ContentGap(appearance.Dpi, bottom), 0, 0);
+            Host.SetContentGap(HostChrome.ContentGap(appearance.Dpi, bottom));
             AlignTools();
             PerformLayout();
             Invalidate();
@@ -608,7 +609,7 @@ internal sealed class PageStrip : ToolStrip
             BackColor = appearance.Surface;
             ForeColor = appearance.Ink;
             Host.Style(appearance);
-            Host.Padding = new Padding(0, HostChrome.ContentGap(chrome.Dpi, AtBottom), 0, 0);
+            Host.SetContentGap(HostChrome.ContentGap(chrome.Dpi, AtBottom));
             foreach (var label in labels.Values) StyleCaption(label);
             toolsLabel.GroupFill = appearance.ToolsBand;
             toolsLabel.ForeColor = highContrast ? SystemColors.ControlText : appearance.NotebookInk(appearance.ToolsBand);
@@ -967,7 +968,7 @@ internal sealed class PageStrip : ToolStrip
         SuspendLayout();
         try { UpdateTabItems(); displayedRevision = updated.Revision; }
         finally { ResumeLayout(true); }
-        if (resize && Host.Visible && attachedLayout.StillReserved(Host.Bounds))
+        if (resize && Host.Visible && attachedLayout.StillReserved(Host.StripBounds))
         {
             Rectangle slot = attachedLayout.Reserve(true);
             if (!slot.IsEmpty) Attach(slot, attachedLayout);

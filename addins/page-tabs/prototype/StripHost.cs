@@ -8,6 +8,22 @@ internal sealed class StripHost : Panel
 {
     private readonly IntPtr frame;
     internal event Action<string> OpenPage;
+    internal Rectangle StripBounds
+    {
+        get { return Rectangle.FromLTRB(Left + Padding.Left, Top, Right - Padding.Right, Bottom); }
+    }
+    internal void Place(Rectangle row, Rectangle strip)
+    {
+        var padding = new Padding(strip.Left - row.Left, Padding.Top, row.Right - strip.Right, 0);
+        if (Bounds == row && Padding == padding) return;
+        SuspendLayout();
+        try { Padding = padding; Bounds = row; }
+        finally { ResumeLayout(true); }
+    }
+    internal void SetContentGap(int top)
+    {
+        Padding = new Padding(Padding.Left, top, Padding.Right, 0);
+    }
     internal readonly Panel Captions = new Panel { TabStop = false };
     internal readonly DockArrow MoveButton = new DockArrow {
         Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, UseMnemonic = false
@@ -29,6 +45,15 @@ internal sealed class StripHost : Panel
     }
     protected override void WndProc(ref Message message)
     {
+        if (message.Msg == 0x0084 && Padding.Horizontal != 0) // WM_NCHITTEST
+        {
+            int x = PointToClient(new Point(unchecked((int)message.LParam.ToInt64()))).X;
+            if (x < Padding.Left || x >= ClientSize.Width - Padding.Right)
+            {
+                message.Result = new IntPtr(-1); // HTTRANSPARENT: decorative gutter
+                return;
+            }
+        }
         if (message.Msg == PageMenuCommand.CopyData && Visible && Enabled && OpenPage != null)
         {
             string id = PageMenuCommand.Read(message);

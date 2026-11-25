@@ -24,6 +24,7 @@ internal sealed class NativeLayout : IDisposable
     private Rectangle original, applied;
     internal bool HasReservation { get { return !applied.IsEmpty; } }
     internal bool AtBottom { get; private set; }
+    internal Rectangle RowBounds { get; private set; }
     internal IntPtr StripWindow;
     internal bool ShowCaptions = true;
 
@@ -226,7 +227,8 @@ internal sealed class NativeLayout : IDisposable
         if (follow && bottom) face = Rectangle.Intersect(face, client);
         var slot = bottom ? new Rectangle(face.Left, full.Bottom - height, face.Width, height) :
             new Rectangle(full.Left, full.Top, full.Width, height);
-        if (bottom && (slot.Width < 120 || !client.Contains(slot) || slot.Bottom != client.Bottom || FreeBottom(slot) != slot.Bottom))
+        var row = bottom ? FreeBottomRow(slot, client) : slot;
+        if (bottom && (slot.Width < 120 || !client.Contains(slot) || slot.Bottom != client.Bottom || row.IsEmpty))
             return Unavailable(waitForEditor, "OneNote does not have a free bottom row spanning the ribbon.");
         if (follow && !bottom && FreeBottom(slot) != slot.Bottom)
             return Unavailable(waitForEditor, "Another OneNote control occupies the top row during resize.");
@@ -239,8 +241,23 @@ internal sealed class NativeLayout : IDisposable
         AtBottom = bottom;
         if (DocumentBounds != next || (!follow && !SelectLandmark(next)) || RibbonBounds != ribbon)
             return Unavailable(waitForEditor, "OneNote did not preserve the reserved row.");
+        RowBounds = row;
         WaitReason = null;
         return slot;
+    }
+    // Extend the background into the free gutters. A native pane can own part of either gutter.
+    private Rectangle FreeBottomRow(Rectangle slot, Rectangle client)
+    {
+        var row = Rectangle.FromLTRB(client.Left, slot.Top, client.Right, slot.Bottom);
+        int left = row.Left, right = row.Right;
+        foreach (var other in OccupiedFrameBounds())
+        {
+            if (!other.IntersectsWith(row)) continue;
+            if (other.Right <= slot.Left) left = Math.Max(left, other.Right);
+            else if (other.Left >= slot.Right) right = Math.Min(right, other.Left);
+            else return Rectangle.Empty;
+        }
+        return Rectangle.FromLTRB(left, row.Top, right, row.Bottom);
     }
     internal void KeepStripVisible(Rectangle slot)
     {
@@ -256,13 +273,18 @@ internal sealed class NativeLayout : IDisposable
     {
         int limit = band.Bottom;
         if (band.Height <= 0) return limit;
+        foreach (var other in OccupiedFrameBounds())
+            if (other.IntersectsWith(band)) limit = Math.Min(limit, Math.Max(band.Top, other.Top));
+        return limit;
+    }
+    private IEnumerable<Rectangle> OccupiedFrameBounds()
+    {
         foreach (IntPtr child in Children(Frame, null))
         {
             if (child == Document || child == StripWindow) continue;
             var other = Bounds(child, Frame);
-            if (other.IntersectsWith(band)) limit = Math.Min(limit, Math.Max(band.Top, other.Top));
+            if (other.Width > 0 && other.Height > 0) yield return other;
         }
-        return limit;
     }
     private Rectangle Unavailable(bool waitForEditor, string reason)
     {

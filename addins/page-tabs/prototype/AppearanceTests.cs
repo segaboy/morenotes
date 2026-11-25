@@ -225,10 +225,10 @@ internal static class AppearanceTests
             strip.Host.Height == HostChrome.StripHeight(layout.Dpi, false, strip.AtBottom) &&
             strip.Top == HostChrome.ContentGap(layout.Dpi, strip.AtBottom) &&
             layout.DocumentBounds.Height == fullDocument + HostChrome.CaptionHeight(layout.Dpi) &&
-            layout.StillReserved(strip.Host.Bounds), String.Format(
+            layout.StillReserved(strip.Host.StripBounds), String.Format(
                 "Hiding captions with pins: colors {0}/{1}, grouping {2}, labels {3}/{4}, visible {5}/{6}, strip {7}px, document {8}px (was {9}px), reserved {10}.",
                 colors.Enabled, colors.Checked, group.Checked, labels.Enabled, labels.Checked, strip.Host.Captions.Visible,
-                grouped[2].Group.Visible, strip.Host.Height, layout.DocumentBounds.Height, fullDocument, layout.StillReserved(strip.Host.Bounds)));
+                grouped[2].Group.Visible, strip.Host.Height, layout.DocumentBounds.Height, fullDocument, layout.StillReserved(strip.Host.StripBounds)));
         group.PerformClick();
         CheckGroupDividers(strip, 2);
         Check(!labels.Enabled && !colors.Enabled && strip.Items.OfType<PageTabButton>().First() == grouped[2],

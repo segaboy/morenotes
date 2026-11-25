@@ -957,7 +957,7 @@ internal static class PrototypeTests
                     {
                         if (step > 0)
                         {
-                            var slot = strip.Host.Bounds;
+                            var slot = strip.Host.StripBounds;
                             Check(!hidden && strip.Host.Visible && strip.AtBottom == bottom && strip.ActiveTabKey == active &&
                                 (bottom ? slot.Bottom == frame.ClientSize.Height && slot.Top == body.Bottom &&
                                     slot.Left == ribbon.Left && slot.Right == ribbon.Right :
@@ -967,8 +967,10 @@ internal static class PrototypeTests
                             if (bottom)
                             {
                                 var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(label => label.Text == "Tools");
-                                Check(NativeLayout.Bounds(tools.Handle, frame.Handle).Left == layout.RibbonFaceBounds.Left,
-                                    "The visible Tools container lost the ribbon's left edge during resize.");
+                                Check(strip.Host.Left == 0 && strip.Host.Right == frame.ClientSize.Width &&
+                                    NativeLayout.Bounds(tools.Handle, frame.Handle).Left == layout.RibbonFaceBounds.Left &&
+                                    NativeLayout.Bounds(strip.Host.MoveButton.Handle, frame.Handle).Right == layout.RibbonFaceBounds.Right,
+                                    "Resize left a gutter unpainted or moved the controls off the ribbon edges.");
                             }
                         }
                         if (step == 0) NotifyWinEvent(10, frame.Handle, 0, 0);
@@ -989,7 +991,7 @@ internal static class PrototypeTests
                         }
                         else
                         {
-                            Check(layout.StillReserved(strip.Host.Bounds), "The settled resize failed normal editor validation.");
+                            Check(layout.StillReserved(strip.Host.StripBounds), "The settled resize failed normal editor validation.");
                             drag.Stop();
                             Application.ExitThread();
                         }
@@ -1036,7 +1038,7 @@ internal static class PrototypeTests
             Check(!strip.AtBottom && layout.StillReserved(strip.Host.Bounds), "Moving would have covered a frame control.");
             sibling.Hide();
             arrow.PerformClick();
-            var bottom = strip.Host.Bounds;
+            var bottom = strip.Host.StripBounds;
             Check(strip.AtBottom && arrow.PointsUp && strip.DefaultDropDownDirection == ToolStripDropDownDirection.AboveRight &&
                 layout.StillReserved(bottom) && bottom == layout.Reserve() && bottom.Bottom == frame.ClientSize.Height &&
                 bottom.Width == frame.ClientSize.Width && NativeLayout.Bounds(footer.Handle, frame.Handle).Bottom == bottom.Top,
@@ -1074,6 +1076,7 @@ internal static class PrototypeTests
             strip.Attach(bottom, layout);
             Check(layout.StillReserved(bottom) && bottom.Bottom == full.Bottom && bottom.Left == ribbon.Left && bottom.Right == ribbon.Right,
                 "The bottom strip did not follow both inset ribbon edges after resize.");
+            CheckBottomGutters(frame, layout, strip, bottom);
             ribbon.X += 4;
             NativeLayout.Move(layout.Ribbon, ribbon);
             Check(!layout.StillReserved(bottom), "A ribbon-only move left the old reservation valid.");
@@ -1100,6 +1103,54 @@ internal static class PrototypeTests
         }
         Console.WriteLine("PASS ribbon-aligned bottom docking, inset and wider ribbons, occupied side pane, native footer, resize and top round trip.");
         return full;
+    }
+
+    private static void CheckBottomGutters(Form frame, NativeLayout layout, PageStrip strip, Rectangle slot)
+    {
+        var host = strip.Host;
+        var tools = host.Captions.Controls.OfType<NotebookTabLabel>().Single(label => label.Text == "Tools");
+        Check(host.Left == 0 && host.Right == frame.ClientSize.Width && host.Padding.Left > 0 &&
+            host.Padding.Right > 0 && host.Padding.Left != host.Padding.Right, "Expected two unequal bottom gutters.");
+        foreach (int x in new[] { 0, host.Width - 1 })
+        {
+            var point = host.PointToScreen(new Point(x, host.Height / 2));
+            var screenPoint = (IntPtr)((point.Y << 16) | (point.X & 0xffff));
+            Check(SendMessage(host.Handle, 0x0084, IntPtr.Zero, screenPoint) == (IntPtr)(-1),
+                "A decorative gutter claimed a pointer hit.");
+        }
+        foreach (Color surface in new[] { Color.FromArgb(17, 12, 8), Color.FromArgb(82, 79, 76), Color.WhiteSmoke, SystemColors.Window })
+        {
+            strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = surface, Inset = 25, HighContrast = surface.IsSystemColor });
+            Check(NativeLayout.Bounds(tools.Handle, frame.Handle).Left == slot.Left &&
+                NativeLayout.Bounds(host.MoveButton.Handle, frame.Handle).Right == slot.Right, "A theme switch moved the bottom controls.");
+            using (var image = new Bitmap(host.Width, host.Height))
+            {
+                host.DrawToBitmap(image, host.ClientRectangle);
+                int rgb = image.GetPixel(image.Width / 2, 0).ToArgb();
+                Check(rgb == surface.ToArgb(), "The bottom padding lost the current theme.");
+                for (int y = 0; y < image.Height; y++)
+                {
+                    for (int x = 0; x < host.Padding.Left; x++)
+                        Check(image.GetPixel(x, y).ToArgb() == rgb, "Left gutter does not match the strip.");
+                    for (int x = image.Width - host.Padding.Right; x < image.Width; x++)
+                        Check(image.GetPixel(x, y).ToArgb() == rgb, "Right gutter does not match the strip.");
+                }
+            }
+        }
+        using (var left = new Panel { Bounds = new Rectangle(0, slot.Top, 4, slot.Height) })
+        using (var right = new Panel { Bounds = new Rectangle(frame.ClientSize.Width - 6, slot.Top, 6, slot.Height) })
+        {
+            frame.Controls.Add(left);
+            frame.Controls.Add(right);
+            strip.Attach(layout.Reserve(), layout);
+            Check(host.Left == left.Right && host.Right == right.Left && host.StripBounds == slot &&
+                frame.GetChildAtPoint(left.Location) == left && frame.GetChildAtPoint(right.Location) == right,
+                "A native edge control was covered by a gutter.");
+        }
+        strip.Attach(layout.Reserve(), layout);
+        Check(host.Left == 0 && host.Right == frame.ClientSize.Width && host.StripBounds == slot,
+            "The gutter background did not reclaim space released by a native control.");
+        Console.WriteLine("PASS both gutters match the bottom strip pixel for pixel across theme changes and leave native edge controls accessible.");
     }
 
     private static void CheckSelectionFails(List<IntPtr> matches, IntPtr current, IntPtr requested)

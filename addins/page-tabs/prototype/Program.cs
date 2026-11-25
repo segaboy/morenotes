@@ -155,7 +155,7 @@ internal static class Program
                     {
                         Application.DoEvents();
                         System.Threading.Thread.Sleep(100);
-                        if (!layout.StillReserved(slot) || NativeLayout.Bounds(strip.Host.Handle, layout.Frame) != slot)
+                        if (!layout.StillReserved(slot) || NativeLayout.Bounds(strip.Host.Handle, layout.Frame) != layout.RowBounds)
                             throw new InvalidOperationException("The host reclaimed or moved the strip during the idle placement test.");
                     }
                     strip.Host.Enabled = true;
@@ -165,7 +165,7 @@ internal static class Program
                     {
                         strip.Host.MoveButton.PerformClick();
                         if (!strip.AtBottom) throw new InvalidOperationException("The move to the bottom was declined.");
-                        Rectangle bottom = strip.Host.Bounds;
+                        Rectangle bottom = strip.Host.StripBounds;
                         for (int i = 0; i < 12; i++)
                         {
                             Application.DoEvents();
