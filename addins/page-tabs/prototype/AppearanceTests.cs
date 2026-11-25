@@ -157,6 +157,7 @@ internal static class AppearanceTests
         var grouped = strip.Items.OfType<PageTabButton>().ToArray();
         var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
         colors.PerformClick();
+        CheckGroupDividers(strip, 2);
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
             strip.ApplyAppearance(new HostChrome { Dpi = layout.Dpi, Surface = surface });
@@ -166,6 +167,7 @@ internal static class AppearanceTests
                 "Turning off notebook colors must preserve the neutral Tools band across theme changes.");
         }
         colors.PerformClick();
+        CheckGroupDividers(strip, 2);
         using (var image = new Bitmap(strip.Width, strip.Height))
         {
             strip.DrawToBitmap(image, strip.ClientRectangle);
@@ -356,9 +358,26 @@ internal static class AppearanceTests
     {
         var items = strip.Items.Cast<ToolStripItem>().Where(i => i.Available && i.Placement == ToolStripItemPlacement.Main &&
             (i is ToolStripSeparator || i is PageTabButton || i is PagePicker)).ToArray();
-        int groups = expectedGroups ?? items.OfType<PageTabButton>().Select(t => t.Group).Distinct().Count();
-        Check(items.Length >= 2 && items[0] is ToolStripSeparator && items.Last() is PagePicker &&
-            items.OfType<ToolStripSeparator>().Count() == 1 + groups, "Tools, tab groups and the page picker have incorrect boundaries.");
+        var groups = items.OfType<PageTabButton>().Select(t => t.Group).Distinct().ToArray();
+        Check(items.LastOrDefault() is PagePicker && (!expectedGroups.HasValue || groups.Length == expectedGroups.Value),
+            "The visible tab groups must precede the page picker.");
+        var options = (ToolStripDropDownButton)strip.Items[1];
+        if (((ToolStripMenuItem)options.DropDownItems[2]).Checked)
+        {
+            Check(!strip.Items.OfType<ToolStripSeparator>().Any(s => s.Available), "Colored bands must replace every strip divider.");
+            var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
+            int right = tools.Right;
+            int gap = 2 * HostChrome.Px(1, ((TabRenderer)strip.Renderer).Dpi);
+            foreach (var group in groups)
+            {
+                Check(group.Left - right == gap, "A hidden divider left excess space before " + group.Text + ".");
+                right = group.Right;
+            }
+            Check(items.Last().Bounds.Left - right == gap, "The page picker must follow the last band by one tab gap.");
+            return;
+        }
+        Check(items[0] is ToolStripSeparator && items.OfType<ToolStripSeparator>().Count() == 1 + groups.Length,
+            "Tools, tab groups and the page picker must have dividers when colored labels are off.");
         for (int i = 1; i < items.Length - 1; i++)
         {
             var tab = items[i] as PageTabButton;
@@ -378,8 +397,7 @@ internal static class AppearanceTests
         Check(star != null && star.Available && star.AccessibleName == "Bookmarks" && !star.ShowDropDownArrow &&
             star.DisplayStyle == ToolStripItemDisplayStyle.None, "Expected an icon-only bookmark menu.");
         CheckGroupDividers(strip);
-        Check(star.Bounds.Right <= dividers[0].Bounds.Left && dividers[0].Bounds.Right <= first.Bounds.Left,
-            "Bookmark menu and first divider must precede the tabs.");
+        Check(strip.MenuTabBounds.Right <= first.Bounds.Left, "Tools must precede the tabs.");
         var active = strip.Items.OfType<PageTabButton>().Single(b => b.Checked);
         var palette = (TabRenderer)strip.Renderer;
         bool bottom = strip.AtBottom;
@@ -605,7 +623,7 @@ internal static class AppearanceTests
         TogglePin(strip, schedule, false);
         Check(active.Checked, "Unpinning switched the active tab.");
         CheckGroupDividers(strip);
-        Console.WriteLine("PASS bookmark star, subtle vertical dividers and pin/unpin via the tab menu with the active tab preserved.");
+        Console.WriteLine("PASS bookmark star, group boundaries and pin/unpin via the tab menu with the active tab preserved.");
         Console.WriteLine("PASS tab rendering in OneNote: surface #{0:X6}, bookmark star X={1}px ({2}), DPI {3}; square top and rounded lower corners.",
             chrome.Surface.ToArgb() & 0xffffff, chrome.Inset, !layout.VerticalTabs && chrome.Measured ? "measured notebook icon" : "default inset", chrome.Dpi);
     }
