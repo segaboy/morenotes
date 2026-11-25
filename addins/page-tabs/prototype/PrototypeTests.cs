@@ -403,6 +403,92 @@ internal static class PrototypeTests
         SendMessage(label.Handle, right ? 0x0205 : 0x0202, IntPtr.Zero, point);
     }
 
+    internal static void ClickNotebookPin(NotebookTabLabel label)
+    {
+        var pin = label.Pin;
+        Check(pin != null && pin.Visible, "Missing notebook pin on " + label.Text);
+        Check(label.GetChildAtPoint(new Point(pin.Left + pin.Width / 2, pin.Top + pin.Height / 2)) == pin,
+            "The pin must own the hit target at the left edge of the caption.");
+        bool before = pin.Checked;
+        var target = (IntPtr)(((pin.Height / 2) << 16) | (pin.Width / 2));
+        SendMessage(pin.Handle, 0x0201, (IntPtr)1, target);
+        SendMessage(pin.Handle, 0x0202, IntPtr.Zero, target);
+        Check(before != pin.Checked, "The pin action did not change " + label.Text + ".");
+    }
+
+    internal static void CheckNotebookPins(SessionStore store, bool reopen)
+    {
+        var pages = new TestPages();
+        pages.Navigate("a/1");
+        string[] ids = { "b/1", "a/1", "b/2", "personal/quick/1", "b/3" };
+        if (!reopen)
+            store.Change(s => {
+                foreach (var id in ids)
+                    s.Tabs.Add(new SavedTab(id, new SavedPage(id, pages.Caption(id), "", pages.PageLocations(new[] { id })[id]), id == ids[0]));
+                return true;
+            });
+        using (var frame = new Form { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
+            Location = new Point(-16000,-16000), ClientSize = new Size(1500, 300) })
+        using (var strip = new PageStrip(frame.Handle, pages, delegate {}, e => { throw e; }, store))
+        {
+            frame.Show();
+            strip.Attach(new Rectangle(0, 0, 1500, HostChrome.StripHeight(96)));
+            strip.RestoreOrSeed("a/1");
+            Func<string, NotebookTabLabel> label = name => strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == name);
+            Action<string> checkOrder = expected => {
+                string actual = String.Join("|", strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible)
+                    .OrderBy(l => l.Left).Select(l => l.Text));
+                Check(actual == expected, "Notebook group order was " + actual + ", expected " + expected);
+                Check(label("Tools").Pin == null && label("Pinned").Pin == null && strip.ActiveTabKey == "a/1" && pages.Current == "a/1" &&
+                    store.Read().Tabs.Where(t => t.Pinned).Single().Key == "b/1" && ids.SequenceEqual(store.Read().Tabs.Select(t => t.Key)) &&
+                    strip.Items.OfType<PageTabButton>().Where(t => t.Group.Text == "Workshop").Select(t => ((SavedTab)t.Tag).Key).SequenceEqual(new[]{"b/2","b/3"}),
+                    "Group pinning changed a tab pin, active page, or saved tab order.");
+            };
+            if (reopen)
+            {
+                checkOrder("Tools|Pinned|Workshop|Personal|Atlas");
+                Check(label("Workshop").Pin.Checked && label("Personal").Pin.Checked && !label("Atlas").Pin.Checked,
+                    "Notebook pin icons did not reflect the persisted pins.");
+                var personal = store.Read().Tabs.Single(t => t.Page.Id == "personal/quick/1");
+                strip.CloseTab(personal);
+                Check(!strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Any(l => l.Text == "Personal") &&
+                    store.Read().PinnedNotebookKeys.SequenceEqual(new[]{"id:b","id:personal"}),
+                    "An empty notebook group must disappear and retain its pin.");
+                strip.OpenSaved(personal.Page, newTab: true);
+                Check(label("Personal").Pin.Checked && label("Workshop").Right <= label("Personal").Left &&
+                    label("Personal").Right <= label("Atlas").Left, "A returning notebook lost its place among pinned groups.");
+                Console.WriteLine("PASS notebook pin order after restart, closing the last tab and reopening the notebook group.");
+                return;
+            }
+            checkOrder("Tools|Pinned|Atlas|Workshop|Personal");
+            ClickNotebookPin(label("Personal"));
+            ClickNotebookPin(label("Workshop"));
+            checkOrder("Tools|Pinned|Personal|Workshop|Atlas");
+            ClickNotebookPin(label("Personal"));
+            checkOrder("Tools|Pinned|Workshop|Atlas|Personal");
+            Check(!label("Personal").Pin.Checked && label("Workshop").Pin.Checked && store.Read().LabelAlignment == ContentAlignment.MiddleLeft,
+                "Clicking the pin changed label alignment or failed to update its state.");
+            var settings = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems;
+            settings[1].PerformClick();
+            var menu = strip.TabMenuFor(store.Read().Tabs.Single(t => t.Key == "personal/quick/1"));
+            menu.Items.Cast<ToolStripItem>().Single(i => i.Text == "Pin notebook group").PerformClick();
+            settings[1].PerformClick();
+            settings[0].PerformClick();
+            settings[0].PerformClick();
+            checkOrder("Tools|Pinned|Workshop|Personal|Atlas");
+            ClickCaption(label("Workshop"));
+            Check(label("Workshop").Pin.Checked && store.Read().LabelAlignment == ContentAlignment.MiddleCenter,
+                "Clicking the notebook name must still align captions independently of its pin.");
+            strip.Host.Width = 310;
+            strip.MoreTabs.ShowDropDown();
+            var hidden = strip.Items.OfType<PageTabButton>().Where(t => !t.Available).Select(t => t.Group.Text).Distinct();
+            Check(strip.MoreTabs.DropDownItems.OfType<BookmarkHeader>().Select(h => h.Text).SequenceEqual(hidden),
+                "The overflow menu lost the pinned group order.");
+            strip.MoreTabs.HideDropDown();
+            Console.WriteLine("PASS click to pin and unpin multiple notebooks, independent tab pins, hidden labels, alignment and overflow.");
+        }
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern int GetMessagePos();
     [System.Runtime.InteropServices.DllImport("user32.dll")]

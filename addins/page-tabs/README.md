@@ -43,7 +43,7 @@ When the window narrows, long tab titles shorten first. If the tabs still need m
 
 MoreTabs uses OneNote's notebook navigation background in both tab views. In horizontal view it also aligns the star with the native notebook icon. In vertical view it samples the upper-left notebook navigation header and uses a DPI-scaled inset. The strip refreshes as the theme changes. While the header is hidden or covered, it keeps the last measured color. Until the first measurement it uses the Office or Windows theme setting. Windows high-contrast colors take precedence.
 
-![MoreTabs docked at the top, with a pinned page and a colored backing behind each notebook group](appearance.png)
+![Top dock with Tools, a pinned page, the pinned Workshop notebook, and the unpinned Open Studio notebook](appearance.png)
 
 ![MoreTabs docked at the bottom, with notebook captions above the tabs](appearance-bottom.png)
 
@@ -75,7 +75,9 @@ Group labels start left-aligned. Left-click any notebook name, **Tools**, or **P
 
 The Tools buttons share the outline of an inactive page tab. A neutral gray band wraps the buttons and their label, follows the OneNote theme, and resizes to fit the visible tools. With colored labels on, **Pinned** has a gold band in light themes and an amber band in dark themes. Each pinned tab retains its page's section stripe. Windows high contrast uses system colors.
 
-Groups appear in order of their first open tab. Tabs within a group keep their saved order. Notebook IDs distinguish notebooks with the same name.
+Click the outlined pushpin at the left of a notebook label to pin the entire group. The pin becomes solid and upright. Individually pinned pages stay under **Pinned**, immediately after **Tools**. Pinned notebooks come next, in the order you pinned them. Click a solid pin to return the notebook to its usual position among the remaining groups, which are ordered by their first open tab. Tabs within each notebook keep their saved order.
+
+MoreTabs remembers the notebook pin when you restart or close the notebook's last tab. Opening a tab from that notebook brings its pinned group back. If labels are hidden or a group is in the overflow menu, right-click one of its regular tabs and choose **Pin notebook group** or **Unpin notebook group**. Turning notebook grouping off suspends the group ordering and preserves the pins for when you turn it on again.
 
 The bookmarks menu lists notebooks alphabetically, with each notebook's icon and name on a band in its color. Within each notebook, pages appear in the order they were bookmarked. Each section label uses the native section tab color and ends in a forward-slanted edge. The page title sits on the muted section color. One shared column aligns titles across all notebook groups, including in the removal menu. Long section names are ellipsized once the column reaches half the screen's working width.
 

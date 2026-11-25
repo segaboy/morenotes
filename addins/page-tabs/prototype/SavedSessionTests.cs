@@ -57,7 +57,7 @@ internal static class SavedSessionTests
         Directory.CreateDirectory(directory);
         try
         {
-            foreach (string phase in new[] { "save", "restore", "empty", "overflow" })
+            foreach (string phase in new[] { "save", "restore", "empty", "overflow", "pin-groups", "reopen-groups" })
             {
                 var start = new ProcessStartInfo(Application.ExecutablePath, "sessiontest " + run.ToString("D") + " " + phase) {
                     UseShellExecute = false, CreateNoWindow = true
@@ -102,6 +102,7 @@ internal static class SavedSessionTests
         var store = new SessionStore(path);
         var legacy = store.Read();
         Check(legacy.LabelAlignment == ContentAlignment.MiddleLeft, "Existing sessions must start with left-aligned labels.");
+        Check(legacy.PinnedNotebookKeys.Count == 0, "Older sessions must start without notebook pins.");
         var first = legacy.Tabs[0];
         var second = legacy.Tabs[1];
         var oldBookmark = legacy.Bookmarks.Single();
@@ -110,6 +111,12 @@ internal static class SavedSessionTests
         store.Change(s => s.UpdateBookmarkOwners(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
         Check(store.Read().Bookmarks.Single().Location.SameAs(sections["s1"]), "Could not backfill a legacy bookmark's section.");
         store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "a", sections["s1"] } }));
+        store.Change(s => s.SetNotebookPinned("name:SHARED", true));
+        store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "b", sections["s2"] } }));
+        var duplicateName = new BookmarkLocation(new BookmarkNotebook("b", "Field book", Color.Teal), "Projects", Color.Empty);
+        store.Change(s => s.UpdateTabNotebooks(new Dictionary<string, BookmarkLocation> { { "b", duplicateName } }));
+        Check(store.Read().PinnedNotebookKeys.SequenceEqual(new[]{"id:b"}), "A name-only notebook pin lost its ID when the notebook was renamed.");
+        Check(store.Read().NotebookPinOrder("id:a") == Int32.MaxValue, "A notebook inherited the pin of a notebook with the same name.");
         store.Change(s => s.UpdateTab(first, new SavedPage("a", "Renamed / Field book", "")));
         Check(new SessionStore(path).Read().Tabs[0].Page.Notebook.SameAs(sections["s1"].Notebook),
             "A legacy tab lost its saved notebook ID, name or color when renamed and reopened offline.");
@@ -208,6 +215,11 @@ internal static class SavedSessionTests
     }
     private static void RunPhase(Guid run, string phase)
     {
+        if (phase == "pin-groups" || phase == "reopen-groups")
+        {
+            PrototypeTests.CheckNotebookPins(new SessionStore(Path.Combine(DirectoryFor(run), "group-pins.xml")), phase == "reopen-groups");
+            return;
+        }
         if (phase == "overflow")
         {
             PrototypeTests.CheckTabOverflow(new SessionStore(Path.Combine(DirectoryFor(run), "overflow.xml")));

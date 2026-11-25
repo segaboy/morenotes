@@ -92,15 +92,52 @@ internal sealed class PageTabButton : ToolStripButton
     }
 }
 
+internal sealed class NotebookPinButton : CheckBox
+{
+    internal NotebookPinButton()
+    {
+        AutoSize = AutoCheck = TabStop = false;
+        SetStyle(ControlStyles.Selectable, false);
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
+        BackColor = Color.Transparent;
+        Cursor = Cursors.Hand;
+        AccessibleRole = AccessibleRole.CheckButton;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        float scale = Math.Min(Width / 18f, Height / 16f);
+        if (scale <= 0) return;
+        var g = e.Graphics;
+        var saved = g.Save();
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TranslateTransform(Width / 2f, Height / 2f);
+        g.ScaleTransform(scale, scale);
+        if (!Checked) g.RotateTransform(32);
+        using (var pen = new Pen(ForeColor, 1.25f) { LineJoin = LineJoin.Round, EndCap = LineCap.Round })
+        using (var fill = new SolidBrush(ForeColor))
+        {
+            var head = new[] { new PointF(-3.4f,-5.6f), new PointF(3.4f,-5.6f),
+                new PointF(2.1f,-3.5f), new PointF(2.1f,-.8f), new PointF(4.3f,1.6f),
+                new PointF(-4.3f,1.6f), new PointF(-2.1f,-.8f), new PointF(-2.1f,-3.5f) };
+            if (Checked) g.FillPolygon(fill, head);
+            g.DrawPolygon(pen, head);
+            g.DrawLine(pen, 0, 1.6f, 0, 6.2f);
+        }
+        g.Restore(saved);
+    }
+}
+
 internal sealed class NotebookTabLabel : Label
 {
     internal BookmarkNotebook Notebook;
     internal bool Pinned;
+    internal readonly NotebookPinButton Pin;
     internal ToolStripSeparator Divider;
     internal Color GroupFill { get; set; }
     private int cornerRadius;
     private const TextFormatFlags Flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
-    internal NotebookTabLabel()
+    internal NotebookTabLabel(bool hasNotebookPin = false)
     {
         AccessibleRole = AccessibleRole.StaticText;
         AccessibleDescription = "Click to cycle all group labels through left, center, and right alignment.";
@@ -109,6 +146,11 @@ internal sealed class NotebookTabLabel : Label
         TabStop = false;
         UseMnemonic = false;
         SetStyle(ControlStyles.Selectable | ControlStyles.StandardDoubleClick, false);
+        if (hasNotebookPin)
+        {
+            Pin = new NotebookPinButton();
+            Controls.Add(Pin);
+        }
     }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -126,7 +168,13 @@ internal sealed class NotebookTabLabel : Label
         }
         var title = new Rectangle(Padding.Left, 0, Math.Max(0, Width - Padding.Horizontal), Height - Padding.Vertical);
         TextFormatFlags horizontal = TextFormatFlags.Left;
-        if (TextAlign == ContentAlignment.MiddleCenter) horizontal = TextFormatFlags.HorizontalCenter;
+        if (TextAlign == ContentAlignment.MiddleCenter)
+        {
+            horizontal = TextFormatFlags.HorizontalCenter;
+            int centeredWidth = Width - 2 * Padding.Left;
+            if (Pin != null && centeredWidth >= TextRenderer.MeasureText(Text, Font, Size.Empty, Flags).Width)
+                title.Width = centeredWidth;
+        }
         if (TextAlign == ContentAlignment.MiddleRight) horizontal = TextFormatFlags.Right;
         TextRenderer.DrawText(e.Graphics, Text, Font, title, ForeColor,
             Flags | horizontal | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
@@ -137,7 +185,14 @@ internal sealed class NotebookTabLabel : Label
         cornerRadius = TabRenderer.CornerRadius(dpi);
         int bandLeft = Math.Max(0, left - endPadding);
         // The menu font leaves more space above its visible glyphs than below them.
-        Padding = new Padding(cornerRadius + left - bandLeft, 0, cornerRadius + endPadding, 2 * HostChrome.Px(1, dpi));
+        int inset = cornerRadius + left - bandLeft;
+        if (Pin != null)
+        {
+            int pinWidth = HostChrome.Px(18, dpi);
+            Pin.Bounds = new Rectangle(inset - HostChrome.Px(3, dpi), 0, pinWidth, height);
+            inset = Pin.Right + HostChrome.Px(2, dpi);
+        }
+        Padding = new Padding(inset, 0, cornerRadius + endPadding, 2 * HostChrome.Px(1, dpi));
         Bounds = Rectangle.FromLTRB(bandLeft, 0, right + endPadding, height);
     }
 }

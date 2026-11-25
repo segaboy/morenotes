@@ -364,6 +364,8 @@ internal sealed class PageStrip : ToolStrip
             if (e.Button == MouseButtons.Left)
                 Perform(delegate { ApplyState(store.Change(s => s.CycleLabelAlignment())); });
         };
+        if (label.Pin != null)
+            label.Pin.Click += delegate { Perform(delegate { SetNotebookPinned(label.Notebook.GroupKey, !label.Pin.Checked); }); };
         Host.Captions.Controls.Add(label);
     }
     private void BindTool(ToolButton button, Action action)
@@ -995,9 +997,7 @@ internal sealed class PageStrip : ToolStrip
         }
         int position = Items.IndexOf(bookmarkDivider) + 1;
         var used = new HashSet<string>();
-        var known = state.Tabs.Select(t => t.Page.Notebook).Concat(state.Bookmarks.Select(p => p.Notebook))
-            .Where(book => book != null).GroupBy(book => book.Id).Select(g => g.First())
-            .ToLookup(book => book.Name, StringComparer.CurrentCultureIgnoreCase);
+        var known = state.KnownNotebooks();
         foreach (bool pinned in new[] { true, false })
         {
             // GroupBy keeps the order of first appearance and the saved order inside each notebook.
@@ -1006,14 +1006,16 @@ internal sealed class PageStrip : ToolStrip
                 if (book.Id.Length == 0 && known[book.Name].Count() == 1) book = known[book.Name].First();
                 return new { Tab = tab, Book = book };
             }).GroupBy(entry => !pinned && state.GroupByNotebook ? entry.Book.GroupKey : "");
-            foreach (var group in groups)
+            foreach (var group in groups.OrderBy(g => state.NotebookPinOrder(g.Key)))
             {
                 var key = (pinned ? "p:" : "r:") + group.Key;
                 used.Add(key);
                 NotebookTabLabel label;
                 if (!labels.TryGetValue(key, out label))
                 {
-                    labels.Add(key, label = new NotebookTabLabel { Font = captionFont, Visible = false, Pinned = pinned, Divider = new ToolStripSeparator() });
+                    labels.Add(key, label = new NotebookTabLabel(!pinned && state.GroupByNotebook) {
+                        Font = captionFont, Visible = false, Pinned = pinned, Divider = new ToolStripSeparator()
+                    });
                     SizeDivider(label.Divider);
                     AddCaption(label);
                 }
@@ -1024,6 +1026,16 @@ internal sealed class PageStrip : ToolStrip
                 {
                     label.Text = label.AccessibleName = caption;
                     notice.SetToolTip(label, label.Text + Environment.NewLine + label.AccessibleDescription);
+                }
+                if (label.Pin != null)
+                {
+                    label.Pin.Checked = state.NotebookPinOrder(group.Key) != Int32.MaxValue;
+                    string action = (label.Pin.Checked ? "Unpin " : "Pin ") + caption + " notebook group";
+                    if (label.Pin.AccessibleName != action)
+                    {
+                        label.Pin.AccessibleName = action;
+                        notice.SetToolTip(label.Pin, action);
+                    }
                 }
                 StyleCaption(label);
                 foreach (var entry in group)
@@ -1152,7 +1164,7 @@ internal sealed class PageStrip : ToolStrip
             int width = Math.Min(preferred[tab], readable);
             if (width + overhead > space)
             {
-                if (saved.Key != activeKey && !saved.Pinned) continue;
+                if (saved.Key != activeKey && !saved.Pinned && (tab.Group.Pin == null || !tab.Group.Pin.Checked)) continue;
                 int floor = HostChrome.Px(saved.Key == activeKey ? 48 : 70, appearance.Dpi);
                 if (space - overhead < floor) break;
                 width = space - overhead;
@@ -1177,8 +1189,8 @@ internal sealed class PageStrip : ToolStrip
             growing.RemoveAll(t => t.WidthLimit == preferred[t]);
         }
         int hidden = tabs.Count - visible.Count;
-        if (MoreTabs.DropDown.Visible && (MoreTabs.DropDownItems.OfType<PageTabButton>().Count() != hidden ||
-            tabs.Any(t => t.Available != visible.Contains(t)))) MoreTabs.HideDropDown();
+        if (MoreTabs.DropDown.Visible && !MoreTabs.DropDownItems.OfType<PageTabButton>().Select(t => ((SavedTab)t.Tag).Key)
+            .SequenceEqual(tabs.Where(t => !visible.Contains(t)).Select(t => ((SavedTab)t.Tag).Key))) MoreTabs.HideDropDown();
         if (hidden > 0)
         {
             MoreTabs.TabWidth = countWidth;
@@ -1252,6 +1264,14 @@ internal sealed class PageStrip : ToolStrip
         ClearMenu(tabMenu.Items);
         tabMenu.Items.Add("Open in new tab", null, delegate { Perform(delegate { OpenSaved(tab.Page, newTab: true); }); });
         tabMenu.Items.Add(tab.Pinned ? "Unpin tab" : "Pin tab", null, delegate { Perform(delegate { SetPinned(tab.Key, !tab.Pinned); }); });
+        PageTabButton button;
+        if (buttons.TryGetValue(tab.Key, out button) && button.Group.Pin != null)
+        {
+            string key = button.Group.Notebook.GroupKey;
+            bool pin = !button.Group.Pin.Checked;
+            tabMenu.Items.Add(pin ? "Pin notebook group" : "Unpin notebook group", null,
+                delegate { Perform(delegate { SetNotebookPinned(key, pin); }); });
+        }
         tabMenu.Items.Add("Bookmark this tab", null, delegate { Perform(delegate { SaveBookmark(tab.Page); }); });
         tabMenu.Items.Add("Close tab", null, delegate { Perform(delegate { CloseTab(tab); }); });
         return tabMenu;
@@ -1260,6 +1280,10 @@ internal sealed class PageStrip : ToolStrip
     {
         ApplyState(store.Change(s => s.SetPinned(key, pinned)));
         RefreshActive();
+    }
+    private void SetNotebookPinned(string key, bool pinned)
+    {
+        ApplyState(store.Change(s => s.SetNotebookPinned(key, pinned)));
     }
     private static void ClearMenu(ToolStripItemCollection items)
     {
@@ -1495,6 +1519,7 @@ internal sealed class PageStrip : ToolStrip
     private void ShowUncachedNotebooks(Dictionary<string, BookmarkLocation> owners)
     {
         state.UpdateTabNotebooks(owners);
+        state.ResolveNotebookPins();
         SuspendLayout();
         try { UpdateTabItems(); }
         finally { ResumeLayout(true); }

@@ -25,6 +25,10 @@ internal static class AppearanceTests
             strip.Items.OfType<PageTabButton>().Select(t => t.Group.Text).SequenceEqual(new[] { "Atlas", "Atlas", "Workshop" }),
             "Interleaved pages must form notebook groups that distinguish duplicate page titles.");
         CheckGroupDividers(strip, 2);
+        var workshopLabel = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Workshop");
+        PrototypeTests.ClickNotebookPin(workshopLabel);
+        Check(strip.Items.OfType<PageTabButton>().First().Group == workshopLabel, "A notebook pin failed to move its group at this dock edge.");
+        PrototypeTests.ClickNotebookPin(workshopLabel);
         var schedule = strip.Items.OfType<PageTabButton>().ElementAt(1);
         var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
         TogglePin(strip, schedule, true);
@@ -482,7 +486,9 @@ internal static class AppearanceTests
                     int pad = colored ? 2 * edge : 0;
                     Check(label.Visible && !label.CanSelect && label.AccessibleName == label.Text && label.Font.Style == FontStyle.Regular &&
                         label.Font.Size < first.Font.Size && box.Left + pad == group.First().Bounds.Left &&
-                        label.Padding.Left == pad + TabRenderer.CornerRadius(chrome.Dpi) && box.Right - pad == group.Last().Bounds.Right &&
+                        (label.Pin == null ? label.Padding.Left == pad + TabRenderer.CornerRadius(chrome.Dpi) :
+                            label.Pin.Left == pad + TabRenderer.CornerRadius(chrome.Dpi) - HostChrome.Px(3, chrome.Dpi) &&
+                            label.Padding.Left == label.Pin.Right + HostChrome.Px(2, chrome.Dpi)) && box.Right - pad == group.Last().Bounds.Right &&
                         box.Height == label.Font.Height + HostChrome.Px(3, chrome.Dpi) &&
                         (bottom ? group.First().Bounds.Top == 0 : group.First().Bounds.Bottom == strip.Height),
                         "The caption must center in the full space between the tab and band edges, with equal end padding.");

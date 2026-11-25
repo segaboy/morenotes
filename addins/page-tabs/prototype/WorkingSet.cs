@@ -67,6 +67,7 @@ internal sealed class WorkingSet
 {
     internal readonly List<SavedTab> Tabs = new List<SavedTab>();
     internal readonly List<SavedPage> Bookmarks = new List<SavedPage>();
+    internal readonly List<string> PinnedNotebookKeys = new List<string>();
     internal string Revision;
     internal readonly HashSet<string> HiddenTools = new HashSet<string>(StringComparer.Ordinal);
     internal SavedPage HomePage;
@@ -113,6 +114,53 @@ internal sealed class WorkingSet
         if (index < 0 || Tabs[index].Pinned == pinned) return false;
         Tabs[index] = new SavedTab(key, Tabs[index].Page, pinned);
         return true;
+    }
+
+    internal int NotebookPinOrder(string key)
+    {
+        int position = PinnedNotebookKeys.IndexOf(key);
+        return position < 0 ? Int32.MaxValue : position;
+    }
+
+    internal bool SetNotebookPinned(string key, bool pinned)
+    {
+        if (!pinned)
+        {
+            if (PinnedNotebookKeys.Remove(key)) return true;
+            // Another window may have learned the ID since this pin menu opened.
+            return key.StartsWith("name:", StringComparison.Ordinal) &&
+                PinnedNotebookKeys.Remove(ResolveNamedPin(key, KnownNotebooks()));
+        }
+        if (PinnedNotebookKeys.Contains(key)) return false;
+        PinnedNotebookKeys.Add(key);
+        return true;
+    }
+
+    internal ILookup<string, BookmarkNotebook> KnownNotebooks()
+    {
+        return Tabs.Select(t => t.Page.Notebook).Concat(Bookmarks.Select(p => p.Notebook))
+            .Where(book => book != null && book.Id.Length != 0).GroupBy(book => book.Id).Select(g => g.First())
+            .ToLookup(book => book.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal void ResolveNotebookPins()
+    {
+        // Older tabs can supply just a notebook name until OneNote identifies the page.
+        if (!PinnedNotebookKeys.Any(k => k.StartsWith("name:", StringComparison.Ordinal))) return;
+        var known = KnownNotebooks();
+        for (int i = 0; i < PinnedNotebookKeys.Count; i++)
+        {
+            string key = PinnedNotebookKeys[i];
+            if (!key.StartsWith("name:", StringComparison.Ordinal)) continue;
+            PinnedNotebookKeys[i] = ResolveNamedPin(key, known);
+        }
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        PinnedNotebookKeys.RemoveAll(key => !seen.Add(key));
+    }
+    private static string ResolveNamedPin(string key, ILookup<string, BookmarkNotebook> known)
+    {
+        var matches = known[key.Substring(5)];
+        return matches.Count() == 1 ? matches.First().GroupKey : key;
     }
 
     internal bool UpdateBookmarkOwners(Dictionary<string, BookmarkLocation> owners)
@@ -192,6 +240,11 @@ internal sealed class SessionStore
         var options = root.Element("options");
         if (options != null)
         {
+            foreach (var pin in options.Elements("pinnedNotebook"))
+            {
+                string key = (string)pin.Attribute("key");
+                if (!String.IsNullOrEmpty(key)) state.SetNotebookPinned(key, true);
+            }
             foreach (var tool in options.Elements("hiddenTool"))
             {
                 string id = (string)tool.Attribute("id");
@@ -245,7 +298,11 @@ internal sealed class SessionStore
     {
         if (path == null)
         {
-            if (edit(memory)) memory.Revision = Guid.NewGuid().ToString("N");
+            if (edit(memory))
+            {
+                memory.ResolveNotebookPins();
+                memory.Revision = Guid.NewGuid().ToString("N");
+            }
             return memory;
         }
         Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -253,11 +310,13 @@ internal sealed class SessionStore
         {
             var state = Read();
             if (!edit(state)) return state;
+            state.ResolveNotebookPins();
             state.Revision = Guid.NewGuid().ToString("N");
             var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
                 new XElement("options", new XAttribute("coloredLabels", state.ColorNotebookLabels),
                     new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook),
                     new XAttribute("labelAlignment", state.LabelAlignment),
+                    state.PinnedNotebookKeys.Select(key => new XElement("pinnedNotebook", new XAttribute("key", key))),
                     state.HiddenTools.OrderBy(id => id, StringComparer.Ordinal).Select(id => new XElement("hiddenTool", new XAttribute("id", id))),
                     state.HomePage == null ? null : state.HomePage.ToXml(),
                     state.NewNoteSectionId == null ? null : new XElement("newNoteSection",
