@@ -14,7 +14,7 @@ internal interface IPages
     IEnumerable<XElement> PickerChildren(string parentId);
     string Caption(string id);
     Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> pageIds, bool refresh = false);
-    string CreateQuickNote();
+    string CreateNote(string sectionId);
     void Navigate(string id);
     string LinkFor(string id);
     void NavigateLink(string link);
@@ -112,10 +112,10 @@ internal sealed class NotebookPages : IPages
             !rows.Any(p => (string)p.Attribute("selected") == "all" || (string)p.Attribute("selected") == "partial" ||
                 (string)p.Attribute("isCurrentlyViewed") == "true") ? current : null;
     }
-    public string CreateQuickNote()
+    public string CreateNote(string sectionId)
     {
         string page;
-        App.CreateNewPage(ResolveQuickNotesSection(quickNotesPath), out page, One.NewPageStyle.npsBlankPageWithTitle);
+        App.CreateNewPage(sectionId ?? ResolveQuickNotesSection(quickNotesPath), out page, One.NewPageStyle.npsBlankPageWithTitle);
         return page;
     }
     internal string ResolveQuickNotesSection(string path)
@@ -236,7 +236,15 @@ internal sealed class PageStrip : ToolStrip
         AccessibleName = "MoreTabs options", ToolTipText = "MoreTabs options", AutoToolTip = false,
         Text = "\uE713", ShowDropDownArrow = false, DisplayStyle = ToolStripItemDisplayStyle.Text, Overflow = ToolStripItemOverflow.Never
     };
-    internal Rectangle MenuTabBounds { get { return Rectangle.Union(bookmarks.Bounds, options.Bounds); } }
+    private readonly ToolButton back = new ToolButton("Back", "\uE72B"), forward = new ToolButton("Forward", "\uE72A");
+    private readonly ToolButton home = new ToolButton("Home", "\uE80F"), newNote = new ToolButton("New note", "\uE8A5");
+    private readonly ToolStripMenuItem chooseHome = new ToolStripMenuItem("Home page");
+    private readonly ToolStripMenuItem chooseSection = new ToolStripMenuItem("New note location");
+    private readonly ToolStripMenuItem useQuickNotes = new ToolStripMenuItem("Use default Quick Notes");
+    private readonly NotebookTabLabel toolsLabel = new NotebookTabLabel { Text = "Tools", AccessibleName = "Tools" };
+    private bool openHomeAfterPicking;
+    internal Rectangle MenuTabBounds { get { return Rectangle.Union(bookmarks.Bounds,
+        newNote.Placement == ToolStripItemPlacement.Main ? newNote.Bounds : options.Bounds); } }
     private readonly ToolStripMenuItem colorLabels = new ToolStripMenuItem("Use notebook colors for labels");
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
@@ -281,17 +289,29 @@ internal sealed class PageStrip : ToolStrip
         if (pages != null) Text = PageMenuCommand.ReceiverName;
         AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, Delete to close a tab, or Escape to return.";
         add = new PagePicker(pages, page => Perform(delegate { OpenPickedPage(page); }),
-            delegate { Perform(CreateQuickNote); }, delegate { Perform(AddCurrent); });
+            delegate { Perform(delegate { CreateNote(null); }); }, delegate { Perform(AddCurrent); });
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
         options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, colorLabels });
-        options.DropDownOpening += delegate { Perform(delegate { ApplyState(this.store.Read()); }); };
+        options.DropDownOpening += delegate { openHomeAfterPicking = false; Perform(delegate { ApplyState(this.store.Read()); }); };
         foreach (ToolStripMenuItem item in options.DropDownItems)
         {
             var setting = item;
             setting.Click += delegate { Perform(delegate { ChangeOption(setting); }); };
         }
-        Items.AddRange(new ToolStripItem[] { bookmarks, options, bookmarkDivider, pinDivider, add });
+        options.DropDownItems.AddRange(new ToolStripItem[] { new ToolStripSeparator(), chooseHome, chooseSection });
+        chooseSection.DropDownItems.AddRange(new ToolStripItem[] { new ToolStripSeparator(), useQuickNotes });
+        useQuickNotes.Click += delegate { Perform(delegate { SaveNoteSection(null, null); }); };
+        HierarchyPicker.Attach(chooseSection, pages, null, (id, name) => Perform(delegate { SaveNoteSection(id, name); }));
+        HierarchyPicker.Attach(chooseHome, pages, page => Perform(delegate {
+            ApplyState(this.store.Change(s => { s.HomePage = page; return true; }));
+            if (openHomeAfterPicking) GoHome();
+        }), null);
+        BindTool(back, delegate { NavigateHistory(false); });
+        BindTool(forward, delegate { NavigateHistory(true); });
+        BindTool(home, GoHome);
+        BindTool(newNote, delegate { CreateNote(this.store.Read().NewNoteSectionId); });
+        Items.AddRange(new ToolStripItem[] { bookmarks, options, back, forward, home, newNote, bookmarkDivider, pinDivider, add });
         stop = new ToolStripButton("Close prototype") { Alignment = ToolStripItemAlignment.Right };
         stop.Click += delegate { close(); };
         Items.Add(stop);
@@ -299,6 +319,7 @@ internal sealed class PageStrip : ToolStrip
         stripClose = new TabCloseInput(this, closePageTab);
         overflowClose = new TabCloseInput(OverflowButton.DropDown, closePageTab);
         Host = new StripHost(frame, this);
+        Host.Captions.Controls.Add(toolsLabel);
         Host.OpenPage += delegate(string id) { Perform(delegate { OpenPageInNewTab(id); }); };
         Host.MoveButton.Click += delegate { Perform(MoveStrip); };
         SetDirection(false);
@@ -307,6 +328,11 @@ internal sealed class PageStrip : ToolStrip
         ApplyState(this.store.Read());
     }
     private void Perform(Action action) { try { action(); } catch (Exception e) { onError(e); } }
+    private void BindTool(ToolButton button, Action action)
+    {
+        // Finish the mouse-up and dismiss any overflow menu before changing focus or opening a picker.
+        button.Click += delegate { BeginInvoke((Action)delegate { Perform(action); }); };
+    }
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -424,7 +450,7 @@ internal sealed class PageStrip : ToolStrip
         if ((keyData == Keys.Enter || keyData == Keys.Space) && index >= 0)
         {
             if (choices[index] is ToolStripDropDownItem) ((ToolStripDropDownItem)choices[index]).ShowDropDown();
-            else { choices[index].PerformClick(); ReturnToEditor(); }
+            else { choices[index].PerformClick(); if (!options.DropDown.Visible && choices[index] != newNote) ReturnToEditor(); }
             return true;
         }
         if (keyData == Keys.Escape || keyData == Keys.F6 || keyData == Keys.Tab || keyData == (Keys.Shift | Keys.Tab))
@@ -531,6 +557,7 @@ internal sealed class PageStrip : ToolStrip
             ForeColor = appearance.Ink;
             Host.Style(appearance);
             foreach (var label in labels.Values) StyleCaption(label);
+            toolsLabel.ForeColor = appearance.Ink;
             if (state != null) RefreshOptions();
         }
         // The notebook inset anchors the visible glyph. Keep some clickable space to its left.
@@ -554,9 +581,16 @@ internal sealed class PageStrip : ToolStrip
             options.Font = gearFont;
             options.DropDown.Font = tabFont;
             options.TabWidth = HostChrome.Px(25, chrome.Dpi);
+            toolsLabel.Font = captionFont;
+            foreach (var tool in Items.OfType<ToolButton>())
+            {
+                tool.Font = gearFont;
+                tool.TabWidth = options.TabWidth;
+                tool.Enabled = pages != null;
+            }
             var commandPadding = new Padding(HostChrome.Px(5, chrome.Dpi), 0, HostChrome.Px(5, chrome.Dpi), 0);
             foreach (ToolStripItem item in Items)
-                if (!(item is PageTabButton) && !(item is ToolStripSeparator) && item != bookmarks && item != options) item.Padding = commandPadding;
+                if (!(item is PageTabButton) && !(item is ToolStripSeparator) && !(item is ToolButton) && item != bookmarks && item != options) item.Padding = commandPadding;
             foreach (var divider in new[] { bookmarkDivider, pinDivider })
             {
                 divider.AutoSize = false;
@@ -582,7 +616,9 @@ internal sealed class PageStrip : ToolStrip
     private void SetMenuTabMargins(Padding margin)
     {
         bookmarks.Margin = new Padding(0, margin.Top, 0, margin.Bottom);
-        options.Margin = new Padding(0, margin.Top, margin.Right, margin.Bottom);
+        options.Margin = bookmarks.Margin;
+        foreach (var tool in Items.OfType<ToolButton>())
+            tool.Margin = new Padding(0, margin.Top, tool == newNote ? margin.Right : 0, margin.Bottom);
     }
     private void SizeTab(PageTabButton tab)
     {
@@ -605,6 +641,40 @@ internal sealed class PageStrip : ToolStrip
         showLabels.Checked = WantsCaptionRow;
         colorLabels.Enabled = WantsCaptionRow && !highContrast;
         colorLabels.Checked = colorLabels.Enabled && state.ColorNotebookLabels;
+        useQuickNotes.Checked = state.NewNoteSectionId == null;
+        chooseSection.Text = "New note location (" + (state.NewNoteSectionName ?? "Quick Notes").Replace("&", "&&") + ")";
+        chooseHome.Text = "Home page (" + (state.HomePage == null ? "Choose a page" : state.HomePage.Caption.Replace("&", "&&")) + ")";
+    }
+    private void SaveNoteSection(string id, string name)
+    {
+        ApplyState(store.Change(s => { s.NewNoteSectionId = id; s.NewNoteSectionName = name; return true; }));
+    }
+    private void GoHome()
+    {
+        var page = store.Read().HomePage;
+        if (page == null)
+        {
+            options.ShowDropDown();
+            openHomeAfterPicking = true;
+            chooseHome.Select();
+            chooseHome.ShowDropDown();
+            return;
+        }
+        if (activeKey == null) { OpenSaved(page); return; }
+        pendingTab = null;
+        focusPending = false;
+        if (NavigateSaved(page)) RefreshActive();
+    }
+    private void NavigateHistory(bool goForward)
+    {
+        if (GetForegroundWindow() != frame) return;
+        ReturnToEditor();
+        var focus = ForegroundFocus();
+        if (NativeLayout.RootOf(focus) != frame || ContainsFocus) return;
+        // OneNote owns the window history, including visits made through its native navigation.
+        pendingTab = null;
+        focusPending = false;
+        SendKeys.SendWait(goForward ? "%{RIGHT}" : "%{LEFT}");
     }
     private void ChangeOption(ToolStripMenuItem item)
     {
@@ -733,34 +803,37 @@ internal sealed class PageStrip : ToolStrip
         focusPending = false;
         notice.Show("The page opened, but MoreTabs could not save a new tab.", this, 4, Height, 4000);
     }
-    private void CreateQuickNote()
+    private void CreateNote(string sectionId)
     {
         pendingTab = null;
         focusPending = false;
         string id;
-        try { id = pages.CreateQuickNote(); }
+        try { id = pages.CreateNote(sectionId); }
         catch (Exception error)
         {
-            if (!(error is COMException || error is InvalidOperationException)) throw;
-            Console.WriteLine("Quick Note creation failed ({0}, 0x{1:X8}).", error.GetType().Name, error.HResult);
-            notice.Show("OneNote could not create a Quick Note. Check the Quick Notes location and write access.", this, 4, Height, 6000);
+            if (!(error is COMException || error is InvalidOperationException || error is UnauthorizedAccessException)) throw;
+            Console.WriteLine("Note creation failed ({0}, 0x{1:X8}).", error.GetType().Name, error.HResult);
+            notice.Show(sectionId == null ? "OneNote could not create a Quick Note. Check the Quick Notes location and write access." :
+                "OneNote could not create the note. Check write access or choose another section in Settings.", this, 4, Height, 6000);
             return;
         }
-        var page = new SavedPage(id, "Quick Note", pages.LinkFor(id));
+        var page = new SavedPage(id, "Untitled", pages.LinkFor(id));
         SavedTab saved = null;
         try { saved = KeepTab(page); }
         catch (System.IO.IOException) { }
         catch (UnauthorizedAccessException) { }
+        if (saved != null) ExpectNavigation(saved, true);
         try { pages.Navigate(id); }
         catch (COMException error)
         {
-            Console.WriteLine("Opening the newly created Quick Note failed (0x{0:X8}).", error.HResult);
-            notice.Show(saved != null ? "Quick Note created. Click its tab to try opening it again." :
-                "Quick Note created in OneNote. MoreTabs could not save or open its tab.", this, 4, Height, 6000);
+            pendingTab = null;
+            focusPending = false;
+            Console.WriteLine("Opening the newly created note failed (0x{0:X8}).", error.HResult);
+            notice.Show(saved != null ? "Note created. Click its tab to try opening it again." :
+                "Note created in OneNote. MoreTabs could not save or open its tab.", this, 4, Height, 6000);
             return;
         }
-        if (saved != null) ExpectNavigation(saved, true);
-        else { activeKey = null; notice.Show("Quick Note opened. MoreTabs could not save its tab.", this, 4, Height, 6000); }
+        if (saved == null) { activeKey = null; notice.Show("Note opened. MoreTabs could not save its tab.", this, 4, Height, 6000); }
         RefreshActive();
     }
     internal string ActiveTabKey { get { return activeKey; } }
@@ -932,6 +1005,8 @@ internal sealed class PageStrip : ToolStrip
     }
     private void AlignNotebookCaptions()
     {
+        var tools = MenuTabBounds;
+        toolsLabel.Bounds = Rectangle.FromLTRB(tools.Left + TabRenderer.CornerRadius(appearance.Dpi), 0, tools.Right, Host.Captions.Height);
         // Use the final main-row item bounds. Overflow pages and notebook names consume no caption width.
         var visible = Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToLookup(t => t.Group);
         foreach (var label in labels.Values)
@@ -957,8 +1032,13 @@ internal sealed class PageStrip : ToolStrip
         var visible = new HashSet<ToolStripItem>();
         int space = DisplayRectangle.Width - ItemWidth(bookmarks) - ItemWidth(options) - ItemWidth(bookmarkDivider) - ItemWidth(add);
         if (pinDivider.Available) space -= ItemWidth(pinDivider);
-        bool overflow = tabs.Sum(tab => ItemWidth(tab)) + ItemWidth(stop) > space;
-        if (overflow) space -= Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
+        var tools = Items.OfType<ToolButton>().ToArray();
+        int toolsWidth = tools.Sum(tool => ItemWidth(tool));
+        int overflowWidth = Math.Max(OverflowButton.Width, HostChrome.Px(16, appearance.Dpi));
+        bool collapseTools = space - toolsWidth < overflowWidth + (tabs.Count == 0 ? 0 : HostChrome.Px(70, appearance.Dpi));
+        foreach (var tool in tools) tool.Overflow = collapseTools ? ToolStripItemOverflow.Always : ToolStripItemOverflow.Never;
+        if (!collapseTools) space -= toolsWidth;
+        if (collapseTools || tabs.Sum(tab => ItemWidth(tab)) + ItemWidth(stop) > space) space -= overflowWidth;
         PageTabButton active;
         if (activeKey != null && buttons.TryGetValue(activeKey, out active) && active.Group != null)
         {
@@ -1088,6 +1168,14 @@ internal sealed class PageStrip : ToolStrip
     {
         pendingTab = null;
         focusPending = false;
+        if (!NavigateSaved(page)) return false;
+        if (newTab) return AddOpenedTab(page);
+        ExpectNavigation(target ?? KeepTab(page), false);
+        RefreshActive();
+        return true;
+    }
+    private bool NavigateSaved(SavedPage page)
+    {
         try { pages.Navigate(page.Id); }
         catch (COMException)
         {
@@ -1103,9 +1191,6 @@ internal sealed class PageStrip : ToolStrip
                 return false;
             }
         }
-        if (newTab) return AddOpenedTab(page);
-        ExpectNavigation(target ?? KeepTab(page), false);
-        RefreshActive();
         return true;
     }
     internal void RefreshActive()

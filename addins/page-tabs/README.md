@@ -38,9 +38,13 @@ MoreTabs uses OneNote's notebook navigation background in both tab views. In hor
 
 ![MoreTabs docked at the bottom, with notebook captions above the tabs](appearance-bottom.png)
 
-The star and gear share the first rounded tab. Click the gold star for bookmarks or the gear for **MoreTabs options**. A divider separates this tab from the page tabs. Pinned pages always come first.
+The first rounded tab is labeled **Tools**. From left to right it holds Bookmarks, Settings, Back, Forward, Home, and New note. Back and Forward use OneNote's own page history in the associated window. A divider separates Tools from the page tabs.
 
-All three options start enabled. Changes apply immediately. MoreTabs remembers your label and color choices when you turn grouping off and when you restart.
+Choose **Settings → Home page** to pick a page from any open notebook. Clicking Home before setup opens that picker and takes you to the page you select. Changing Home through Settings saves the destination for your next visit.
+
+**New note** creates a page and opens it in a new focused tab. It uses the user's OneNote Quick Notes section by default. Choose **Settings → New note location** and select a section to change it, or **Use default Quick Notes** to reset it. The **+ → New Quick Note** command always uses Quick Notes.
+
+All three grouping and label options start enabled. Changes apply immediately. MoreTabs remembers your label and color choices when you turn grouping off and when you restart.
 
 | Option | When turned off |
 | --- | --- |

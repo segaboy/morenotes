@@ -68,6 +68,8 @@ internal sealed class WorkingSet
     internal readonly List<SavedTab> Tabs = new List<SavedTab>();
     internal readonly List<SavedPage> Bookmarks = new List<SavedPage>();
     internal string Revision;
+    internal SavedPage HomePage;
+    internal string NewNoteSectionId, NewNoteSectionName;
     internal bool ColorNotebookLabels = true, ShowNotebookLabels = true, GroupByNotebook = true;
 
     internal bool KeepTab(SavedPage page, string preferred, out string key)
@@ -180,6 +182,16 @@ internal sealed class SessionStore
             state.ColorNotebookLabels = (bool?)options.Attribute("coloredLabels") ?? true;
             state.ShowNotebookLabels = (bool?)options.Attribute("showLabels") ?? true;
             state.GroupByNotebook = (bool?)options.Attribute("groupByNotebook") ?? true;
+            var home = options.Element("page");
+            if (home != null) state.HomePage = ReadPage(home);
+            var section = options.Element("newNoteSection");
+            if (section != null)
+            {
+                state.NewNoteSectionId = (string)section.Attribute("id");
+                state.NewNoteSectionName = (string)section.Attribute("name");
+                if (String.IsNullOrEmpty(state.NewNoteSectionId) || String.IsNullOrEmpty(state.NewNoteSectionName))
+                    throw new InvalidDataException("Invalid saved new note section.");
+            }
         }
         foreach (var element in Pages(root.Element("tabs")))
         {
@@ -221,7 +233,10 @@ internal sealed class SessionStore
             state.Revision = Guid.NewGuid().ToString("N");
             var root = new XElement("workingSet", new XAttribute("version", "3"), new XAttribute("revision", state.Revision),
                 new XElement("options", new XAttribute("coloredLabels", state.ColorNotebookLabels),
-                    new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook)),
+                    new XAttribute("showLabels", state.ShowNotebookLabels), new XAttribute("groupByNotebook", state.GroupByNotebook),
+                    state.HomePage == null ? null : state.HomePage.ToXml(),
+                    state.NewNoteSectionId == null ? null : new XElement("newNoteSection",
+                        new XAttribute("id", state.NewNoteSectionId), new XAttribute("name", state.NewNoteSectionName))),
                 new XElement("tabs", state.Tabs.Select(tab => {
                     var xml = tab.Page.ToXml();
                     xml.SetAttributeValue("tabId", tab.Key);

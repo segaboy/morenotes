@@ -57,10 +57,12 @@ internal static class PrototypeTests
             return Renamed.TryGetValue(id, out caption) ? caption : id == "b/1" ? "Dashboard / B" : id == "a/1" ? "Dashboard / A" :
                 id.StartsWith("personal/quick/") ? "Untitled / Personal" : "Schedule / A";
         }
-        public string CreateQuickNote()
+        internal string LastNoteSection;
+        public string CreateNote(string sectionId)
         {
             if (LocationUnavailable) throw new InvalidOperationException("No configured Quick Notes section.");
-            return "personal/quick/" + ++NotesCreated;
+            LastNoteSection = sectionId;
+            return (sectionId ?? "personal/quick") + "/" + ++NotesCreated;
         }
         public void Navigate(string id)
         {
@@ -388,6 +390,10 @@ internal static class PrototypeTests
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern int GetMessagePos();
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SetActiveWindow(IntPtr window);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetActiveWindow();
 
     private static void CheckActivationClicks(Form frame, PageStrip strip)
     {
@@ -396,8 +402,9 @@ internal static class PrototypeTests
             other.Show();
             foreach (var button in strip.Items.OfType<ToolStripDropDownButton>())
             {
-                other.Activate();
-                Check(Form.ActiveForm == other, "The second test window must be active before the click.");
+                SetActiveWindow(other.Handle);
+                Check(GetActiveWindow() == other.Handle, "The second test window must be active before the click (" +
+                    button.AccessibleName + ", got " + GetActiveWindow() + ", expected " + other.Handle + ").");
                 var bounds = button.Bounds;
                 var center = strip.PointToScreen(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
                 var mouse = new Point(GetMessagePos());
@@ -479,8 +486,65 @@ internal static class PrototypeTests
             Check(strip.TabCount == 4 && source.NotesCreated == 1 && strip.HasTabFocus(source.Current),
                 "Selecting New Quick Note from the picker did not create and focus exactly one new note.");
             Console.WriteLine("PASS left-click +, lazy notebook/section-group/page menus, cancellation, unavailable sections, duplicate titles and separate focused tabs.");
+            CheckTools(strip, source);
             CheckActivationClicks(frame, strip);
         }
+    }
+
+    private static void CheckTools(PageStrip strip, TestPages source)
+    {
+        var tools = strip.Items.OfType<ToolButton>().ToArray();
+        Check(tools.Select(t => t.AccessibleName).SequenceEqual(new[] { "Back", "Forward", "Home", "New note" }),
+            "The Tools commands must follow bookmarks and settings.");
+        var gear = (StripMenuButton)strip.Items[1];
+        var homePicker = gear.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text.StartsWith("Home page"));
+        var sectionPicker = gear.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text.StartsWith("New note location"));
+        var home = tools[2];
+        var note = tools[3];
+        string before = source.Current, key = strip.ActiveTabKey;
+        int count = strip.TabCount, notes = source.NotesCreated;
+        LeftClickItem(home);
+        Check(homePicker.DropDown.Visible && source.Current == before, "First Home click must open the settings picker.");
+        var section = ExpandPickerItem(ExpandPickerItem(ExpandPickerItem(homePicker, "b"), "g"), "bs");
+        LeftClickItem(PickerItem(section, "b/1"));
+        Check(source.Current == "b/1" && strip.ActiveTabKey == key && strip.TabCount == count,
+            "Setting Home on first use must open that page in the current tab.");
+        LeftClickItem(gear);
+        homePicker.ShowDropDown();
+        section = ExpandPickerItem(ExpandPickerItem(homePicker, "a"), "as");
+        LeftClickItem(PickerItem(section, "a/1"));
+        Check(source.Current == "b/1", "Configuring Home in Settings unexpectedly navigated.");
+        LeftClickItem(home);
+        Check(source.Current == "a/1" && strip.ActiveTabKey == key, "The Home button did not use its new page.");
+        LeftClickItem(note);
+        Check(source.LastNoteSection == null && source.NotesCreated == notes + 1 && strip.HasTabFocus(source.Current),
+            "New note must default to Quick Notes and focus its new tab. Created " + (source.NotesCreated - notes) +
+            ", section " + (source.LastNoteSection ?? "(default)") + ", active " + strip.IsSelected(source.Current) +
+            ", focus " + strip.ContainsFocus + ", selected item " + String.Join(", ", strip.Items.Cast<ToolStripItem>().Where(i => i.Selected).Select(i => i.AccessibleName)) + ".");
+        LeftClickItem(gear);
+        sectionPicker.ShowDropDown();
+        var group = ExpandPickerItem(ExpandPickerItem(sectionPicker, "b"), "g");
+        var target = PickerItem(group, "bs");
+        Check(!target.HasDropDownItems, "The new note destination picker must stop at sections.");
+        LeftClickItem(target);
+        Check(source.NotesCreated == notes + 1 && sectionPicker.Text.Contains("Workshop / Plans && specs / Projects"),
+            "Choosing a section must only change the destination setting.");
+        LeftClickItem(note);
+        Check(source.LastNoteSection == "bs" && source.NotesCreated == notes + 2 && strip.TabCount == count + 2 &&
+            strip.HasTabFocus(source.Current), "New note did not use the selected section and focus its own tab.");
+        source.LocationUnavailable = true;
+        LeftClickItem(note);
+        source.LocationUnavailable = false;
+        Check(source.NotesCreated == notes + 2 && strip.TabCount == count + 2,
+            "An unavailable chosen section must not create a page or tab elsewhere.");
+        LeftClickItem(ClickPicker(strip).QuickNote);
+        Check(source.LastNoteSection == null && source.NotesCreated == notes + 3, "The explicit Quick Note command lost its destination.");
+        LeftClickItem(gear);
+        sectionPicker.ShowDropDown();
+        LeftClickItem(sectionPicker.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Use default Quick Notes"));
+        LeftClickItem(note);
+        Check(source.LastNoteSection == null && source.NotesCreated == notes + 4, "Resetting the destination must restore Quick Notes.");
+        Console.WriteLine("PASS Tools, first-use Home, configured Home, section-only note picker, creation, failure and reset.");
     }
 
     private static void CheckVerticalTabs()
@@ -645,7 +709,11 @@ internal static class PrototypeTests
             Check(strip.OverflowButton.Visible && arrow.Right == strip.Host.ClientSize.Width && strip.Right == arrow.Left,
                 "Tab overflow displaced the far-right move button.");
             var visible = strip.Items.OfType<PageTabButton>().Where(t => t.Placement == ToolStripItemPlacement.Main).ToArray();
-            var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible).ToArray();
+            var toolsLabel = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
+            Check(toolsLabel.Visible && toolsLabel.Right == strip.MenuTabBounds.Right &&
+                strip.Items.OfType<ToolButton>().All(t => t.Placement == ToolStripItemPlacement.Overflow),
+                "A narrow window must keep the Tools caption aligned and its commands available in overflow.");
+            var headers = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Where(l => l.Visible && l != toolsLabel).ToArray();
             Check(visible.Any(t => t.Checked) && visible.All(t => headers.Contains(t.Group) && t.Group.Left <= t.Bounds.Left + TabRenderer.CornerRadius(t.Dpi) && t.Group.Right >= t.Bounds.Right) &&
                 headers.All(h => visible.Any(t => t.Group == h)), "Overflow separated the active page from its notebook label.");
             frame.ClientSize = new Size(frame.ClientSize.Width + 32, frame.ClientSize.Height + 48);
@@ -772,6 +840,16 @@ internal static class PrototypeTests
             if (handsOn) ObserveHandsOn(source, strip, layout, pages);
             else
             {
+                source.Window.Active = true;
+                var activeKey = strip.ActiveTabKey;
+                var history = strip.Items.OfType<ToolButton>().ToDictionary(b => b.AccessibleName);
+                history["Back"].PerformClick();
+                WaitForPage(source, pages[2], "Tools Back"); strip.RefreshActive();
+                history["Forward"].PerformClick();
+                WaitForPage(source, pages[0], "Tools Forward"); strip.RefreshActive();
+                Check(strip.ActiveTabKey == activeKey && strip.TabCount == 3 && source.Frame == layout.Frame,
+                    "Native history must navigate inside the existing tab and OneNote window.");
+                Console.WriteLine("PASS Tools Back and Forward traversed OneNote history in the same tab.");
                 AppearanceTests.Live(strip, layout, directory);
                 var original = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
                 var originalPage = ((SavedTab)original.Tag).Page.Id;

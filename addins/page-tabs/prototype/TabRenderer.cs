@@ -28,6 +28,24 @@ internal sealed class BookmarkButton : StripMenuButton
     }
 }
 
+internal sealed class ToolButton : ToolStripButton
+{
+    internal int TabWidth;
+    internal ToolButton(string name, string glyph) : base(glyph)
+    {
+        AccessibleName = ToolTipText = name;
+        AutoToolTip = false;
+        DisplayStyle = ToolStripItemDisplayStyle.Text;
+        Overflow = ToolStripItemOverflow.Never;
+    }
+    public override Size GetPreferredSize(Size constrainingSize)
+    {
+        var size = base.GetPreferredSize(constrainingSize);
+        size.Width = TabWidth;
+        return size;
+    }
+}
+
 internal sealed class PageTabButton : ToolStripButton
 {
     internal NotebookTabLabel Group;
@@ -139,7 +157,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
         var button = item as ToolStripButton;
         if (item.Pressed || (button != null && button.Checked)) return Active;
         if (item.Selected) return Hover;
-        return item is PageTabButton || item is StripMenuButton ? Tab : Surface;
+        return item is PageTabButton || item is StripMenuButton || item is ToolButton ? Tab : Surface;
     }
     internal Color TextColor(ToolStripItem item)
     {
@@ -219,6 +237,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
     {
+        if (e.Item is ToolButton && e.ToolStrip is PageStrip) { PaintTab(e, null); return; }
         var tab = e.Item as PageTabButton;
         if (tab == null) { PaintCommand(e); return; }
         PaintTab(e, tab);
@@ -263,7 +282,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             var strip = e.Item.Owner as PageStrip;
             if (page == null && strip != null)
             {
-                // Both menu buttons paint the same outline, clipped to their separate hit targets.
+                // The tools share an outline while retaining individual hit targets.
                 Rectangle both = strip.MenuTabBounds;
                 e.Graphics.SetClip(new Rectangle(Point.Empty, e.Item.Size), CombineMode.Intersect);
                 e.Graphics.TranslateTransform(both.Left - e.Item.Bounds.Left, 0);

@@ -28,7 +28,7 @@ internal static class SavedSessionTests
         }
         public string Caption(string id) { return id.StartsWith("b") ? "Dashboard / B & C" : "Dashboard / A"; }
         public string LinkFor(string id) { return id.StartsWith("b") ? PageLink : ""; }
-        public string CreateQuickNote() { return "quick-" + Guid.NewGuid().ToString("N"); }
+        public string CreateNote(string sectionId) { return "quick-" + Guid.NewGuid().ToString("N"); }
         public void Navigate(string id)
         {
             if (id == "missing" || (reopened && id == "b1")) throw new COMException("Unavailable test ID");
@@ -213,13 +213,16 @@ internal static class SavedSessionTests
                     menu.HideDropDown();
                     var b = store.Read().Bookmarks.Single();
                     Check(b.Id == "b1" && b.Link == PageLink, "Bookmark menu did not capture the displayed page.");
+                    store.Change(s => { s.HomePage = b; s.NewNoteSectionId = "section-b"; s.NewNoteSectionName = "B & C / Projects"; return true; });
                     strip.CloseTab(store.Read().Tabs.Single(t => t.Page.Matches(b)));
                     Check(strip.TabCount == 2 && source.Current == "b1", "Closing a tab navigated or changed the wrong tab.");
                     ((ToolStripDropDownButton)strip.Items[1]).DropDownItems[0].PerformClick();
                     break;
                 case "restore":
                     var stored = store.Read();
-                    var settings = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripMenuItem>().ToArray();
+                    Check(stored.HomePage.Matches(stored.Bookmarks.Single()) && stored.NewNoteSectionId == "section-b" &&
+                        stored.NewNoteSectionName == "B & C / Projects", "A restart lost the Tools destinations.");
+                    var settings = ((ToolStripDropDownButton)strip.Items[1]).DropDownItems.Cast<ToolStripItem>().Take(3).Cast<ToolStripMenuItem>().ToArray();
                     Check(stored.ColorNotebookLabels && stored.ShowNotebookLabels && !stored.GroupByNotebook && !strip.WantsCaptionRow &&
                         settings.All(i => !i.Checked) && settings[0].Enabled && settings.Skip(1).All(i => !i.Enabled),
                         "A restart lost the dependent preferences or showed them as active with grouping off.");

@@ -297,6 +297,12 @@ internal static class AppearanceTests
             Rectangle b = active.Bounds;
             int edge = HostChrome.Px(1, chrome.Dpi);
             var band = strip.Host.Captions;
+            var tools = band.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools" && l.Notebook == null);
+            Check(tools.Visible && tools.ForeColor == palette.Ink && tools.Font.Style == FontStyle.Regular &&
+                tools.Left == star.Bounds.Left + TabRenderer.CornerRadius(chrome.Dpi) && tools.Right == strip.MenuTabBounds.Right &&
+                strip.Items.OfType<ToolButton>().All(t => t.Bounds.Top == star.Bounds.Top && t.Height == star.Height),
+                "Tools misalignment at " + chrome.Dpi + " DPI: label " + tools.Bounds + ", group " + strip.MenuTabBounds +
+                ", star " + star.Bounds + ", first command " + strip.Items.OfType<ToolButton>().First().Bounds + ".");
             Check(band.Left == strip.Left && (bottom ? band.Bottom == strip.Top : band.Top == strip.Bottom),
                 "The notebook captions must sit on the side of the tabs facing the page.");
             using (var captions = new Bitmap(band.Width, band.Height))
@@ -327,10 +333,10 @@ internal static class AppearanceTests
             Check(bitmap.GetPixel(starCenter, star.Bounds.Top + 2 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(starCenter, star.Bounds.Bottom - 3 * edge).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(star.Bounds.Left, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
-                bitmap.GetPixel(gear.Bounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
+                bitmap.GetPixel(strip.MenuTabBounds.Right - 1, FlatEdgeY(star, !bottom, 0)).ToArgb() == palette.Surface.ToArgb() &&
                 bitmap.GetPixel(star.Bounds.Right - 1, FlatEdgeY(star, !bottom, 2 * edge)).ToArgb() == starBackground.ToArgb() &&
                 bitmap.GetPixel(gear.Bounds.Left, FlatEdgeY(star, !bottom, 2 * edge)).ToArgb() == gearBackground.ToArgb(),
-                "Only the two outside corners of the shared bookmark and options tab should be rounded.");
+                "Only the two outside corners of the shared Tools tab should be rounded.");
             // Read through the two side points, ignoring very faint antialiasing pixels.
             int armY = star.Bounds.Top + star.Height / 2 - HostChrome.Px(2, chrome.Dpi);
             int starLeft = -1;
