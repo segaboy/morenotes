@@ -20,6 +20,9 @@ internal static class PrototypeTests
         internal bool LocationUnavailable, FailNextNavigation, DelayNextNavigation;
         internal string PendingPage;
         public string Current { get; private set; }
+        internal string ListSelection;
+        internal bool RejectNextMenuNavigation;
+        public string SelectedPage() { return ListSelection; }
         internal Color BookBColor = Color.FromArgb(246,176,120);
         internal BookmarkNotebook BookB = new BookmarkNotebook("b", "Workshop", Color.Goldenrod);
         public Color SectionColor(string id) { return id.StartsWith("a/") ? Color.FromArgb(145,186,174) : BookBColor; }
@@ -47,6 +50,11 @@ internal static class PrototypeTests
         }
         public void Navigate(string id)
         {
+            if (RejectNextMenuNavigation)
+            {
+                RejectNextMenuNavigation = false;
+                throw new System.Runtime.InteropServices.COMException("Editor is dismissing the menu", unchecked((int)0x80010001));
+            }
             if (FailNextNavigation) { FailNextNavigation = false; throw new System.Runtime.InteropServices.COMException(); }
             if (DelayNextNavigation) { DelayNextNavigation = false; PendingPage = id; return; }
             Current = id;
@@ -232,26 +240,45 @@ internal static class PrototypeTests
                         Console.WriteLine("PASS native navigation regroups the active tab by notebook and preserves its identity and independent selection.");
                         var section = XElement.Parse("<Section xmlns='urn:test'><Page ID='a/1' name='Dashboard' isCurrentlyViewed='true'/>" +
                             "<Page ID='b/1' name='Dashboard' selected='all'/></Section>");
-                        string target = PageMenuCommand.SelectedPage(section);
+                        string target = PageMenuCommand.SelectedPage(section, "a/1");
                         Check(target == "b/1", "The context menu chose the displayed page over the selected page.");
+                        section.Elements().First().SetAttributeValue("selected", "partial");
+                        Check(PageMenuCommand.SelectedPage(section, "a/1") == target, "A text selection hid the selected page title.");
                         section.Elements().First().SetAttributeValue("selected", "all");
-                        Check(PageMenuCommand.SelectedPage(section) == null && PageMenuCommand.SelectedPage(new XElement("Section")) == null,
+                        Check(PageMenuCommand.SelectedPage(section, "a/1") == null && PageMenuCommand.SelectedPage(new XElement("Section"), "a/1") == null,
                             "An ambiguous or empty selection was accepted.");
+                        section.Elements().First().Attribute("selected").Remove();
+                        section.Elements().Last().SetAttributeValue("selected", "partial");
+                        Check(PageMenuCommand.SelectedPage(section, "a/1") == target, "A single partial page selection was ignored.");
+                        section.Elements().Last().Attribute("selected").Remove();
+                        Check(PageMenuCommand.SelectedPage(section, "a/1") == "a/1" && PageMenuCommand.SelectedPage(section, "b/1") == null,
+                            "The unmarked selection did not match the viewed page in the invoking window.");
                         int count = strip.TabCount, notes = source.NotesCreated;
                         AppearanceTests.TogglePin(strip, moving, true);
-                        Check(PageMenuCommand.Send(frame.Handle, target), "The native menu could not reach its editor's strip.");
+                        source.ListSelection = target;
+                        source.RejectNextMenuNavigation = true;
+                        Check(PageMenuCommand.Request(document.Handle, true), "The page-list command could not reach its editor's strip.");
                         Application.DoEvents();
+                        Check(strip.TabCount == count, "OneNote's busy response created a tab before navigation.");
+                        source.ListSelection = "a/1";
+                        Check(strip.ProcessMenuRequest(), "The page-list command was lost while OneNote was busy.");
                         string firstNew = strip.ActiveTabKey;
                         Check(strip.TabCount == count + 1 && firstNew != movingKey && strip.IsSelected(target) &&
                             ((SavedTab)moving.Tag).Pinned && ((SavedTab)moving.Tag).Page.Id == "other", "Opening from the native page list replaced the source tab.");
-                        Check(PageMenuCommand.Send(frame.Handle, target), "Could not reopen the selected page in an independent tab.");
+                        Check(PageMenuCommand.Request(frame.Handle, false), "Could not open the displayed page from its text menu.");
                         Application.DoEvents();
                         Check(strip.TabCount == count + 2 && strip.ActiveTabKey != firstNew && strip.HasTabFocus(target) &&
                             !((SavedTab)strip.Items.OfType<PageTabButton>().Single(t => t.Checked).Tag).Pinned && source.NotesCreated == notes,
                             "Opening an existing page should create a focused, unpinned tab each time.");
                         source.FailNextNavigation = true;
-                        strip.OpenPageInNewTab(target);
+                        strip.OpenPageInNewTab("a/1");
                         Check(strip.TabCount == count + 2, "Failed navigation created an empty tab.");
+                        source.ListSelection = null;
+                        Check(PageMenuCommand.Request(frame.Handle, true), "The receiver rejected a page-list request.");
+                        Application.DoEvents();
+                        Check(strip.TabCount == count + 2, "An ambiguous selection opened a tab.");
+                        using (var other = new Form())
+                            Check(!PageMenuCommand.Request(other.Handle, true), "A second editor delivered its click to the wrong strip.");
                         Console.WriteLine("PASS page-list command resolves a selected ID, preserves the pinned source, and opens distinct focused tabs.");
                         var originalActive = strip.Items.OfType<PageTabButton>().Single(t => t.Checked);
                         var sourceTab = (SavedTab)moving.Tag;

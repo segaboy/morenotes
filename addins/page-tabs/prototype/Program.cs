@@ -250,7 +250,7 @@ internal static class Program
                     }
                     strip.Attach(slot, layout);
                     strip.UpdateFocusShortcut();
-                    strip.RefreshActive();
+                    if (!strip.ProcessMenuRequest()) strip.RefreshActive();
                     if (observe != null) observe(slot);
                 }
                 catch (Exception e)
@@ -273,7 +273,7 @@ internal static class Program
         if (failure != null) throw failure;
         return cancel == 0 && (detached || !layout.Alive);
     }
-    private static bool EditorBusy(Exception error)
+    internal static bool EditorBusy(Exception error)
     {
         return error.HResult == unchecked((int)0x80010001) || error.HResult == unchecked((int)0x8001010A);
     }

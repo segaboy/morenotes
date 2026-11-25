@@ -10,6 +10,7 @@ using One = Microsoft.Office.Interop.OneNote;
 internal interface IPages
 {
     string Current { get; }
+    string SelectedPage();
     string Caption(string id);
     Dictionary<string, BookmarkLocation> PageLocations(IEnumerable<string> pageIds, bool refresh = false);
     string CreateQuickNote();
@@ -77,6 +78,18 @@ internal sealed class NotebookPages : IPages
         return selected;
     }
     public string Current { get { return Window.CurrentPageId; } }
+    public string SelectedPage()
+    {
+        string section = Window.CurrentSectionId, xml;
+        if (String.IsNullOrEmpty(section)) return null;
+        App.GetHierarchy(section, One.HierarchyScope.hsPages, out xml, One.XMLSchema.xs2013);
+        if (String.IsNullOrWhiteSpace(xml)) return null;
+        var root = XElement.Parse(xml);
+        var node = root.DescendantsAndSelf(root.Name.Namespace + "Section").FirstOrDefault(s => (string)s.Attribute("ID") == section);
+        string current = Current;
+        return node != null && Window.CurrentSectionId == section ?
+            PageMenuCommand.SelectedPage(node, current) : null;
+    }
     public string CreateQuickNote()
     {
         string page;
@@ -179,6 +192,14 @@ internal sealed class PageStrip : ToolStrip
 {
     private readonly IntPtr frame;
     private readonly IPages pages;
+    private sealed class MenuRequest
+    {
+        internal bool PageList;
+        internal string PageId;
+        internal readonly DateTime Deadline = DateTime.UtcNow.AddSeconds(3);
+    }
+    private readonly Queue<MenuRequest> menuRequests = new Queue<MenuRequest>();
+    private bool openingMenuPage;
     private readonly Dictionary<string, PageTabButton> buttons = new Dictionary<string, PageTabButton>();
     private readonly Dictionary<string, NotebookTabLabel> labels = new Dictionary<string, NotebookTabLabel>();
     private readonly ToolStripButton stop;
@@ -230,6 +251,7 @@ internal sealed class PageStrip : ToolStrip
         TabStop = true;
         SetStyle(ControlStyles.Selectable, true);
         AccessibleName = "MoreTabs page tabs";
+        if (pages != null) Text = PageMenuCommand.ReceiverName;
         AccessibleDescription = "Ctrl+Alt+F6 focuses the page tabs. Use the arrow keys, Enter to open, Delete to close a tab, or Escape to return.";
         add = new ToolStripSplitButton("+") { AccessibleName = "New Quick Note", ToolTipText = "Create a new Quick Note", Overflow = ToolStripItemOverflow.Never };
         add.ButtonClick += delegate { Perform(CreateQuickNote); };
@@ -313,6 +335,13 @@ internal sealed class PageStrip : ToolStrip
     }
     protected override void WndProc(ref Message message)
     {
+        if (message.Msg == PageMenuCommand.OpenFromMenu && pages != null && message.LParam == IntPtr.Zero &&
+            (message.WParam == IntPtr.Zero || message.WParam == (IntPtr)1))
+        {
+            menuRequests.Enqueue(new MenuRequest { PageList = message.WParam == (IntPtr)1 });
+            Perform(delegate { ProcessMenuRequest(); });
+            return;
+        }
         const int wmHotkey = 0x0312;
         if (message.Msg == wmHotkey && message.WParam.ToInt32() == FocusShortcut)
         {
@@ -585,24 +614,57 @@ internal sealed class PageStrip : ToolStrip
         navigationDeadline = DateTime.UtcNow.AddSeconds(5);
         nextCaptionCheck = DateTime.MinValue;
     }
+    private SavedPage NavigateForNewTab(string id)
+    {
+        BookmarkLocation location;
+        pages.PageLocations(new[] { id }).TryGetValue(id, out location);
+        var page = new SavedPage(id, pages.Caption(id), pages.LinkFor(id), location);
+        if (pages.Current != id) pages.Navigate(id);
+        return page;
+    }
     internal void OpenPageInNewTab(string id)
     {
-        // Resolve the explicit page before changing the working set. Opening a page here
-        // always creates a new unpinned slot, including when another tab has the same page.
         SavedPage page;
-        try
-        {
-            BookmarkLocation location;
-            pages.PageLocations(new[] { id }).TryGetValue(id, out location);
-            page = new SavedPage(id, pages.Caption(id), pages.LinkFor(id), location);
-            pages.Navigate(id);
-        }
+        try { page = NavigateForNewTab(id); }
         catch (COMException)
         {
             notice.Show("OneNote could not open that page.", this, 4, Height, 4000);
             return;
         }
         AddOpenedTab(page);
+    }
+    internal bool ProcessMenuRequest()
+    {
+        if (openingMenuPage) return true;
+        if (menuRequests.Count == 0) return false;
+        var request = menuRequests.Peek();
+        openingMenuPage = true;
+        try
+        {
+            SavedPage page = null;
+            try
+            {
+                if (request.PageId == null) request.PageId = request.PageList ? pages.SelectedPage() : pages.Current;
+                if (!String.IsNullOrEmpty(request.PageId)) page = NavigateForNewTab(request.PageId);
+            }
+            catch (COMException e)
+            {
+                if (Program.EditorBusy(e) && DateTime.UtcNow < request.Deadline) return true;
+                menuRequests.Dequeue();
+                Console.WriteLine("OneNote page menu navigation failed (0x{0:X8}).", e.HResult);
+                notice.Show("OneNote could not open the selected page.", this, 4, Height, 4000);
+                return true;
+            }
+            menuRequests.Dequeue();
+            if (page == null)
+            {
+                Console.WriteLine("OneNote page menu: no single page could be identified.");
+                notice.Show("Select a single page in OneNote's page list and try again.", this, 4, Height, 4000);
+            }
+            else if (AddOpenedTab(page)) Console.WriteLine("OneNote page menu: opened a new tab.");
+            return true;
+        }
+        finally { openingMenuPage = false; }
     }
     private bool AddOpenedTab(SavedPage page)
     {
