@@ -57,7 +57,7 @@ internal static class SavedSessionTests
         Directory.CreateDirectory(directory);
         try
         {
-            foreach (string phase in new[] { "save", "restore", "empty", "alf-restart", "overflow", "pin-groups", "reopen-groups" })
+            foreach (string phase in new[] { "save", "restore", "empty", "alf-restart", "christmas-restart", "overflow", "pin-groups", "reopen-groups" })
             {
                 var start = new ProcessStartInfo(Application.ExecutablePath, "sessiontest " + run.ToString("D") + " " + phase) {
                     UseShellExecute = false, CreateNoWindow = true
@@ -361,6 +361,11 @@ internal static class SavedSessionTests
                 case "alf-restart":
                     Check(((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.ALF && strip.TabCount == 0,
                         "The ALF theme did not survive a restart.");
+                    ((ToolStripMenuItem)((ToolStripDropDownButton)strip.Items[1]).DropDownItems[2]).DropDownItems[4].PerformClick();
+                    break;
+                case "christmas-restart":
+                    Check(((TabRenderer)strip.Renderer).Theme == MoreTabsTheme.Christmas && strip.TabCount == 0,
+                        "The Christmas theme did not survive a restart.");
                     break;
                 default: throw new ArgumentException("Unknown session fixture phase.");
             }

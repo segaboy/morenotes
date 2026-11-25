@@ -13,7 +13,8 @@ $pia = Join-Path $env:WINDIR 'assembly\GAC_MSIL\Microsoft.Office.Interop.OneNote
 $office = Join-Path $env:WINDIR 'assembly\GAC_MSIL\office\15.0.0.0__71e9bce111e9429c\office.dll'
 if (-not (Test-Path -LiteralPath $pia)) { throw 'The OneNote 15 desktop interop assembly is required for this prototype.' }
 $sources = Get-ChildItem -LiteralPath $source -Filter '*.cs' | Sort-Object Name | Select-Object -ExpandProperty FullName
-$art = 'robocop-visor','robocop-skyline','alf-gordon','alf-melmac' | ForEach-Object { '/resource:{0},{1}.png' -f (Join-Path $project "media\$_.png"), $_ }
+$art = 'robocop-visor','robocop-skyline','alf-gordon','alf-melmac','christmas-tree','christmas-village' |
+    ForEach-Object { '/resource:{0},{1}.png' -f (Join-Path $project "media\$_.png"), $_ }
 $build = New-Item -ItemType Directory -Path (Join-Path $output ([Guid]::NewGuid().ToString('N'))) -Force
 $exe = Join-Path $build.FullName 'MoreTabsPrototype.exe'
 try {

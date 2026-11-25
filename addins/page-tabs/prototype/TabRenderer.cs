@@ -95,7 +95,7 @@ internal sealed class PageTabButton : ToolStripButton
     {
         var size = base.GetPreferredSize(constrainingSize);
         var palette = Owner == null ? null : Owner.Renderer as TabRenderer;
-        // All Fall tabs budget for the leaf so a change of selection doesn't narrow a title.
+        // Reserve room for the theme icon before selection so titles do not shift the other tabs.
         if (palette != null && palette.UsesCustomColors) size.Width += HostChrome.Px(14, Dpi);
         size.Width = Math.Max(HostChrome.Px(70, Dpi), Math.Min(size.Width, HostChrome.Px(184, Dpi)));
         if (WidthLimit > 0) size.Width = Math.Min(WidthLimit, size.Width);
@@ -243,6 +243,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal readonly Color Surface, Ink, MutedInk, Tab, Active, Hover, ActiveMarker, ToolsBand, PinnedBand;
     private readonly bool contrast;
     private readonly bool dark;
+    private readonly ThemeSprites sprites;
     internal readonly MoreTabsTheme Theme;
     internal bool UsesCustomColors { get { return Theme != MoreTabsTheme.NotebookColors; } }
     internal bool HighContrast { get { return contrast; } }
@@ -280,6 +281,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     internal TabRenderer(Color surface, uint dpi, bool highContrast, bool darkSections, MoreTabsTheme theme)
     {
         Theme = theme;
+        sprites = ThemeSprites.For(theme);
         DarkSections = darkSections;
         Dpi = dpi;
         contrast = highContrast;
@@ -328,6 +330,15 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
             PinnedBand = dark ? Color.FromArgb(57, 109, 109) : Color.FromArgb(136, 191, 177);
             ActiveMarker = dark ? Color.PaleTurquoise : Color.Teal;
         }
+        if (theme == MoreTabsTheme.Christmas && !highContrast)
+        {
+            Tab = Blend(Surface, Color.SeaGreen, dark ? 24 : 12);
+            Hover = Blend(Surface, Color.MediumSeaGreen, dark ? 38 : 22);
+            Active = Blend(Surface, Color.SeaGreen, 46);
+            ToolsBand = dark ? Color.FromArgb(36, 84, 66) : Color.FromArgb(172, 217, 191);
+            PinnedBand = dark ? Color.FromArgb(129, 49, 63) : Color.FromArgb(222, 106, 123);
+            ActiveMarker = dark ? Color.Khaki : Color.Goldenrod;
+        }
     }
     private static Color Blend(Color a, Color b, int percent)
     {
@@ -343,6 +354,13 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     private Color Background(ToolStripItem item)
     {
         var page = item as PageTabButton;
+        if (page != null && UsesCustomColors && !dark && !contrast)
+        {
+            var accent = SectionFill(page.SectionColor, page.SectionName);
+            if (page.Checked) return Blend(Color.White, accent, 46);
+            if (page.Pressed || page.Selected) return Blend(Color.White, accent, 15);
+            return Color.White;
+        }
         if (page != null && page.Checked) return MutedSection(page.SectionColor, page.SectionName);
         var button = item as ToolStripButton;
         if (item.Pressed || (button != null && button.Checked)) return Active;
@@ -374,7 +392,7 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     private Color CustomColor(string key)
     {
-        return Theme == MoreTabsTheme.Fall ? FallPalette.Foliage(key, dark) : ThemeSprites.Swatch(Theme, key, dark);
+        return sprites == null ? FallPalette.Foliage(key, dark) : sprites.Swatch(key, dark);
     }
     internal static Color PickSwatch(string key, int[] colors)
     {
@@ -496,9 +514,9 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
     }
     internal void PaintThemeArt(Graphics g, int left, int right, int height)
     {
-        if (Theme != MoreTabsTheme.Fall)
+        if (sprites != null)
         {
-            var art = ThemeSprites.Scenery(Theme);
+            var art = sprites.Scenery;
             int width = HostChrome.Px(art.Width, Dpi), h = HostChrome.Px(art.Height, Dpi);
             int gap = HostChrome.Px(3, Dpi);
             if (right - left >= width + 2 * gap && height >= h)
@@ -557,9 +575,9 @@ internal sealed class TabRenderer : ToolStripProfessionalRenderer
                         e.Graphics.FillRectangle(marker, 0, bottom ? h - stripe : 0, w, stripe);
                     if (ShowThemeIcon(page))
                     {
-                        if (Theme != MoreTabsTheme.Fall)
+                        if (sprites != null)
                         {
-                            var icon = ThemeSprites.TabIcon(Theme);
+                            var icon = sprites.Icon;
                             int iconHeight = HostChrome.Px(icon.Height, Dpi);
                             ThemeSprites.Draw(e.Graphics, icon, new Rectangle(HostChrome.Px(3, Dpi),
                                 (page.Height - iconHeight) / 2, HostChrome.Px(icon.Width, Dpi), iconHeight));

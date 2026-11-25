@@ -262,10 +262,6 @@ internal sealed class PageStrip : ToolStrip
     }
     private readonly ToolStripMenuItem themes = new ToolStripMenuItem("Themes");
     private readonly ToolStripMenuItem enableThemes = new ToolStripMenuItem("Enable themes");
-    private readonly ToolStripMenuItem notebookColors = new ToolStripMenuItem("Notebook Colors") { Tag = MoreTabsTheme.NotebookColors };
-    private readonly ToolStripMenuItem fall = new ToolStripMenuItem("Fall") { Tag = MoreTabsTheme.Fall };
-    private readonly ToolStripMenuItem roboCop = new ToolStripMenuItem("RoboCop") { Tag = MoreTabsTheme.RoboCop };
-    private readonly ToolStripMenuItem alf = new ToolStripMenuItem("ALF") { Tag = MoreTabsTheme.ALF };
     private readonly ToolStripMenuItem showLabels = new ToolStripMenuItem("Show notebook labels");
     private readonly ToolStripMenuItem groupTabs = new ToolStripMenuItem("Group tabs by notebook");
     private readonly ToolStripSeparator bookmarkDivider = new ToolStripSeparator();
@@ -320,10 +316,17 @@ internal sealed class PageStrip : ToolStrip
         OverflowButton.AccessibleName = OverflowButton.ToolTipText = "More commands";
         bookmarks.DropDownItems.Add("Bookmark current page");
         bookmarks.DropDownOpening += delegate { Perform(BuildBookmarksMenu); };
-        themes.DropDownItems.AddRange(new ToolStripItem[] { notebookColors, fall, roboCop, alf, new ToolStripSeparator(), enableThemes });
+        foreach (MoreTabsTheme theme in Enum.GetValues(typeof(MoreTabsTheme)))
+        {
+            string label = theme == MoreTabsTheme.NotebookColors ? "Notebook Colors" : theme.ToString();
+            var choice = new ToolStripMenuItem(label) { Tag = theme };
+            choice.Click += delegate { Perform(delegate { ChangeOption(choice); }); };
+            themes.DropDownItems.Add(choice);
+        }
+        themes.DropDownItems.AddRange(new ToolStripItem[] { new ToolStripSeparator(), enableThemes });
         options.DropDownItems.AddRange(new ToolStripItem[] { groupTabs, showLabels, themes });
         options.DropDownOpening += delegate { openHomeAfterPicking = false; Perform(delegate { ApplyState(this.store.Read()); }); };
-        foreach (var item in new[] { groupTabs, showLabels, notebookColors, fall, roboCop, alf, enableThemes })
+        foreach (var item in new[] { groupTabs, showLabels, enableThemes })
         {
             var setting = item;
             setting.Click += delegate { Perform(delegate { ChangeOption(setting); }); };

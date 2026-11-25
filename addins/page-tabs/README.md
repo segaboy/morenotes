@@ -79,6 +79,12 @@ Open **Settings → Themes** to choose an appearance. **Notebook Colors** is the
 
 ![ALF in dark and light appearances, with Gordon on the active tab and a saucer beside the page picker](alf-appearance.png)
 
+**Christmas** uses evergreen, cranberry, candlelight gold, and ice blue. A star-topped tree marks the active page. A snowy village with lit windows appears beside **+** when there is room.
+
+![Christmas in dark and light appearances, with a tree on the active tab and a snowy village beside the picker](christmas-appearance.png)
+
+On the light surfaces used by Colorful and White, the four custom themes give inactive page tabs a white face with a colored stripe. Hovering adds a light tint. The selected page has a stronger fill in its section's theme color. Dark appearances keep their darker tab faces, and Windows high contrast uses system colors.
+
 With **Notebook Colors** and grouping enabled, each notebook band matches the cover color of its icon in OneNote's navigation. The band and notebook picker use the same 16 standard light and dark cover colors, verified against OneNote build `16.0.20719.20000`. For example, a notebook stored as `#AB9CB7` appears as `#5B2D90` in a light theme and `#B973D3` in a dark theme. Custom colors use the notebook's stored RGB.
 
 The notebook color spans the caption and the space behind its visible tabs. Each end of the band has the same padding as the gap between two tabs. A thin, darker outline separates each page tab from the band. The notebook name is vertically centered in the caption, with black or white text chosen for contrast. The band is rounded along the edge facing the page, below the tabs when docked at the top and above them when docked at the bottom. Hover over a clipped caption to read its full name.

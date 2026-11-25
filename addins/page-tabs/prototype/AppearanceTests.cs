@@ -193,15 +193,18 @@ internal static class AppearanceTests
         var fall = (ToolStripMenuItem)themes.DropDownItems[1];
         var roboCop = (ToolStripMenuItem)themes.DropDownItems[2];
         var alf = (ToolStripMenuItem)themes.DropDownItems[3];
-        var colors = (ToolStripMenuItem)themes.DropDownItems[5];
+        var christmas = (ToolStripMenuItem)themes.DropDownItems[4];
+        var colors = themes.DropDownItems.OfType<ToolStripMenuItem>().Single(i => i.Text == "Enable themes");
         Check(group.Checked && labels.Checked && themes.Text == "Themes" && notebook.Text == "Notebook Colors" && fall.Text == "Fall" && roboCop.Text == "RoboCop" &&
-            notebook.Checked && !fall.Checked && colors.Checked, "The Themes submenu must open with Notebook Colors selected.");
+            christmas.Text == "Christmas" && notebook.Checked && !fall.Checked && colors.Checked,
+            "The Themes submenu must open with Notebook Colors selected.");
         gear.HideDropDown();
         var selected = strip.ActiveTabKey;
         var grouped = strip.Items.OfType<PageTabButton>().ToArray();
         var tools = strip.Host.Captions.Controls.OfType<NotebookTabLabel>().Single(l => l.Text == "Tools");
         colors.PerformClick();
-        Check(!notebook.Enabled && !fall.Enabled && !roboCop.Enabled && !alf.Enabled && !themes.Checked, "Themes off must disable all palette choices.");
+        Check(!notebook.Enabled && !fall.Enabled && !roboCop.Enabled && !alf.Enabled && !christmas.Enabled && !themes.Checked,
+            "Themes off must disable all palette choices.");
         CheckGroupDividers(strip, 2);
         foreach (var surface in new[] { Color.White, Color.FromArgb(18,18,18) })
         {
@@ -263,6 +266,7 @@ internal static class AppearanceTests
         CheckCustomTheme(strip, layout, notebook, fall, colors);
         CheckCustomTheme(strip, layout, notebook, roboCop, colors);
         CheckCustomTheme(strip, layout, notebook, alf, colors);
+        CheckCustomTheme(strip, layout, notebook, christmas, colors);
         strip.Attach(layout.Reserve(), layout);
         Console.WriteLine("PASS shared star and gear tab, settings dependencies, remembered preferences and reclaimed document height with pins.");
     }
@@ -274,7 +278,7 @@ internal static class AppearanceTests
         var theme = (MoreTabsTheme)choice.Tag;
         Check(choice.Checked && !notebook.Checked && ((TabRenderer)strip.Renderer).Theme == theme,
             "Selecting a theme must immediately replace Notebook Colors.");
-        foreach (var surface in new[] { Color.FromArgb(17,12,8), Color.FromArgb(82,79,76), Color.WhiteSmoke, Color.White, SystemColors.Window })
+        foreach (var surface in new[] { Color.FromArgb(17,12,8), Color.FromArgb(82,79,76), Color.FromArgb(232,228,224), Color.WhiteSmoke, Color.White, SystemColors.Window })
         {
             bool contrast = surface.IsSystemColor;
             var chrome = new HostChrome { Dpi = layout.Dpi, Surface = surface, Inset = 25, HighContrast = contrast };
@@ -294,6 +298,13 @@ internal static class AppearanceTests
                 int x = active.Bounds.Left + active.Width / 2;
                 Check(image.GetPixel(x, FlatEdgeY(active, strip.AtBottom, 1)).ToArgb() == color.ToArgb(),
                     "The active page stripe did not paint the selected theme accent.");
+                var inactive = strip.Items.OfType<PageTabButton>().First(t => !t.Checked && !t.Selected && t.Placement == ToolStripItemPlacement.Main);
+                int inset = HostChrome.Px(2, layout.Dpi);
+                var face = image.GetPixel(inactive.Bounds.Left + inactive.Width / 2, FlatEdgeY(inactive, !strip.AtBottom, inset));
+                bool light = !contrast && surface.R >= 200;
+                int expected = light ? Color.White.ToArgb() : palette.Tab.ToArgb();
+                Check(face.ToArgb() == expected && (!light || image.GetPixel(x, FlatEdgeY(active, !strip.AtBottom, inset)).ToArgb() != expected),
+                    theme + " lost its inactive face or the filled selection on " + surface + ".");
             }
             var picker = strip.Items.OfType<PagePicker>().Single();
             picker.ShowDropDown();
